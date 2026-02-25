@@ -1,0 +1,10 @@
+digraph tool_timeout {
+    graph [goal="Test tool timeout"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="sleep 60", timeout="1s"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

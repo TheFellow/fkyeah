@@ -1,0 +1,10 @@
+digraph attributes {
+    graph [goal="Test attribute types", label="Attribute Test"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Do work", max_retries=3, goal_gate=true, timeout="5s"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

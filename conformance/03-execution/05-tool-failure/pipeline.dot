@@ -1,0 +1,10 @@
+digraph tool_failure {
+    graph [goal="Test tool command failure"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="exit 1"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

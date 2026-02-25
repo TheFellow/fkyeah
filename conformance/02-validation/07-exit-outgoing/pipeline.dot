@@ -1,0 +1,9 @@
+digraph exit_outgoing {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Work"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+    done  -> work
+}

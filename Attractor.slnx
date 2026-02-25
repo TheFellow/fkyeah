@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Attractor.Cli/Attractor.Cli.fsproj" />
+    <Project Path="src/Attractor/Attractor.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Attractor.Tests/Attractor.Tests.fsproj" />
+  </Folder>
+  <Project Path="src/CodingAgent/CodingAgent.fsproj" />
+  <Project Path="src/UnifiedLlm/UnifiedLlm.fsproj" />
+  <Project Path="tests/CodingAgent.Tests/CodingAgent.Tests.fsproj" />
+  <Project Path="tests/UnifiedLlm.Tests/UnifiedLlm.Tests.fsproj" />
+</Solution>

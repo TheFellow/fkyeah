@@ -1,0 +1,10 @@
+digraph auto_status {
+    graph [goal="Verify auto_status synthesizes success when status.json is absent"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, auto_status=true, tool_command="echo intentional failure >&2; exit 7"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

@@ -1,0 +1,15 @@
+digraph cond_equals {
+    graph [goal="Test outcome=success condition"]
+
+    start   [shape=Mdiamond]
+    work    [shape=box, prompt="Do work"]
+    check   [shape=diamond]
+    yes     [shape=box, prompt="Yes path"]
+    done    [shape=Msquare]
+
+    start -> work
+    work  -> check
+    check -> yes  [condition="outcome=success"]
+    check -> done [condition="outcome=fail"]
+    yes   -> done
+}

@@ -1,0 +1,13 @@
+digraph defaults {
+    node [shape=box]
+    edge [weight=1]
+
+    start [shape=Mdiamond]
+    a     [prompt="A"]
+    b     [prompt="B"]
+    done  [shape=Msquare]
+
+    start -> a
+    a -> b
+    b -> done
+}

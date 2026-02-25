@@ -1,0 +1,8 @@
+// This is a line comment
+digraph comments {
+    /* This is a block comment */
+    start [shape=Mdiamond] // inline comment
+    done  [shape=Msquare]  /* inline block */
+
+    start -> done
+}

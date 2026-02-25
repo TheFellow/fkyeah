@@ -1,0 +1,10 @@
+digraph valid {
+    graph [goal="A valid pipeline"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Do work for: $goal"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

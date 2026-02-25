@@ -1,0 +1,12 @@
+digraph smoke_claude_sonnet_4_6_06_bash_prime_checker {
+    graph [goal="Generate and run a Bash prime-checker script"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="claude-sonnet-4-6", prompt="Write a Bash script that checks whether 97 is a prime number and prints either \"97 is prime\" or \"97 is not prime\". Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" bash code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

@@ -1,0 +1,12 @@
+digraph smoke_claude_sonnet_4_6_07_python_temp_converter {
+    graph [goal="Generate and run a Python temperature converter"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="claude-sonnet-4-6", prompt="Write a Python program that converts 100 degrees Celsius to Fahrenheit and prints exactly \"100C = 212.0F\". Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" python code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="Errors.fs" />
+    <Compile Include="Tools.fs" />
+    <Compile Include="Retry.fs" />
+    <Compile Include="Middleware.fs" />
+    <Compile Include="ModelCatalog.fs" />
+    <Compile Include="ProviderAdapter.fs" />
+    <Compile Include="HttpAdapters.fs" />
+    <Compile Include="Client.fs" />
+    <Compile Include="Generation.fs" />
+  </ItemGroup>
+
+</Project>

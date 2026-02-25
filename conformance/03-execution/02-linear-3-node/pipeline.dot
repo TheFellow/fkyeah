@@ -1,0 +1,12 @@
+digraph linear_3 {
+    graph [goal="Linear 3-node test"]
+
+    start [shape=Mdiamond]
+    step1 [shape=box, prompt="Step 1"]
+    step2 [shape=box, prompt="Step 2"]
+    done  [shape=Msquare]
+
+    start -> step1
+    step1 -> step2
+    step2 -> done
+}

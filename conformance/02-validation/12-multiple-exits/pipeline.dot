@@ -1,0 +1,10 @@
+digraph multiple_exits {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Has two exits"]
+    done1 [shape=Msquare]
+    done2 [shape=Msquare]
+
+    start -> work
+    work  -> done1
+    work  -> done2
+}

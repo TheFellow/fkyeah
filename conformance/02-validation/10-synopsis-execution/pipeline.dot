@@ -1,0 +1,12 @@
+digraph execution {
+    graph [goal="Build and test code"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, prompt="Write code for: $goal"]
+    build [shape=parallelogram, tool_command="echo build-success"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> build
+    build -> done
+}

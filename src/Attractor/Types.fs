@@ -1,0 +1,664 @@
+namespace Attractor
+
+open System
+open System.Collections.Generic
+open System.IO
+open System.Text
+
+/// Duration value with unit
+[<Struct>]
+type Duration =
+    { Milliseconds: int64 }
+
+    static member FromMs(ms: int64) = { Milliseconds = ms }
+    static member FromSeconds(s: int64) = { Milliseconds = s * 1000L }
+    static member FromMinutes(m: int64) = { Milliseconds = m * 60L * 1000L }
+    static member FromHours(h: int64) = { Milliseconds = h * 3600L * 1000L }
+    static member FromDays(d: int64) = { Milliseconds = d * 86400L * 1000L }
+    static member Zero = { Milliseconds = 0L }
+
+    member this.ToTimeSpan() =
+        TimeSpan.FromMilliseconds(float this.Milliseconds)
+
+/// Attribute value in the DOT DSL
+[<RequireQualifiedAccess>]
+type AttrValue =
+    | String of string
+    | Integer of int
+    | Float of float
+    | Boolean of bool
+    | Duration of Duration
+
+    member this.AsString() =
+        match this with
+        | String s -> s
+        | Integer i -> string i
+        | Float f -> string f
+        | Boolean b -> if b then "true" else "false"
+        | Duration d -> string d.Milliseconds + "ms"
+
+    member this.AsInt() =
+        match this with
+        | Integer i -> Some i
+        | String s ->
+            match Int32.TryParse(s) with
+            | true, i -> Some i
+            | _ -> None
+        | _ -> None
+
+    member this.AsBool() =
+        match this with
+        | Boolean b -> Some b
+        | String "true" -> Some true
+        | String "false" -> Some false
+        | _ -> None
+
+    member this.AsDuration() =
+        match this with
+        | Duration d -> Some d
+        | _ -> None
+
+/// Stage status for node execution outcomes
+[<RequireQualifiedAccess>]
+type StageStatus =
+    | Success
+    | PartialSuccess
+    | Retry
+    | Fail
+    | Skipped
+
+    override this.ToString() =
+        match this with
+        | Success -> "success"
+        | PartialSuccess -> "partial_success"
+        | Retry -> "retry"
+        | Fail -> "fail"
+        | Skipped -> "skipped"
+
+    static member Parse(s: string) =
+        match s.ToLowerInvariant() with
+        | "success" -> Some Success
+        | "partial_success" -> Some PartialSuccess
+        | "retry" -> Some Retry
+        | "fail" -> Some Fail
+        | "skipped" -> Some Skipped
+        | _ -> None
+
+/// Outcome of executing a node handler
+type Outcome =
+    { Status: StageStatus
+      PreferredLabel: string
+      SuggestedNextIds: string list
+      ContextUpdates: Map<string, string>
+      Notes: string
+      FailureReason: string }
+
+    static member Success(?notes, ?contextUpdates) =
+        { Status = StageStatus.Success
+          PreferredLabel = ""
+          SuggestedNextIds = []
+          ContextUpdates = defaultArg contextUpdates Map.empty
+          Notes = defaultArg notes ""
+          FailureReason = "" }
+
+    static member Fail(reason: string) =
+        { Status = StageStatus.Fail
+          PreferredLabel = ""
+          SuggestedNextIds = []
+          ContextUpdates = Map.empty
+          Notes = ""
+          FailureReason = reason }
+
+    static member Retry(reason: string) =
+        { Status = StageStatus.Retry
+          PreferredLabel = ""
+          SuggestedNextIds = []
+          ContextUpdates = Map.empty
+          Notes = ""
+          FailureReason = reason }
+
+    static member PartialSuccess(?notes) =
+        { Status = StageStatus.PartialSuccess
+          PreferredLabel = ""
+          SuggestedNextIds = []
+          ContextUpdates = Map.empty
+          Notes = defaultArg notes ""
+          FailureReason = "" }
+
+/// Context fidelity modes
+[<RequireQualifiedAccess>]
+type FidelityMode =
+    | Full
+    | Truncate
+    | Compact
+    | SummaryLow
+    | SummaryMedium
+    | SummaryHigh
+
+    static member Parse(s: string) =
+        match s.ToLowerInvariant() with
+        | "full" -> Some Full
+        | "truncate" -> Some Truncate
+        | "compact" -> Some Compact
+        | "summary:low" -> Some SummaryLow
+        | "summary:medium" -> Some SummaryMedium
+        | "summary:high" -> Some SummaryHigh
+        | _ -> None
+
+    override this.ToString() =
+        match this with
+        | Full -> "full"
+        | Truncate -> "truncate"
+        | Compact -> "compact"
+        | SummaryLow -> "summary:low"
+        | SummaryMedium -> "summary:medium"
+        | SummaryHigh -> "summary:high"
+
+/// A parsed node from the DOT graph
+type Node =
+    { Id: string
+      Attributes: Map<string, AttrValue> }
+
+    member this.Label =
+        this.Attributes
+        |> Map.tryFind "label"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue this.Id
+
+    member this.Shape =
+        this.Attributes
+        |> Map.tryFind "shape"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue "box"
+
+    member this.NodeType =
+        this.Attributes
+        |> Map.tryFind "type"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Prompt =
+        this.Attributes
+        |> Map.tryFind "prompt"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.MaxRetries =
+        this.Attributes
+        |> Map.tryFind "max_retries"
+        |> Option.bind (fun v -> v.AsInt())
+        |> Option.defaultValue 0
+
+    member this.GoalGate =
+        this.Attributes
+        |> Map.tryFind "goal_gate"
+        |> Option.bind (fun v -> v.AsBool())
+        |> Option.defaultValue false
+
+    member this.RetryTarget =
+        this.Attributes
+        |> Map.tryFind "retry_target"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.FallbackRetryTarget =
+        this.Attributes
+        |> Map.tryFind "fallback_retry_target"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Fidelity =
+        this.Attributes
+        |> Map.tryFind "fidelity"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ThreadId =
+        this.Attributes
+        |> Map.tryFind "thread_id"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Class =
+        this.Attributes
+        |> Map.tryFind "class"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Timeout =
+        this.Attributes
+        |> Map.tryFind "timeout"
+        |> Option.bind (fun v -> v.AsDuration())
+
+    member this.LlmModel =
+        this.Attributes
+        |> Map.tryFind "llm_model"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.LlmProvider =
+        this.Attributes
+        |> Map.tryFind "llm_provider"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ReasoningEffort =
+        this.Attributes
+        |> Map.tryFind "reasoning_effort"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue "high"
+
+    member this.AutoStatus =
+        this.Attributes
+        |> Map.tryFind "auto_status"
+        |> Option.bind (fun v -> v.AsBool())
+        |> Option.defaultValue false
+
+    member this.AllowPartial =
+        this.Attributes
+        |> Map.tryFind "allow_partial"
+        |> Option.bind (fun v -> v.AsBool())
+        |> Option.defaultValue false
+
+    member this.MaxVisits =
+        this.Attributes
+        |> Map.tryFind "max_visits"
+        |> Option.bind (fun v -> v.AsInt())
+        |> Option.defaultValue 50
+
+    member this.OutcomeFailPattern =
+        this.Attributes
+        |> Map.tryFind "outcome_fail_pattern"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ToolHooksPre =
+        this.Attributes
+        |> Map.tryFind "tool_hooks.pre"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ToolHooksPost =
+        this.Attributes
+        |> Map.tryFind "tool_hooks.post"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.GetAttr(key: string) =
+        this.Attributes |> Map.tryFind key
+
+    member this.GetAttrString(key: string, defaultValue: string) =
+        this.Attributes
+        |> Map.tryFind key
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue defaultValue
+
+/// A parsed edge from the DOT graph
+type Edge =
+    { FromNode: string
+      ToNode: string
+      Attributes: Map<string, AttrValue> }
+
+    member this.Label =
+        this.Attributes
+        |> Map.tryFind "label"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Condition =
+        this.Attributes
+        |> Map.tryFind "condition"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.Weight =
+        this.Attributes
+        |> Map.tryFind "weight"
+        |> Option.bind (fun v -> v.AsInt())
+        |> Option.defaultValue 0
+
+    member this.Fidelity =
+        this.Attributes
+        |> Map.tryFind "fidelity"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ThreadId =
+        this.Attributes
+        |> Map.tryFind "thread_id"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.LoopRestart =
+        this.Attributes
+        |> Map.tryFind "loop_restart"
+        |> Option.bind (fun v -> v.AsBool())
+        |> Option.defaultValue false
+
+/// The parsed DOT graph
+type Graph =
+    { Name: string
+      Nodes: Map<string, Node>
+      Edges: Edge list
+      GraphAttributes: Map<string, AttrValue> }
+
+    member this.Goal =
+        this.GraphAttributes
+        |> Map.tryFind "goal"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.GraphLabel =
+        this.GraphAttributes
+        |> Map.tryFind "label"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ModelStylesheet =
+        this.GraphAttributes
+        |> Map.tryFind "model_stylesheet"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.DefaultMaxRetry =
+        this.GraphAttributes
+        |> Map.tryFind "default_max_retry"
+        |> Option.bind (fun v -> v.AsInt())
+        |> Option.defaultValue 50
+
+    member this.RetryTarget =
+        this.GraphAttributes
+        |> Map.tryFind "retry_target"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.FallbackRetryTarget =
+        this.GraphAttributes
+        |> Map.tryFind "fallback_retry_target"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.DefaultFidelity =
+        this.GraphAttributes
+        |> Map.tryFind "default_fidelity"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.OutgoingEdges(nodeId: string) =
+        this.Edges |> List.filter (fun e -> e.FromNode = nodeId)
+
+    member this.IncomingEdges(nodeId: string) =
+        this.Edges |> List.filter (fun e -> e.ToNode = nodeId)
+
+    member this.FindStartNode() =
+        this.Nodes
+        |> Map.tryPick (fun _ n ->
+            if n.Shape = "Mdiamond" then Some n
+            else None)
+        |> Option.orElseWith (fun () ->
+            this.Nodes |> Map.tryFind "start"
+            |> Option.orElseWith (fun () -> this.Nodes |> Map.tryFind "Start"))
+
+    member this.FindExitNode() =
+        this.Nodes
+        |> Map.tryPick (fun _ n ->
+            if n.Shape = "Msquare" then Some n
+            else None)
+        |> Option.orElseWith (fun () ->
+            this.Nodes |> Map.tryFind "exit"
+            |> Option.orElseWith (fun () -> this.Nodes |> Map.tryFind "end"))
+
+    member this.GetGraphAttrString(key: string, defaultValue: string) =
+        this.GraphAttributes
+        |> Map.tryFind key
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue defaultValue
+
+/// Thread-safe context key-value store
+type IArtifactStore =
+    abstract member Store: key: string * data: string -> unit
+    abstract member Retrieve: key: string -> string option
+    abstract member Has: key: string -> bool
+    abstract member List: unit -> string list
+    abstract member Remove: key: string -> unit
+    abstract member Clear: unit -> unit
+
+type FileArtifactStore(rootPath: string) =
+    let artifactsDir = Path.Combine(rootPath, "artifacts")
+
+    let ensureRoot () =
+        if not (Directory.Exists(artifactsDir)) then
+            Directory.CreateDirectory(artifactsDir) |> ignore
+
+    let pathForKey (key: string) =
+        let safe =
+            key
+                .Replace("/", "_")
+                .Replace("\\", "_")
+                .Replace("..", "_")
+        Path.Combine(artifactsDir, safe)
+
+    interface IArtifactStore with
+        member _.Store(key, data) =
+            ensureRoot ()
+            File.WriteAllText(pathForKey key, data)
+
+        member _.Retrieve(key) =
+            let path = pathForKey key
+            if File.Exists(path) then Some(File.ReadAllText(path))
+            else None
+
+        member _.Has(key) =
+            File.Exists(pathForKey key)
+
+        member _.List() =
+            if not (Directory.Exists(artifactsDir)) then []
+            else
+                Directory.EnumerateFiles(artifactsDir)
+                |> Seq.map Path.GetFileName
+                |> Seq.toList
+
+        member _.Remove(key) =
+            let path = pathForKey key
+            if File.Exists(path) then
+                File.Delete(path)
+
+        member _.Clear() =
+            if Directory.Exists(artifactsDir) then
+                Directory.Delete(artifactsDir, true)
+
+type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
+    let values = Dictionary<string, string>()
+    let logs = ResizeArray<string>()
+    let lockObj = obj ()
+    let mutable artifactStore = artifactStore
+    let thresholdBytes = defaultArg offloadThresholdBytes (100 * 1024)
+
+    let tryResolveArtifactRef (value: string) =
+        if value.StartsWith("artifact:") then
+            match artifactStore with
+            | Some store ->
+                let key = value.Substring("artifact:".Length)
+                store.Retrieve(key)
+            | None -> None
+        else
+            Some value
+
+    let withOffload (key: string) (value: string) =
+        match artifactStore with
+        | Some store when not (value.StartsWith("artifact:")) && Encoding.UTF8.GetByteCount(value) > thresholdBytes ->
+            let artifactKey = sprintf "%s-%s.txt" key (Guid.NewGuid().ToString("N"))
+            store.Store(artifactKey, value)
+            $"artifact:{artifactKey}"
+        | _ -> value
+
+    member _.ConfigureArtifactStore(store: IArtifactStore) =
+        lock lockObj (fun () -> artifactStore <- Some store)
+
+    member _.Set(key: string, value: string) =
+        lock lockObj (fun () -> values[key] <- withOffload key value)
+
+    member _.Get(key: string, ?defaultValue: string) =
+        lock lockObj (fun () ->
+            match values.TryGetValue(key) with
+            | true, v ->
+                match tryResolveArtifactRef v with
+                | Some resolved -> resolved
+                | None -> defaultArg defaultValue ""
+            | false, _ -> defaultArg defaultValue "")
+
+    member _.TryGet(key: string) =
+        lock lockObj (fun () ->
+            match values.TryGetValue(key) with
+            | true, v ->
+                match tryResolveArtifactRef v with
+                | Some resolved -> Some resolved
+                | None -> None
+            | false, _ -> None)
+
+    member _.AppendLog(entry: string) =
+        lock lockObj (fun () -> logs.Add(entry))
+
+    member _.Snapshot() =
+        lock lockObj (fun () ->
+            values
+            |> Seq.map (fun kv -> kv.Key, kv.Value)
+            |> Map.ofSeq)
+
+    member _.Logs =
+        lock lockObj (fun () -> logs |> Seq.toList)
+
+    member _.Clone() =
+        let ctx =
+            match artifactStore with
+            | Some store -> Context(artifactStore = store, offloadThresholdBytes = thresholdBytes)
+            | None -> Context(offloadThresholdBytes = thresholdBytes)
+        lock lockObj (fun () ->
+            for kv in values do
+                ctx.Set(kv.Key, kv.Value)
+            for log in logs do
+                ctx.AppendLog(log))
+        ctx
+
+    member _.ApplyUpdates(updates: Map<string, string>) =
+        lock lockObj (fun () ->
+            for kv in updates do
+                values[kv.Key] <- withOffload kv.Key kv.Value)
+
+    member _.Keys =
+        lock lockObj (fun () ->
+            values.Keys |> Seq.toList)
+
+    member _.Count =
+        lock lockObj (fun () -> values.Count)
+
+    /// Project context through a fidelity mode, returning a filtered clone
+    member this.Project(fidelity: FidelityMode, ?truncateLimit: int) : Context =
+        let limit = defaultArg truncateLimit 500
+        match fidelity with
+        | FidelityMode.Full ->
+            this.Clone()
+        | FidelityMode.Truncate ->
+            let ctx = Context()
+            lock lockObj (fun () ->
+                for kv in values do
+                    let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
+                    let v = if resolved.Length > limit then resolved.Substring(0, limit) else resolved
+                    ctx.Set(kv.Key, v)
+                for log in logs do
+                    ctx.AppendLog(log))
+            ctx
+        | FidelityMode.Compact ->
+            let ctx = Context()
+            lock lockObj (fun () ->
+                for kv in values do
+                    if kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome" then
+                        ctx.Set(kv.Key, kv.Value))
+            ctx
+        | FidelityMode.SummaryLow ->
+            let ctx = Context()
+            lock lockObj (fun () ->
+                let pairs = values |> Seq.map (fun kv -> kv.Key, kv.Value) |> Seq.toList
+                let top = pairs |> List.truncate 20
+                for (k, v) in top do
+                    let resolved = tryResolveArtifactRef v |> Option.defaultValue v
+                    ctx.Set(k, resolved))
+            ctx
+        | FidelityMode.SummaryMedium ->
+            let ctx = Context()
+            lock lockObj (fun () ->
+                let pairs = values |> Seq.map (fun kv -> kv.Key, kv.Value) |> Seq.toList
+                let top = pairs |> List.truncate 10
+                for (k, v) in top do
+                    let resolved = tryResolveArtifactRef v |> Option.defaultValue v
+                    ctx.Set(k, resolved))
+            ctx
+        | FidelityMode.SummaryHigh ->
+            let ctx = Context()
+            lock lockObj (fun () ->
+                let summary =
+                    values
+                    |> Seq.map (fun kv ->
+                        let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
+                        let v = if resolved.Length > 50 then resolved.Substring(0, 50) + "..." else resolved
+                        $"{kv.Key}={v}")
+                    |> String.concat "; "
+                ctx.Set("context_summary", summary))
+            ctx
+
+/// Checkpoint for crash recovery
+type Checkpoint =
+    { Timestamp: DateTimeOffset
+      CurrentNode: string
+      CompletedNodes: string list
+      NodeRetries: Map<string, int>
+      NodeOutcomes: Map<string, Outcome>
+      ContextValues: Map<string, string>
+      Logs: string list }
+
+    static member Create
+        (
+            context: Context,
+            currentNode: string,
+            completedNodes: string list,
+            nodeRetries: Map<string, int>,
+            nodeOutcomes: Map<string, Outcome>
+        ) =
+        { Timestamp = DateTimeOffset.UtcNow
+          CurrentNode = currentNode
+          CompletedNodes = completedNodes
+          NodeRetries = nodeRetries
+          NodeOutcomes = nodeOutcomes
+          ContextValues = context.Snapshot()
+          Logs = context.Logs }
+
+/// Shape-to-handler-type mapping
+module ShapeMapping =
+    let shapeToHandlerType =
+        Map.ofList
+            [ "Mdiamond", "start"
+              "Msquare", "exit"
+              "box", "codergen"
+              "tab", "coding_agent"
+              "hexagon", "wait.human"
+              "diamond", "conditional"
+              "component", "parallel"
+              "tripleoctagon", "parallel.fan_in"
+              "parallelogram", "tool"
+              "house", "stack.manager_loop" ]
+
+    let resolveHandlerType (node: Node) =
+        if node.NodeType <> "" then
+            node.NodeType
+        else
+            shapeToHandlerType
+            |> Map.tryFind node.Shape
+            |> Option.defaultValue "codergen"
+
+    let isTerminal (node: Node) =
+        node.Shape = "Msquare"
+        || resolveHandlerType node = "exit"
+
+    let isStart (node: Node) =
+        node.Shape = "Mdiamond"
+        || resolveHandlerType node = "start"

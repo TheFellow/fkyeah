@@ -1,0 +1,6 @@
+digraph minimal {
+    start [shape=Mdiamond]
+    done  [shape=Msquare]
+
+    start -> done
+}

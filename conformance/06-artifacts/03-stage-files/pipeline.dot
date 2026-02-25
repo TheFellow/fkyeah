@@ -1,0 +1,10 @@
+digraph stage_files_test {
+    graph [goal="Test stage file output"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Do some work for: $goal"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

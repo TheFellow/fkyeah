@@ -1,0 +1,10 @@
+digraph retry_attr {
+    graph [goal="Test max_retries attribute"]
+
+    start [shape=Mdiamond]
+    work  [shape=parallelogram, max_retries=2, tool_command="attempt_file=$ATTRACTOR_LOGS_ROOT/retry-attempt-count; n=0; test -f $attempt_file && n=$(cat $attempt_file); n=$((n+1)); echo $n > $attempt_file; sleep 1; if [ $n -lt 3 ]; then exit 1; fi; echo success-on-attempt-$n"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

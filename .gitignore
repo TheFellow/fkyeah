@@ -1,0 +1,9 @@
+bin/
+obj/
+.DS_Store
+attractor-logs/
+publish/
+*.png
+*.zip
+out.png
+megaplan.dot.dot

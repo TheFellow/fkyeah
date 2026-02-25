@@ -1,0 +1,9 @@
+digraph chained {
+    start [shape=Mdiamond]
+    a     [shape=box, prompt="A"]
+    b     [shape=box, prompt="B"]
+    c     [shape=box, prompt="C"]
+    done  [shape=Msquare]
+
+    start -> a -> b -> c -> done
+}

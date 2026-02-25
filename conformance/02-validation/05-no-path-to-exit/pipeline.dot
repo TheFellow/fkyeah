@@ -1,0 +1,11 @@
+digraph no_path {
+    start [shape=Mdiamond]
+    a     [shape=box, prompt="A"]
+    b     [shape=box, prompt="B"]
+    done  [shape=Msquare]
+
+    start -> a
+    a -> b
+    b -> a
+    start -> done
+}

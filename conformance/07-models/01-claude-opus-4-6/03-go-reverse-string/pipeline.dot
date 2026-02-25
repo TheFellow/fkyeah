@@ -1,0 +1,12 @@
+digraph smoke_claude_opus_03_go_reverse_string {
+    graph [goal="Generate and run a Go reverse-string program"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="claude-opus-4-6", prompt="Write a Go program that reverses the string \"Hello, World!\" and prints the result. Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" go code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

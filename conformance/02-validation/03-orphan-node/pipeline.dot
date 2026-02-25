@@ -1,0 +1,9 @@
+digraph orphan {
+    start  [shape=Mdiamond]
+    work   [shape=box, prompt="Connected"]
+    orphan [shape=box, prompt="Unreachable"]
+    done   [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

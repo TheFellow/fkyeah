@@ -1,0 +1,15 @@
+digraph cond_not_equals {
+    graph [goal="Test outcome!=fail condition"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Do work"]
+    check [shape=diamond]
+    good  [shape=box, prompt="Not failed"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> check
+    check -> good [condition="outcome!=fail"]
+    check -> done [condition="outcome=fail"]
+    good  -> done
+}

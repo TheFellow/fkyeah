@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Types.fs" />
+    <Compile Include="ExecutionEnvironment.fs" />
+    <Compile Include="Truncation.fs" />
+    <Compile Include="ToolRegistry.fs" />
+    <Compile Include="ProviderProfile.fs" />
+    <Compile Include="SystemPrompt.fs" />
+    <Compile Include="Session.fs" />
+    <Compile Include="SubAgent.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\UnifiedLlm\UnifiedLlm.fsproj" />
+  </ItemGroup>
+
+</Project>

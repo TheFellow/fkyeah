@@ -1,0 +1,10 @@
+digraph dead_end {
+    start   [shape=Mdiamond]
+    work    [shape=box, prompt="Work"]
+    deadend [shape=box, prompt="No outgoing edges"]
+    done    [shape=Msquare]
+
+    start -> work
+    work  -> deadend
+    work  -> done
+}

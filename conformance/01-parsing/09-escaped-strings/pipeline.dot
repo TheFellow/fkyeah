@@ -1,0 +1,8 @@
+digraph escaped {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Line one\nLine two\tTabbed\nQuote: \"hello\""]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

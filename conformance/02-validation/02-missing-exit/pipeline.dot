@@ -1,0 +1,6 @@
+digraph missing_exit {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="No exit node"]
+
+    start -> work
+}

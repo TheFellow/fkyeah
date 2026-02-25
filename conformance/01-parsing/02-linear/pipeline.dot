@@ -1,0 +1,12 @@
+digraph linear {
+    start  [shape=Mdiamond]
+    step1  [shape=box, prompt="Step 1"]
+    step2  [shape=box, prompt="Step 2"]
+    step3  [shape=box, prompt="Step 3"]
+    done   [shape=Msquare]
+
+    start -> step1
+    step1 -> step2
+    step2 -> step3
+    step3 -> done
+}

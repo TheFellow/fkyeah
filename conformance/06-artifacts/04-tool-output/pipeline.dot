@@ -1,0 +1,10 @@
+digraph tool_output_test {
+    graph [goal="Test tool output artifact"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="echo hello-from-tool"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

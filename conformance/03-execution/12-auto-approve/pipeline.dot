@@ -1,0 +1,14 @@
+digraph auto_approve {
+    graph [goal="Test human gate auto-approve"]
+
+    start   [shape=Mdiamond]
+    gate    [shape=hexagon, prompt="Approve this?"]
+    proceed [shape=box, prompt="Proceeding"]
+    done    [shape=Msquare]
+
+    gate -> proceed [label="[A] Approve"]
+    gate -> done    [label="[R] Reject"]
+
+    start   -> gate
+    proceed -> done
+}

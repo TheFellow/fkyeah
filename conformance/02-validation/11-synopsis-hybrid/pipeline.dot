@@ -1,0 +1,14 @@
+digraph hybrid {
+    graph [goal="Plan and execute"]
+
+    start   [shape=Mdiamond]
+    plan    [shape=box, prompt="Plan for: $goal"]
+    execute [shape=parallelogram, tool_command="echo done"]
+    review  [shape=box, prompt="Review results"]
+    done    [shape=Msquare]
+
+    start   -> plan
+    plan    -> execute
+    execute -> review
+    review  -> done
+}

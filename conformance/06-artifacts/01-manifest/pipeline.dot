@@ -1,0 +1,10 @@
+digraph manifest_test {
+    graph [goal="Test manifest output", label="Manifest Pipeline"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Do work"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

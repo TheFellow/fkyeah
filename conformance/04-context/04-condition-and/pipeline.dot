@@ -1,0 +1,15 @@
+digraph cond_and {
+    graph [goal="Test compound && condition"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="echo done"]
+    check [shape=diamond]
+    both  [shape=box, prompt="Both conditions met"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> check
+    check -> both [condition="outcome=success && context.tool.output"]
+    check -> done [weight=0]
+    both  -> done
+}

@@ -1,0 +1,12 @@
+digraph smoke_gemini_3_1_pro_01_python_fizzbuzz {
+    graph [goal="Generate and run a Python FizzBuzz program"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="gemini-3.1-pro-preview", prompt="Write a Python program that prints numbers from 1 to 20, one per line. For multiples of 3 print Fizz instead of the number, for multiples of 5 print Buzz, for multiples of both print FizzBuzz. Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" python code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

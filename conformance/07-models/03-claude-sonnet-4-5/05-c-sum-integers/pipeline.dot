@@ -1,0 +1,12 @@
+digraph smoke_claude_sonnet_05_c_sum_integers {
+    graph [goal="Generate and run a C sum-of-integers program"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="claude-sonnet-4-5", prompt="Write a C program that sums the integers from 1 to 100 and prints the result. Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" c code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

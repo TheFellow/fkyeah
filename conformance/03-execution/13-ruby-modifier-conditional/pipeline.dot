@@ -1,0 +1,10 @@
+digraph ruby_modifier_conditional {
+    graph [goal="Run Ruby code with modifier conditionals (trailing if/unless)"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" ruby tool"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

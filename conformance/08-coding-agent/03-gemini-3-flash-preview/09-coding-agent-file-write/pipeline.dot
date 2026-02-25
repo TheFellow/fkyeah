@@ -1,0 +1,9 @@
+digraph coding_agent_file_write {
+    graph [goal="Create a Python package with tests and verify it works"]
+
+    start [shape=Mdiamond]
+    agent [shape=tab, llm_model="__MODEL__", cwd="__WORKDIR__", prompt="Create a Python package called 'calculator' in the current directory. It must have: (1) calculator/__init__.py that exports an 'add' function, (2) calculator/math_ops.py that defines add(a, b) returning a+b and multiply(a, b) returning a*b, (3) test_calculator.py in the current directory that imports from calculator and tests add(2,3)==5 and multiply(4,5)==20 using assert statements, then prints 'ALL TESTS PASSED'. Create all files, then run: python3 test_calculator.py"]
+    done  [shape=Msquare]
+
+    start -> agent -> done
+}

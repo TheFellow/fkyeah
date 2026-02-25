@@ -1,0 +1,10 @@
+digraph tool_success {
+    graph [goal="Test tool command success"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="echo tool-output-value"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

@@ -1,0 +1,10 @@
+digraph goal_gate_partial_success {
+    graph [goal="Goal gate accepts partial_success from tool status file"]
+
+    start [shape=Mdiamond]
+    gated [shape=parallelogram, goal_gate=true, tool_command="printf '{\"outcome\":\"partial_success\",\"notes\":\"partial gate\"}' > \"$ATTRACTOR_STAGE_DIR/status.json\"; exit 0"]
+    done  [shape=Msquare]
+
+    start -> gated
+    gated -> done
+}

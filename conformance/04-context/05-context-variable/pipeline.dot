@@ -1,0 +1,15 @@
+digraph ctx_var {
+    graph [goal="Test context variable in condition"]
+
+    start [shape=Mdiamond]
+    step1 [shape=box, prompt="Step 1"]
+    check [shape=diamond]
+    found [shape=box, prompt="Context matched"]
+    done  [shape=Msquare]
+
+    start -> step1
+    step1 -> check
+    check -> found [condition="context.last_stage=step1"]
+    check -> done  [weight=0]
+    found -> done
+}

@@ -1,0 +1,17 @@
+digraph fan_out_in {
+    graph [goal="Test parallel fan-out/fan-in"]
+
+    start   [shape=Mdiamond]
+    fork    [shape=component]
+    branch1 [shape=box, prompt="Branch 1"]
+    branch2 [shape=box, prompt="Branch 2"]
+    join    [shape=tripleoctagon]
+    done    [shape=Msquare]
+
+    start   -> fork
+    fork    -> branch1
+    fork    -> branch2
+    branch1 -> join
+    branch2 -> join
+    join    -> done
+}

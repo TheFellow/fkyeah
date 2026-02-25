@@ -1,0 +1,10 @@
+digraph goal_gate_pass {
+    graph [goal="Test goal gate satisfaction"]
+
+    start  [shape=Mdiamond]
+    gated  [shape=box, prompt="Do critical work", goal_gate=true]
+    done   [shape=Msquare]
+
+    start -> gated
+    gated -> done
+}

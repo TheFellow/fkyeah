@@ -1,0 +1,13 @@
+digraph with_subgraph {
+    start [shape=Mdiamond]
+    done  [shape=Msquare]
+
+    subgraph cluster_inner {
+        a [shape=box, prompt="A"]
+        b [shape=box, prompt="B"]
+    }
+
+    start -> a
+    a -> b
+    b -> done
+}

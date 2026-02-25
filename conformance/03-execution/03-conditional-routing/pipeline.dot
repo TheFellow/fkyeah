@@ -1,0 +1,17 @@
+digraph conditional {
+    graph [goal="Test conditional routing"]
+
+    start   [shape=Mdiamond]
+    work    [shape=box, prompt="Do work"]
+    check   [shape=diamond]
+    success [shape=box, prompt="Success path"]
+    failure [shape=box, prompt="Failure path"]
+    done    [shape=Msquare]
+
+    start   -> work
+    work    -> check
+    check   -> success [condition="outcome=success"]
+    check   -> failure [condition="outcome=fail"]
+    success -> done
+    failure -> done
+}

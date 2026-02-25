@@ -1,0 +1,12 @@
+digraph smoke_gemini_3_1_pro_02_javascript_fibonacci {
+    graph [goal="Generate and run a JavaScript Fibonacci program"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, llm_model="gemini-3.1-pro-preview", prompt="Write a JavaScript program that prints the first 10 Fibonacci numbers (0,1,1,2,3,5,8,13,21,34), one number per line. Output ONLY the code inside a single fenced code block. No explanations."]
+    run   [shape=parallelogram, tool_command="bash \"$EXTRACT_RUN\" javascript code"]
+    done  [shape=Msquare]
+
+    start -> code
+    code  -> run
+    run   -> done
+}

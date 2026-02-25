@@ -1,0 +1,15 @@
+digraph loop_restart_context {
+    graph [goal="Verify loop_restart resets non-graph context keys"]
+
+    start  [shape=Mdiamond]
+    seed   [shape=box, prompt="Seed context"]
+    check  [shape=diamond]
+    leaked [shape=parallelogram, tool_command="echo leaked-context && exit 1"]
+    done   [shape=Msquare]
+
+    start  -> seed
+    seed   -> check  [loop_restart=true]
+    check  -> leaked [condition="last_stage=seed"]
+    check  -> done   [condition="last_stage!=seed"]
+    leaked -> done
+}

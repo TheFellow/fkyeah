@@ -1,0 +1,6 @@
+digraph missing_start {
+    work [shape=box, prompt="No start node"]
+    done [shape=Msquare]
+
+    work -> done
+}

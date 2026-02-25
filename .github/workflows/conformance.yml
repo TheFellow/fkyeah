@@ -1,0 +1,25 @@
+name: Conformance Tests
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Nightly at 3am UTC
+  workflow_dispatch:
+  push:
+    paths:
+      - 'conformance/**'
+      - 'src/**'
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run conformance suite (Docker)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          chmod +x conformance/docker-run.sh
+          ./conformance/docker-run.sh

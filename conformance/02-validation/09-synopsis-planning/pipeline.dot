@@ -1,0 +1,10 @@
+digraph planning {
+    graph [goal="Plan a project"]
+
+    start [shape=Mdiamond]
+    plan  [shape=box, prompt="Create a plan for: $goal"]
+    done  [shape=Msquare]
+
+    start -> plan
+    plan  -> done
+}

@@ -1,0 +1,9 @@
+digraph start_incoming {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Work"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> start
+    work  -> done
+}

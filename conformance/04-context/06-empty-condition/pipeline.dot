@@ -1,0 +1,12 @@
+digraph empty_cond {
+    graph [goal="Test unconditional edges"]
+
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Work"]
+    next  [shape=box, prompt="Next"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> next
+    next  -> done
+}

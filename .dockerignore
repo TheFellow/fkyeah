@@ -1,0 +1,7 @@
+.git
+attractor-logs/
+publish/
+*.png
+.DS_Store
+conformance/Dockerfile
+conformance/docker-run.sh

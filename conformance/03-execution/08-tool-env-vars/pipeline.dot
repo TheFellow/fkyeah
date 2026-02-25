@@ -1,0 +1,10 @@
+digraph tool_env {
+    graph [goal="Test tool environment variables"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, tool_command="echo STAGE=$ATTRACTOR_STAGE_DIR NODE=$ATTRACTOR_NODE_ID"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

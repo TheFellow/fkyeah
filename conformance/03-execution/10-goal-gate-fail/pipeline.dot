@@ -1,0 +1,10 @@
+digraph goal_gate_fail {
+    graph [goal="Test goal gate failure"]
+
+    start  [shape=Mdiamond]
+    tool   [shape=parallelogram, tool_command="exit 1", goal_gate=true]
+    done   [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}

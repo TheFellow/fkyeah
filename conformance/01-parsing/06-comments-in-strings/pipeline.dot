@@ -1,0 +1,8 @@
+digraph comments_in_strings {
+    start [shape=Mdiamond]
+    work  [shape=box, prompt="Use // for comments and /* block */ syntax"]
+    done  [shape=Msquare]
+
+    start -> work
+    work  -> done
+}

@@ -1,0 +1,3 @@
+# 01-claude-opus-4-6 / 07-python-temp-converter
+
+E2E smoke test: `claude-opus-4-6` generates a Python python-temp-converter program, a tool node extracts and runs it, and the test validates the expected output. Skips if `ANTHROPIC_API_KEY` is not set.

@@ -1,0 +1,10 @@
+digraph tool_prompt_file {
+    graph [goal="Test ATTRACTOR_PROMPT_FILE"]
+
+    start [shape=Mdiamond]
+    tool  [shape=parallelogram, prompt="Hello from prompt", tool_command="cat $ATTRACTOR_PROMPT_FILE"]
+    done  [shape=Msquare]
+
+    start -> tool
+    tool  -> done
+}
