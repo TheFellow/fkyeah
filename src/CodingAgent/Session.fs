@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text
 open System.Text.Json
+open System.Text.RegularExpressions
 open System.Collections.Generic
 open UnifiedLlm
 
@@ -365,11 +366,47 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                 if Path.IsPathRooted(filePath) then filePath
                 else Path.Combine(environment.WorkingDirectory, filePath)
             let source = File.ReadAllText(fullPath)
-            if not (source.Contains(oldString, StringComparison.Ordinal)) then
-                failwith "old_string not found in file"
+
+            // Normalize whitespace: collapse runs of spaces/tabs to single space, trim trailing per line
+            let normalizeWs (s: string) =
+                s.Split('\n')
+                |> Array.map (fun line ->
+                    Regex.Replace(line, @"[ \t]+", " ").TrimEnd())
+                |> String.concat "\n"
+
+            let exactMatch = source.Contains(oldString, StringComparison.Ordinal)
+            let useNormalized = not exactMatch
+            if useNormalized then
+                let normSource = normalizeWs source
+                let normOld = normalizeWs oldString
+                if not (normSource.Contains(normOld, StringComparison.Ordinal)) then
+                    failwith "old_string not found in file"
 
             let updated =
-                if replaceAll then
+                if useNormalized then
+                    // Whitespace-normalized replacement: find in normalized space, map back to source lines
+                    let sourceLines = source.Split('\n')
+                    let normSourceLines = sourceLines |> Array.map (fun line -> Regex.Replace(line, @"[ \t]+", " ").TrimEnd())
+                    let normOldLines = (normalizeWs oldString).Split('\n')
+
+                    let mutable startLine = -1
+                    for i in 0 .. normSourceLines.Length - normOldLines.Length do
+                        if startLine < 0 then
+                            let mutable matches = true
+                            for j in 0 .. normOldLines.Length - 1 do
+                                if normSourceLines.[i + j] <> normOldLines.[j] then
+                                    matches <- false
+                            if matches then startLine <- i
+
+                    if startLine < 0 then
+                        failwith "old_string not found in file"
+
+                    let before = sourceLines.[.. startLine - 1] |> String.concat "\n"
+                    let after = sourceLines.[startLine + normOldLines.Length ..] |> String.concat "\n"
+                    let prefix = if startLine > 0 then before + "\n" else ""
+                    let suffix = if startLine + normOldLines.Length < sourceLines.Length then "\n" + after else ""
+                    prefix + newString + suffix
+                elif replaceAll then
                     source.Replace(oldString, newString, StringComparison.Ordinal)
                 else
                     let idx = source.IndexOf(oldString, StringComparison.Ordinal)
@@ -597,6 +634,10 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                     emit AssistantTextStart Map.empty
                 text.Append(delta) |> ignore
                 emit AssistantTextDelta (Map.ofList [ "delta", delta ])
+            | StreamEvent.ToolCallStart tc ->
+                emit CodingAgent.EventKind.ToolCallStart (Map.ofList [ "tool_name", tc.Name; "call_id", tc.Id ])
+            | StreamEvent.ToolCallEnd tc ->
+                emit CodingAgent.EventKind.ToolCallEnd (Map.ofList [ "call_id", tc.Id ])
             | StreamEvent.StepFinish(_, response) ->
                 responseFromStream <- response
             | StreamEvent.Finish(_, usage, response) ->

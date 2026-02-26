@@ -1325,3 +1325,211 @@ module Sprint004Coverage =
         let json = JsonSerializer.Serialize(body)
         Assert.Contains("\"custom_setting\":123", json)
         Assert.Contains("\"nested\"", json)
+
+// ============================================================
+// Sprint 005 Coverage Tests
+// ============================================================
+
+module Sprint005Coverage =
+
+    let private mapHelpersType () =
+        let asm = typeof<Client>.Assembly
+        asm.GetTypes()
+        |> Array.find (fun t -> t.Name.Contains("HttpAdapterHelpers"))
+
+    let private invokeStatic helperName (args: obj array) =
+        let t = mapHelpersType ()
+        let flags = BindingFlags.Static ||| BindingFlags.NonPublic ||| BindingFlags.Public
+        let m = t.GetMethod(helperName, flags)
+        Assert.NotNull(m)
+        m.Invoke(null, args)
+
+    [<Fact>]
+    let ``B1 Prompt caching default adds cache_control to Anthropic system messages`` () =
+        let adapter = AnthropicAdapter("test-key")
+        let flags = BindingFlags.Instance ||| BindingFlags.NonPublic
+        let buildBody = typeof<AnthropicAdapter>.GetMethod("buildBody", flags)
+        Assert.NotNull(buildBody)
+
+        let req =
+            Request.Create(
+                "claude-opus-4-6",
+                [ Message.system("System guidance")
+                  Message.user("Hello") ])
+
+        let body = buildBody.Invoke(adapter, [| box req; box false |])
+        let json = JsonSerializer.Serialize(body)
+        Assert.Contains("cache_control", json)
+
+    [<Fact>]
+    let ``B8 Usage addition handles None Some edges for cache and reasoning tokens`` () =
+        let a =
+            { InputTokens = 0
+              OutputTokens = 0
+              ReasoningTokens = Some 5
+              CacheReadTokens = Some 5
+              CacheWriteTokens = None }
+        let b =
+            { InputTokens = 0
+              OutputTokens = 0
+              ReasoningTokens = None
+              CacheReadTokens = None
+              CacheWriteTokens = Some 10 }
+        let sum = a + b
+        Assert.Equal(Some 5, sum.ReasoningTokens)
+        Assert.Equal(Some 5, sum.CacheReadTokens)
+        Assert.Equal(Some 10, sum.CacheWriteTokens)
+
+    [<Fact>]
+    let ``B9 Anthropic finish reason mapping table is correct`` () =
+        let mapReason (raw: string) =
+            invokeStatic "mapAnthropicFinishReason" [| box raw |] :?> FinishReason
+
+        Assert.Equal(Stop "end_turn", mapReason "end_turn")
+        Assert.Equal(Stop "stop_sequence", mapReason "stop_sequence")
+        Assert.Equal(Length "max_tokens", mapReason "max_tokens")
+        Assert.Equal(ToolCalls "tool_use", mapReason "tool_use")
+
+    [<Fact>]
+    let ``B9 Gemini finish reason mapping table is correct`` () =
+        let mapReason (raw: string) (hasToolCalls: bool) =
+            invokeStatic "mapGeminiFinishReason" [| box raw; box hasToolCalls |] :?> FinishReason
+
+        Assert.Equal(Stop "STOP", mapReason "STOP" false)
+        Assert.Equal(Length "MAX_TOKENS", mapReason "MAX_TOKENS" false)
+        Assert.Equal(ContentFilter "SAFETY", mapReason "SAFETY" false)
+        Assert.Equal(ContentFilter "RECITATION", mapReason "RECITATION" false)
+
+    [<Fact>]
+    let ``B6 RateLimitInfo parsing reads provider headers`` () =
+        use response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        response.Headers.TryAddWithoutValidation("x-ratelimit-limit-requests", "100") |> ignore
+        response.Headers.TryAddWithoutValidation("x-ratelimit-remaining-requests", "42") |> ignore
+        response.Headers.TryAddWithoutValidation("x-ratelimit-reset-requests", "1735689600") |> ignore
+
+        let parsed =
+            invokeStatic "parseOpenAIRateLimit" [| box response |]
+            :?> RateLimitInfo option
+        Assert.True(parsed.IsSome)
+        Assert.Equal(Some 100, parsed.Value.Limit)
+        Assert.Equal(Some 42, parsed.Value.Remaining)
+        Assert.True(parsed.Value.ResetAt.IsSome)
+
+    [<Fact>]
+    let ``B7 Response warnings are surfaced`` () =
+        let warningResponse =
+            { Id = "r_warn"
+              Model = "m"
+              Provider = "test"
+              Message = Message.assistant("ok")
+              FinishReason = Stop "stop"
+              Usage = Usage.Zero
+              ResponseId = None
+              Raw = None
+              Warnings = [ "degraded output" ]
+              RateLimit = None }
+        Assert.True(warningResponse.Warnings.Length > 0)
+        Assert.Contains("degraded output", warningResponse.Warnings)
+
+    [<Fact>]
+    let ``B3 AudioData and DocumentData round-trip in message content`` () =
+        let audio = { Url = Some "https://example.com/a.mp3"; Data = None; MediaType = Some "audio/mpeg" }
+        let doc = { Url = None; Data = Some [| 0x25uy; 0x50uy |]; MediaType = Some "application/pdf"; FileName = Some "x.pdf" }
+        let msg =
+            { Role = User
+              Content = [ Audio audio; Document doc ]
+              Name = None
+              ToolCallId = None }
+
+        match msg.Content.[0], msg.Content.[1] with
+        | Audio a, Document d ->
+            Assert.Equal("https://example.com/a.mp3", a.Url.Value)
+            Assert.Equal("application/pdf", d.MediaType.Value)
+            Assert.Equal("x.pdf", d.FileName.Value)
+            Assert.True(d.Data.IsSome)
+        | _ -> Assert.Fail("Expected audio and document content parts")
+
+    [<Fact>]
+    let ``B4 generate abort signal cancellation raises AbortError`` () =
+        let client = Client()
+        client.RegisterAdapter(MockOpenAIAdapter())
+        use signal = new AbortSignal()
+        signal.Cancel()
+
+        Assert.Throws<AbortError>(fun () ->
+            Generation.generateWithControl
+                client
+                "gpt-5.2"
+                (Some "hello")
+                None
+                None
+                None
+                0
+                (Some "openai")
+                None
+                None
+                None
+                (Some signal)
+                None
+                None
+                None
+            |> ignore)
+        |> ignore
+
+    [<Fact>]
+    let ``B5 TimeoutConfig total timeout raises RequestTimeoutError`` () =
+        let mock = ConfigurableMockAdapter("test")
+        let mutable calls = 0
+        mock.SetCompleteHandler(fun _ ->
+            calls <- calls + 1
+            if calls <= 2 then
+                let tc = { Id = $"call_{calls}"; Name = "slow_tool"; Arguments = "{}"; Metadata = Map.empty }
+                { Id = $"r_{calls}"
+                  Model = "m"
+                  Provider = "test"
+                  Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                  FinishReason = ToolCalls "tool_calls"
+                  Usage = Usage.Zero
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None }
+            else
+                { Id = "r_final"
+                  Model = "m"
+                  Provider = "test"
+                  Message = Message.assistant("done")
+                  FinishReason = Stop "stop"
+                  Usage = Usage.Zero
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None })
+
+        let client = Client()
+        client.RegisterAdapter(mock)
+        let tool =
+            { Definition = { Name = "slow_tool"; Description = "slow"; Parameters = "{}" }
+              Execute = Some(fun _ ->
+                  System.Threading.Thread.Sleep(25)
+                  "ok") }
+
+        Assert.Throws<RequestTimeoutError>(fun () ->
+            Generation.generateWithControl
+                client
+                "m"
+                (Some "run")
+                None
+                None
+                (Some [ tool ])
+                5
+                (Some "test")
+                None
+                None
+                None
+                None
+                None
+                (Some { TotalMs = Some 1; PerStepMs = None })
+                None
+            |> ignore)
+        |> ignore

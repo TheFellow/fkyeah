@@ -1,0 +1,17 @@
+digraph parallel_branch_failure {
+    graph [goal="A6 parallel failure"]
+
+    start   [shape=Mdiamond]
+    fork    [shape=component]
+    ok      [shape=parallelogram, tool_command="echo ok"]
+    bad     [shape=parallelogram, tool_command="echo fail >&2; exit 3"]
+    join    [shape=tripleoctagon]
+    done    [shape=Msquare]
+
+    start -> fork
+    fork  -> ok
+    fork  -> bad
+    ok    -> join
+    bad   -> join
+    join  -> done
+}

@@ -2,6 +2,7 @@ module CodingAgent.Tests
 
 open System
 open System.IO
+open System.Text.Json
 open System.Text.RegularExpressions
 open Xunit
 open UnifiedLlm
@@ -1728,4 +1729,389 @@ module Sprint004Coverage =
 
             Assert.Equal(1, maxActive)
             Assert.True(sw.ElapsedMilliseconds >= 280L, $"Expected sequential execution, got {sw.ElapsedMilliseconds}ms")
+        finally cleanupDir dir
+
+// ============================================================
+// Sprint 005 Coverage Tests
+// ============================================================
+
+module Sprint005Coverage =
+
+    let private toolResultTurnCount (history: Turn list) =
+        history
+        |> List.filter (function | ToolResultsTurn _ -> true | _ -> false)
+        |> List.length
+
+    [<Fact>]
+    let ``C1 apply_patch create file from v4a patch`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            let patch =
+                String.concat "\n" [
+                    "*** Begin Patch"
+                    "*** Add File: created.txt"
+                    "+hello from patch"
+                    "*** End Patch"
+                ]
+
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "apply_patch"; Arguments = JsonSerializer.Serialize({| patch = patch |}); Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("create file")
+
+            let created = Path.Combine(dir, "created.txt")
+            Assert.True(File.Exists(created))
+            Assert.Equal("hello from patch", File.ReadAllText(created))
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C1 apply_patch modifies existing file with update hunk`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            File.WriteAllText(Path.Combine(dir, "note.txt"), "alpha\nbeta\ngamma\n")
+
+            let patch =
+                String.concat "\n" [
+                    "*** Begin Patch"
+                    "*** Update File: note.txt"
+                    "@@"
+                    " alpha"
+                    "-beta"
+                    "+beta-updated"
+                    " gamma"
+                    "*** End Patch"
+                ]
+
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "apply_patch"; Arguments = JsonSerializer.Serialize({| patch = patch |}); Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("modify file")
+
+            let updated = File.ReadAllText(Path.Combine(dir, "note.txt"))
+            Assert.Contains("beta-updated", updated)
+            Assert.DoesNotContain("beta\n", updated)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C1 apply_patch deletes file`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            File.WriteAllText(Path.Combine(dir, "remove-me.txt"), "bye")
+
+            let patch =
+                String.concat "\n" [
+                    "*** Begin Patch"
+                    "*** Delete File: remove-me.txt"
+                    "*** End Patch"
+                ]
+
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "apply_patch"; Arguments = JsonSerializer.Serialize({| patch = patch |}); Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("delete file")
+            Assert.False(File.Exists(Path.Combine(dir, "remove-me.txt")))
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C1 apply_patch invalid patch returns error result`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            let badPatch = "*** Add File: x.txt\n+oops"
+
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "apply_patch"; Arguments = JsonSerializer.Serialize({| patch = badPatch |}); Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("invalid patch")
+
+            let result =
+                session.History
+                |> List.tryPick (function | ToolResultsTurn(results, _) -> results |> List.tryHead | _ -> None)
+            Assert.True(result.IsSome)
+            Assert.True(result.Value.IsError)
+            Assert.Contains("Invalid patch", result.Value.Content)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C1 apply_patch update missing file returns error result`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            let patch =
+                String.concat "\n" [
+                    "*** Begin Patch"
+                    "*** Update File: nope.txt"
+                    "@@"
+                    "-a"
+                    "+b"
+                    "*** End Patch"
+                ]
+
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "apply_patch"; Arguments = JsonSerializer.Serialize({| patch = patch |}); Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("update missing file")
+
+            let result =
+                session.History
+                |> List.tryPick (function | ToolResultsTurn(results, _) -> results |> List.tryHead | _ -> None)
+            Assert.True(result.IsSome)
+            Assert.True(result.Value.IsError)
+            Assert.Contains("missing file", result.Value.Content)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C3 three-round tool loop records three ToolResultsTurn entries in order`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun _ ->
+                calls <- calls + 1
+                if calls <= 3 then
+                    let tc = { Id = $"call_{calls}"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
+                    { Id = $"r{calls}"; Model = "m"; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"
+                      Usage = { Usage.Zero with InputTokens = 10; OutputTokens = 5 }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r_final"; Model = "m"; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"
+                      Usage = { Usage.Zero with InputTokens = 3; OutputTokens = 2 }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("run tools")
+
+            Assert.Equal(3, toolResultTurnCount session.History)
+            let turnKinds =
+                session.History
+                |> List.map (function
+                    | AssistantTurn _ -> "assistant"
+                    | ToolResultsTurn _ -> "tool"
+                    | UserTurn _ -> "user"
+                    | _ -> "other")
+            let sequence = String.concat "," turnKinds
+            Assert.Contains("assistant,tool,assistant,tool,assistant,tool,assistant", sequence)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C3 five-round tool loop usage aggregates across assistant turns`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = OpenAIProfile("gpt-5.3-codex") :> IProviderProfile
+            let mock = ConfigurableMockAdapter("openai")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun _ ->
+                calls <- calls + 1
+                if calls <= 5 then
+                    let tc = { Id = $"call_{calls}"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
+                    { Id = $"r{calls}"; Model = "m"; Provider = "openai"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"
+                      Usage = { Usage.Zero with InputTokens = calls; OutputTokens = calls }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r_final"; Model = "m"; Provider = "openai"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"
+                      Usage = { Usage.Zero with InputTokens = 10; OutputTokens = 10 }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("run tools")
+
+            let usageTotal =
+                session.History
+                |> List.sumBy (function | AssistantTurn(_, _, _, usage, _) -> usage.TotalTokens | _ -> 0)
+            Assert.Equal(50, usageTotal)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C2 provider profiles expose provider-specific prompt and tool schema spot-check`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+
+            let openai = OpenAIProfile("gpt-5.2") :> IProviderProfile
+            let anthropic = AnthropicProfile("claude-opus-4-6") :> IProviderProfile
+            let gemini = GeminiProfile("gemini-3-flash-preview") :> IProviderProfile
+
+            let openaiPrompt = openai.BuildSystemPrompt(env, None, None)
+            let anthropicPrompt = anthropic.BuildSystemPrompt(env, None, None)
+            let geminiPrompt = gemini.BuildSystemPrompt(env, None, None)
+
+            Assert.Contains("OpenAI", openaiPrompt)
+            Assert.Contains("Claude", anthropicPrompt)
+            Assert.Contains("Gemini", geminiPrompt)
+
+            let openaiApplyPatch = openai.ToolDefinitions |> List.find (fun t -> t.Name = "apply_patch")
+            let anthropicEditFile = anthropic.ToolDefinitions |> List.find (fun t -> t.Name = "edit_file")
+            let geminiListDir = gemini.ToolDefinitions |> List.find (fun t -> t.Name = "list_dir")
+
+            Assert.Contains("\"patch\"", openaiApplyPatch.Parameters)
+            Assert.Contains("\"old_string\"", anthropicEditFile.Parameters)
+            Assert.Contains("\"depth\"", geminiListDir.Parameters)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C4 streaming tool events interleave between text segments`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let tc = { Id = "call_stream_1"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
+            let mock = ConfigurableMockAdapter("test")
+            mock.SetStreamHandler(fun _ ->
+                seq {
+                    yield StreamStart
+                    yield TextStart "t1"
+                    yield TextDelta(Some "t1", "hello")
+                    yield StreamEvent.ToolCallStart tc
+                    yield StreamEvent.ToolCallDelta(tc.Id, tc.Arguments)
+                    yield StreamEvent.ToolCallEnd tc
+                    yield TextDelta(Some "t1", " world")
+                    yield Finish(Stop "stop", Some Usage.Zero, None)
+                })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let config = { SessionConfig.Default with EnableStreaming = true }
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("stream with tool call")
+
+            let firstDeltaIdx =
+                session.Events
+                |> List.findIndex (fun e ->
+                    e.Kind = AssistantTextDelta
+                    && (e.Data |> Map.tryFind "delta") = Some "hello")
+            let toolStartIdx = session.Events |> List.findIndex (fun e -> e.Kind = ToolCallStart)
+            let toolEndIdx = session.Events |> List.findIndex (fun e -> e.Kind = ToolCallEnd)
+            let secondDeltaIdx =
+                session.Events
+                |> List.findIndex (fun e ->
+                    e.Kind = AssistantTextDelta
+                    && (e.Data |> Map.tryFind "delta") = Some " world")
+
+            Assert.True(firstDeltaIdx < toolStartIdx)
+            Assert.True(toolStartIdx < toolEndIdx)
+            Assert.True(toolEndIdx < secondDeltaIdx)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``C6 edit_file supports whitespace-normalized matching`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let profile = AnthropicProfile("claude-sonnet-4-6") :> IProviderProfile
+            // File uses tabs, LLM sends spaces in old_string
+            File.WriteAllText(Path.Combine(dir, "ws.txt"), "def foo():\n\tif True:\n\t\treturn 1\n")
+
+            let editArgs = JsonSerializer.Serialize({| file_path = "ws.txt"; old_string = "def foo():\n  if True:\n    return 1"; new_string = "def foo():\n\tif True:\n\t\treturn 42" |})
+
+            let mock = ConfigurableMockAdapter("anthropic")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun req ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "edit_file"; Arguments = editArgs; Metadata = Map.empty }
+                    { Id = "r1"; Model = req.Model; Provider = "anthropic"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = req.Model; Provider = "anthropic"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(profile, env, client)
+            session.ProcessInput("edit file")
+
+            let content = File.ReadAllText(Path.Combine(dir, "ws.txt"))
+            Assert.Contains("return 42", content)
         finally cleanupDir dir

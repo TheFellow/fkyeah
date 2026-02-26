@@ -1,0 +1,17 @@
+digraph parallel_branch_timeout {
+    graph [goal="A6 parallel timeout"]
+
+    start   [shape=Mdiamond]
+    fork    [shape=component]
+    fast    [shape=parallelogram, tool_command="echo fast"]
+    slow    [shape=parallelogram, tool_command="sleep 5; echo slow", timeout="10ms"]
+    join    [shape=tripleoctagon]
+    done    [shape=Msquare]
+
+    start -> fork
+    fork  -> fast
+    fork  -> slow
+    fast  -> join
+    slow  -> join
+    join  -> done
+}

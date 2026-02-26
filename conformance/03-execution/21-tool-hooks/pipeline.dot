@@ -1,0 +1,14 @@
+digraph tool_hooks {
+    graph [goal="A10 tool hooks"]
+
+    start [shape=Mdiamond]
+    tool  [
+        shape=parallelogram,
+        tool_hooks.pre="echo \"$TOOL_NAME:$NODE_ID\" > \"$ATTRACTOR_STAGE_DIR/pre-hook.txt\"",
+        tool_hooks.post="echo \"$TOOL_NAME:$NODE_ID:$EXIT_CODE\" > \"$ATTRACTOR_STAGE_DIR/post-hook.txt\"",
+        tool_command="echo hello"
+    ]
+    done [shape=Msquare]
+
+    start -> tool -> done
+}

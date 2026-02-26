@@ -1,0 +1,9 @@
+digraph manager_loop {
+    graph [goal="A4 manager loop"]
+
+    start   [shape=Mdiamond]
+    manager [shape=house, max_cycles=2, stop_condition_key="manager.stop", wait_ms=1]
+    done    [shape=Msquare]
+
+    start -> manager -> done
+}

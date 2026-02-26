@@ -1,0 +1,13 @@
+digraph gate_question_types {
+    graph [goal="A9 gate question types"]
+
+    start [shape=Mdiamond]
+    free  [shape=hexagon, prompt="Provide free text"]
+    pick  [shape=hexagon, label="Choose route"]
+    done  [shape=Msquare]
+
+    start -> free
+    free  -> pick
+    pick  -> done [label="A) Continue"]
+    pick  -> done [label="B) Also continue"]
+}

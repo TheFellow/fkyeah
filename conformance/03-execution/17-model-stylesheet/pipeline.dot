@@ -1,0 +1,14 @@
+digraph model_stylesheet {
+    graph [
+        goal="A1/A7 model stylesheet"
+        model_stylesheet="* { llm_model: claude-sonnet-4-6; } box { llm_model: gpt-5.2; } .critical { llm_model: gemini-3-flash-preview; } #node_override { llm_model: claude-opus-4-6; }"
+    ]
+
+    start         [shape=Mdiamond]
+    node_default  [shape=box, prompt="default model"]
+    node_class    [shape=box, class="critical", prompt="class model"]
+    node_override [shape=box, prompt="id override", llm_model="gpt-5.3-codex"]
+    done          [shape=Msquare]
+
+    start -> node_default -> node_class -> node_override -> done
+}

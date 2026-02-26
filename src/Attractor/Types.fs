@@ -17,6 +17,31 @@ type Duration =
     static member FromDays(d: int64) = { Milliseconds = d * 86400L * 1000L }
     static member Zero = { Milliseconds = 0L }
 
+    static member TryParse(s: string) : Duration option =
+        let s = s.Trim()
+        if s.EndsWith("ms") then
+            match Int64.TryParse(s.Substring(0, s.Length - 2)) with
+            | true, v -> Some (Duration.FromMs v)
+            | _ -> None
+        elif s.EndsWith("s") && not (s.EndsWith("ms")) then
+            match Int64.TryParse(s.Substring(0, s.Length - 1)) with
+            | true, v -> Some (Duration.FromSeconds v)
+            | _ -> None
+        elif s.EndsWith("m") then
+            match Int64.TryParse(s.Substring(0, s.Length - 1)) with
+            | true, v -> Some (Duration.FromMinutes v)
+            | _ -> None
+        elif s.EndsWith("h") then
+            match Int64.TryParse(s.Substring(0, s.Length - 1)) with
+            | true, v -> Some (Duration.FromHours v)
+            | _ -> None
+        elif s.EndsWith("d") then
+            match Int64.TryParse(s.Substring(0, s.Length - 1)) with
+            | true, v -> Some (Duration.FromDays v)
+            | _ -> None
+        else
+            None
+
     member this.ToTimeSpan() =
         TimeSpan.FromMilliseconds(float this.Milliseconds)
 
@@ -56,6 +81,7 @@ type AttrValue =
     member this.AsDuration() =
         match this with
         | Duration d -> Some d
+        | String s -> Duration.TryParse(s)
         | _ -> None
 
 /// Stage status for node execution outcomes

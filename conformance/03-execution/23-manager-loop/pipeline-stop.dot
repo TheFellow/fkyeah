@@ -1,0 +1,10 @@
+digraph manager_loop_stop {
+    graph [goal="A4 manager loop stop key"]
+
+    start   [shape=Mdiamond]
+    mark    [shape=parallelogram, tool_command="echo ok", auto_status=true]
+    manager [shape=house, max_cycles=5, stop_condition_key="manager.stop", wait_ms=1]
+    done    [shape=Msquare]
+
+    start -> mark -> manager -> done
+}

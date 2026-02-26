@@ -1,0 +1,12 @@
+digraph checkpoint_resume {
+    graph [goal="A2 checkpoint resume"]
+
+    start [shape=Mdiamond]
+    step1 [shape=parallelogram, tool_command="echo 'step1 complete' > \"$ATTRACTOR_STAGE_DIR/step1.txt\"; exit 0"]
+    step2 [shape=parallelogram, tool_command="sleep 5; echo 'step2 complete' > \"$ATTRACTOR_STAGE_DIR/step2.txt\"; exit 0"]
+    done  [shape=Msquare]
+
+    start -> step1
+    step1 -> step2
+    step2 -> done
+}

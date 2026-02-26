@@ -1,0 +1,11 @@
+digraph max_visits {
+    graph [goal="A8 max_visits"]
+
+    start [shape=Mdiamond]
+    loop  [shape=box, prompt="loop", max_visits=3]
+    done  [shape=Msquare]
+
+    start -> loop
+    loop  -> loop
+    loop  -> done [condition="outcome=fail"]
+}

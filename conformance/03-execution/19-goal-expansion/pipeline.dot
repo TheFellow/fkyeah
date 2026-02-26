@@ -1,0 +1,9 @@
+digraph goal_expansion {
+    graph [goal="Build widget"]
+
+    start [shape=Mdiamond]
+    code  [shape=box, prompt="$goal"]
+    done  [shape=Msquare]
+
+    start -> code -> done
+}

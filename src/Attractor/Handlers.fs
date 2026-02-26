@@ -231,9 +231,17 @@ module Handlers =
                     else node.Label
                 let prompt = prompt.Replace("$goal", graph.Goal)
 
-                // 2. Write prompt to logs
+                // 2. Write prompt and context snapshot to logs
                 let stageDir, rootDir = resolveStageDirs logsRoot node context
                 writeStageFile stageDir rootDir "prompt.md" prompt
+                let contextSnapshot = context.Snapshot()
+                if not contextSnapshot.IsEmpty then
+                    let contextJson =
+                        contextSnapshot
+                        |> Map.toList
+                        |> List.map (fun (k, v) -> sprintf "  %s: %s" (System.Text.Json.JsonSerializer.Serialize(k)) (System.Text.Json.JsonSerializer.Serialize(v)))
+                        |> String.concat ",\n"
+                    writeStageFile stageDir rootDir "context.json" (sprintf "{\n%s\n}" contextJson)
 
                 // 3. Call backend (once!)
                 match backend with

@@ -1,0 +1,12 @@
+digraph fidelity_projection {
+    graph [goal="A3 fidelity projection"]
+
+    start  [shape=Mdiamond]
+    gen    [shape=parallelogram, tool_command="python3 -c \"print('X' * 1000)\""]
+    sink   [shape=box, prompt="sink"]
+    done   [shape=Msquare]
+
+    start -> gen
+    gen   -> sink [fidelity="truncate"]
+    sink  -> done
+}
