@@ -621,7 +621,17 @@ module Generation =
                 Option.None
                 options
 
-        let text = result.Text.Trim()
+        // Anthropic emulates structured output via a forced tool call, so the JSON
+        // lives in the tool-call arguments rather than in the text content.
+        let text =
+            let t = result.Text.Trim()
+            if not (String.IsNullOrWhiteSpace t) then t
+            else
+                result.ToolCalls
+                |> List.tryHead
+                |> Option.map (fun tc -> tc.Arguments.Trim())
+                |> Option.defaultValue ""
+
         if String.IsNullOrWhiteSpace(text) then
             raise (NoObjectGeneratedError("Provider returned an empty object response"))
 
@@ -631,7 +641,12 @@ module Generation =
         | :? JsonException as ex ->
             raise (NoObjectGeneratedError(sprintf "Provider did not return valid JSON: %s" ex.Message))
 
-        result
+        // Return a result with the extracted text so callers always see it in result.Text
+        { result with
+            Text = text
+            Response = { result.Response with
+                            Message = { result.Response.Message with
+                                            Content = [ ContentPart.Text text ] } } }
 
     /// Backward-compatible structured output function.
     let generateObject

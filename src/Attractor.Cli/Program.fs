@@ -815,7 +815,7 @@ let writeText (resp: HttpListenerResponse) (statusCode: int) (contentType: strin
     resp.OutputStream.Close()
 
 let serve (port: int) =
-    let listener = HttpListener()
+    let listener = new HttpListener()
     listener.Prefixes.Add($"http://127.0.0.1:{port}/")
     listener.Start()
     printfn "Attractor server listening on http://127.0.0.1:%d" port
