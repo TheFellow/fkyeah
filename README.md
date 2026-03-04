@@ -1,3 +1,5 @@
+[![CI](https://github.com/TheFellow/fkyeah/actions/workflows/ci.yml/badge.svg)](https://github.com/TheFellow/fkyeah/actions/workflows/ci.yml)
+
 # F#kYeah
 
 An F# implementation of the [StrongDM Attractor](https://github.com/strongdm/attractor) spec — a DOT-based pipeline runner that orchestrates multi-stage AI workflows using directed graphs.
