@@ -1633,6 +1633,8 @@ module Sprint004Coverage =
     let ``Session uses parallel tool dispatch and preserves result order when supported`` () =
         let dir = createTempDir()
         try
+            // Pre-warm ThreadPool so concurrent dispatch isn't serialized on slow CI runners
+            System.Threading.ThreadPool.SetMinThreads(8, 8) |> ignore
             let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
             let mutable callCount = 0
             let mock = ConfigurableMockAdapter("test")
@@ -1664,7 +1666,7 @@ module Sprint004Coverage =
                       lock gate (fun () ->
                           active <- active + 1
                           maxActive <- max maxActive active)
-                      System.Threading.Thread.Sleep(120)
+                      System.Threading.Thread.Sleep(500)
                       lock gate (fun () -> active <- active - 1)
                       args })
 
