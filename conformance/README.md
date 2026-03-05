@@ -103,6 +103,7 @@ Every model proves it can generate working software in every language/scenario:
 | gemini-3.1-pro-preview | Gemini | `GEMINI_API_KEY` |
 | gemini-3-flash-preview | Gemini | `GEMINI_API_KEY` |
 | gpt-5.3-codex | OpenAI | `OPENAI_API_KEY` |
+| gpt-5.4 | OpenAI | `OPENAI_API_KEY` |
 
 | Scenario | Language | Problem | Expected Output |
 |----------|----------|---------|-----------------|

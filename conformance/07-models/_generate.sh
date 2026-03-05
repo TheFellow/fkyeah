@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _generate.sh — Generate the 9x8 model × scenario test matrix
+# _generate.sh — Generate the 10x8 model × scenario test matrix
 # Run once from the 07-models/ directory, then optionally delete this script.
 set -euo pipefail
 
@@ -18,6 +18,7 @@ MODELS=(
     "07|gemini-3.1-pro-preview|gemini_3_1_pro|GEMINI_API_KEY"
     "08|gemini-3-flash-preview|gemini_3_flash|GEMINI_API_KEY"
     "09|gpt-5.3-codex|gpt_5_3_codex|OPENAI_API_KEY"
+    "10|gpt-5.4|gpt_5_4|OPENAI_API_KEY"
 )
 
 # ── Scenarios ──────────────────────────────────────────────────────

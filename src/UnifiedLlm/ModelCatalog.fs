@@ -65,6 +65,12 @@ module ModelCatalog =
           Aliases = [ "gpt-5.3"; "codex-latest" ]
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
+        { Id = "gpt-5.4"; Provider = "openai"; DisplayName = "GPT-5.4"
+          ContextWindow = 1047576; MaxOutput = 32768
+          InputCostPerMillion = 12.0; OutputCostPerMillion = 48.0
+          Aliases = [ "gpt-latest" ]
+          SupportsStreaming = true; SupportsTools = true
+          SupportsReasoning = true; SupportsVision = true }
         // Gemini
         { Id = "gemini-3-pro-preview"; Provider = "gemini"; DisplayName = "Gemini 3 Pro (Preview)"
           ContextWindow = 1048576; MaxOutput = 65536
@@ -83,7 +89,7 @@ module ModelCatalog =
     let private latestByProvider =
         Map.ofList [
             "anthropic", "claude-opus-4-6"
-            "openai", "gpt-5.3-codex"
+            "openai", "gpt-5.4"
             "gemini", "gemini-3-pro-preview"
         ]
 

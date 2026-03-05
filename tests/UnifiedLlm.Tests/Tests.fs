@@ -119,7 +119,7 @@ module CoreInfrastructure =
         Assert.Equal(3, anthropicModels.Length)
         Assert.True(anthropicModels |> List.forall (fun m -> m.Provider = "anthropic"))
         let openaiModels = ModelCatalog.listModelsByProvider "openai"
-        Assert.Equal(4, openaiModels.Length)
+        Assert.Equal(5, openaiModels.Length)
 
 // ============================================================
 // 8.2 Provider Adapters Tests
