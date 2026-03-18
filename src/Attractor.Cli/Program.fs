@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.3.0"
+let cliVersion = "0.3.1"
 
 [<Literal>]
 let ExitSuccess = 0
