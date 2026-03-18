@@ -3565,7 +3565,7 @@ module Sprint004Coverage =
         Assert.Equal("a,b,c", multi.Value)
 
     [<Fact>]
-    let ``All conditions fail falls back to best weight`` () =
+    let ``All conditions fail without unconditional edge returns none`` () =
         let node = { Id = "A"; Attributes = Map.empty }
         let graph =
             { Name = "t"; Nodes = Map.ofList ["A", node; "B", { Id = "B"; Attributes = Map.empty }; "C", { Id = "C"; Attributes = Map.empty }]
@@ -3573,4 +3573,68 @@ module Sprint004Coverage =
                         { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList ["condition", AttrValue.String "outcome=fail"; "weight", AttrValue.Integer 10] } ]
               GraphAttributes = Map.empty }
         let edge = EdgeSelection.selectEdge node (Outcome.Success()) (Context()) graph
-        Assert.Equal("C", edge.Value.ToNode)
+        Assert.True(edge.IsNone)
+
+module NonRetriableErrorTests =
+
+    let private createTempDir () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    [<Fact>]
+    let ``non-retriable exception is NOT retried`` () =
+        let mutable callCount = 0
+        let customHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    raise (UnifiedLlm.NotFoundError("missing model")) }
+
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [type="custom", max_retries=5]
+            start -> A -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("custom", customHandler)
+        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let result = Engine.run graph config
+        Assert.Equal(1, callCount)
+        Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
+
+    [<Fact>]
+    let ``failed node with only conditioned outgoing edges halts the pipeline`` () =
+        let customHandler =
+            { new IHandler with
+                member _.Execute(node, _, _, _) =
+                    if node.Id = "A" then Outcome.Fail("permanent")
+                    else Outcome.Success() }
+
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [type="custom", max_retries=0]
+            B [type="custom"]
+            C [type="custom"]
+            start -> A
+            A -> B [condition="context.foo=bar"]
+            A -> C [condition="context.foo=baz", weight=10]
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("custom", customHandler)
+        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let result = Engine.run graph config
+        Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
+        Assert.DoesNotContain("C", result.CompletedNodes)

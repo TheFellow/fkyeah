@@ -119,7 +119,7 @@ module EdgeSelection =
                             if not unconditional.IsEmpty then
                                 bestByWeightThenLexical unconditional
                             else
-                                bestByWeightThenLexical edges
+                                None
 
 /// Goal gate enforcement
 module GoalGates =
@@ -229,7 +229,12 @@ module Engine =
                     cont <- false
 
             with ex ->
-                if attempt < retryPolicy.MaxAttempts then
+                let isRetriable =
+                    match ex with
+                    | :? UnifiedLlm.ProviderError as pe -> pe.Retryable
+                    | _ -> true
+
+                if isRetriable && attempt < retryPolicy.MaxAttempts then
                     emitter.Emit(PipelineEvent.StageRetrying(node.Id, nodeIndex, attempt, retryPolicy.Backoff.DelayForAttempt(attempt)))
                     let delay = retryPolicy.Backoff.DelayForAttempt(attempt)
                     if delay > 0 then
