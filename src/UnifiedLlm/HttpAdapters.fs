@@ -568,7 +568,7 @@ type AnthropicAdapter(apiKey: string) =
 
     let buildBody (request: Request) (stream: bool) =
         let model =
-            if request.Model = "" then "claude-sonnet-4-6-20250819"
+            if request.Model = "" then "claude-sonnet-4-6"
             else request.Model
 
         let maxTokens = request.MaxTokens |> Option.defaultValue 4096
@@ -769,7 +769,7 @@ type AnthropicAdapter(apiKey: string) =
         member _.SupportsToolChoice() = true
 
         member this.Complete(request: Request) =
-            let model = if request.Model = "" then "claude-sonnet-4-6-20250819" else request.Model
+            let model = if request.Model = "" then "claude-sonnet-4-6" else request.Model
             let httpReq = this.BuildHttpRequest(request, false)
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
@@ -780,7 +780,7 @@ type AnthropicAdapter(apiKey: string) =
             HttpAdapterHelpers.responseFromAnthropic model respBody httpResp
 
         member this.Stream(request: Request) =
-            let model = if request.Model = "" then "claude-sonnet-4-6-20250819" else request.Model
+            let model = if request.Model = "" then "claude-sonnet-4-6" else request.Model
             seq {
                 let httpReq = this.BuildHttpRequest(request, true)
                 let httpResp, cts = HttpAdapterHelpers.sendForStream client request httpReq

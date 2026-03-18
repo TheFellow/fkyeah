@@ -90,7 +90,7 @@ type LlmBackend(llmClient: Client) =
             try
                 let model =
                     if node.LlmModel <> "" then node.LlmModel
-                    else "claude-sonnet-4-6-20250819"
+                    else "claude-sonnet-4-6"
                 let provider =
                     if node.LlmProvider <> "" then Some node.LlmProvider
                     else
@@ -284,7 +284,7 @@ let printSchema () =
 #                                  Selectors: * (universal), box (shape), .class, #id
 #                                  Properties: llm_model, llm_provider, reasoning_effort
 #                                  Specificity: * < shape < .class < #id
-#                                  Example: "* { llm_model: claude-sonnet-4-6-20250819; }
+#                                  Example: "* { llm_model: claude-sonnet-4-6; }
 #                                            .critical { llm_model: claude-opus-4-6; }"
 #   default_fidelity     String    Default context fidelity mode for all nodes.
 #                                  Values: full | truncate | compact |
@@ -427,7 +427,7 @@ digraph code_review {
     graph [
         goal="Implement and review a new feature",
         label="Code Review Pipeline",
-        model_stylesheet="* { llm_model: claude-sonnet-4-6-20250819; } .critical { llm_model: claude-opus-4-6; }",
+        model_stylesheet="* { llm_model: claude-sonnet-4-6; } .critical { llm_model: claude-opus-4-6; }",
         default_max_retry=3
     ]
 
@@ -672,7 +672,7 @@ let resume (logsRoot: string) (dotFile: string option) (autoApprove: bool) (simu
             | Ok registry ->
 
             let source = File.ReadAllText(f)
-            let graph = Pipeline.parseOrRaise source
+            let (graph, _) = Transforms.preparePipeline source None
 
             let emitter = EventEmitter()
             emitter.AddObserver(ConsoleEventObserver())
