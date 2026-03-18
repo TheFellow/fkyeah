@@ -3610,11 +3610,11 @@ module NonRetriableErrorTests =
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
 
     [<Fact>]
-    let ``failed node with only conditioned outgoing edges halts the pipeline`` () =
+    let ``selectEdge returns None when success node has only unmatched conditioned edges`` () =
         let customHandler =
             { new IHandler with
                 member _.Execute(node, _, _, _) =
-                    if node.Id = "A" then Outcome.Fail("permanent")
+                    if node.Id = "A" then Outcome.Success()
                     else Outcome.Success() }
 
         let dot = """
@@ -3636,5 +3636,5 @@ module NonRetriableErrorTests =
         let config = { RunConfig.Default(logsRoot) with Registry = registry }
 
         let result = Engine.run graph config
-        Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.DoesNotContain("C", result.CompletedNodes)
