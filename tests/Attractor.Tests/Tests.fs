@@ -225,6 +225,31 @@ module DotParsingTests =
         Assert.Equal("echo pre", node.GetAttrString("tool_hooks.pre", ""))
         Assert.Equal("echo post", node.GetAttrString("tool_hooks.post", ""))
 
+    [<Fact>]
+    let ``Bare values allow colon and hyphen characters`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [
+                shape=box,
+                fidelity=summary:high,
+                llm_model=gemini-3.1-pro-preview,
+                class=release-candidate
+            ]
+            gate [shape=diamond]
+            start -> A -> gate
+            gate -> exit [condition="context.build=release-candidate"]
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let node = graph.Nodes["A"]
+        Assert.Equal("summary:high", node.Fidelity)
+        Assert.Equal("gemini-3.1-pro-preview", node.LlmModel)
+        Assert.Equal("release-candidate", node.Class)
+        let edge = graph.Edges |> List.find (fun e -> e.FromNode = "gate" && e.ToNode = "exit")
+        Assert.Equal("context.build=release-candidate", edge.Condition)
+
 // ============================================================================
 // 11.2 Validation and Linting
 // ============================================================================
@@ -251,6 +276,34 @@ module ValidationTests =
             start [shape=Mdiamond]
             A [shape=box]
             start -> A
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(diags |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error))
+
+    [<Fact>]
+    let ``Validation accepts id=exit without Msquare shape`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=box]
+            work [shape=box]
+            start -> work -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error))
+
+    [<Fact>]
+    let ``Validation remains case-sensitive for exit id`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            Exit [shape=box]
+            work [shape=box]
+            start -> work -> Exit
         }
         """
         let graph = DotParser.parseOrRaise dot
@@ -1250,6 +1303,7 @@ module ContextTests =
 
         let dot = """
         digraph Test {
+            graph [default_fidelity="full"]
             start [shape=Mdiamond]
             exit [shape=Msquare]
             A [type="h1"]
@@ -1471,6 +1525,16 @@ module ConditionTests =
         let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
         let context = Context()
         Assert.True(Conditions.evaluate "preferred_label=Fix" outcome context)
+
+    [<Fact>]
+    let ``Condition literals strip one pair of surrounding quotes`` () =
+        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        let context = Context()
+        context.Set("foo", "bar-baz")
+        Assert.True(Conditions.evaluate "outcome=\"success\"" outcome context)
+        Assert.True(Conditions.evaluate "preferred_label=\"Fix\"" outcome context)
+        Assert.True(Conditions.evaluate "context.foo=\"bar-baz\"" outcome context)
+        Assert.True(Conditions.evaluate "context.foo=bar-baz" outcome context)
 
     [<Fact>]
     let ``Context variables resolve to context values`` () =
@@ -1946,6 +2010,7 @@ module ParityMatrixTests =
 
         let dot = """
         digraph Test {
+            graph [default_fidelity="full"]
             start [shape=Mdiamond]
             exit [shape=Msquare]
             A [type="ha"]
@@ -2676,11 +2741,11 @@ module FidelityTests =
         Assert.Equal(FidelityMode.Compact, resolved)
 
     [<Fact>]
-    let ``Fidelity resolution defaults to Full when nothing specified`` () =
+    let ``Fidelity resolution defaults to Compact when nothing specified`` () =
         let node = { Id = "B"; Attributes = Map.empty }
         let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
         let resolved = FidelityResolution.resolve None node graph
-        Assert.Equal(FidelityMode.Full, resolved)
+        Assert.Equal(FidelityMode.Compact, resolved)
 
     [<Fact>]
     let ``Engine applies fidelity to handler context`` () =
@@ -2854,6 +2919,7 @@ module ParallelExecutionTests =
     let ``Parallel branches execute and return Success`` () =
         let dot = """
         digraph Test {
+            graph [default_fidelity="full"]
             start [shape=Mdiamond]
             exit [shape=Msquare]
             fan_out [shape=component]
@@ -2907,6 +2973,7 @@ module ParallelExecutionTests =
     let ``Fan-in reads parallel branch results`` () =
         let dot = """
         digraph Test {
+            graph [default_fidelity="full"]
             start [shape=Mdiamond]
             exit [shape=Msquare]
             fan_out [shape=component]
@@ -3098,6 +3165,41 @@ module ManagerLoopTests =
 module DefaultMaxRetryTests =
 
     [<Fact>]
+    let ``Node MaxRetriesOption is None when max_retries is absent`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        Assert.True(node.MaxRetriesOption.IsNone)
+        Assert.Equal(0, node.MaxRetries)
+
+    [<Fact>]
+    let ``Node MaxRetriesOption is Some when max_retries is present`` () =
+        let node = { Id = "A"; Attributes = Map.ofList [ "max_retries", AttrValue.Integer 3 ] }
+        Assert.Equal(Some 3, node.MaxRetriesOption)
+        Assert.Equal(3, node.MaxRetries)
+
+    [<Fact>]
+    let ``Graph DefaultMaxRetriesOption prefers default_max_retries over legacy alias`` () =
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes =
+                Map.ofList
+                    [ "default_max_retries", AttrValue.Integer 7
+                      "default_max_retry", AttrValue.Integer 3 ] }
+        Assert.Equal(Some 7, graph.DefaultMaxRetriesOption)
+        Assert.Equal(7, graph.DefaultMaxRetry)
+
+    [<Fact>]
+    let ``Graph DefaultMaxRetriesOption falls back to default_max_retry alias`` () =
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_max_retry", AttrValue.Integer 5 ] }
+        Assert.Equal(Some 5, graph.DefaultMaxRetriesOption)
+        Assert.Equal(5, graph.DefaultMaxRetry)
+
+    [<Fact>]
     let ``Graph default_max_retry used when node has no max_retries`` () =
         let mutable callCount = 0
         let handler =
@@ -3124,6 +3226,53 @@ module DefaultMaxRetryTests =
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, callCount)
+
+    [<Fact>]
+    let ``RetryPolicy uses graph default_max_retries when node max_retries is absent`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_max_retries", AttrValue.Integer 5 ] }
+        let policy = RetryPolicy.FromNode(node, graph)
+        Assert.Equal(6, policy.MaxAttempts)
+
+    [<Fact>]
+    let ``RetryPolicy honors explicit node max_retries=0 over graph defaults`` () =
+        let node = { Id = "A"; Attributes = Map.ofList [ "max_retries", AttrValue.Integer 0 ] }
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_max_retries", AttrValue.Integer 5 ] }
+        let policy = RetryPolicy.FromNode(node, graph)
+        Assert.Equal(1, policy.MaxAttempts)
+
+    [<Fact>]
+    let ``RetryPolicy still supports legacy default_max_retry alias`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_max_retry", AttrValue.Integer 5 ] }
+        let policy = RetryPolicy.FromNode(node, graph)
+        Assert.Equal(6, policy.MaxAttempts)
+
+    [<Fact>]
+    let ``RetryPolicy prefers default_max_retries when both graph keys exist`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        let graph =
+            { Name = "t"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes =
+                Map.ofList
+                    [ "default_max_retries", AttrValue.Integer 2
+                      "default_max_retry", AttrValue.Integer 9 ] }
+        let policy = RetryPolicy.FromNode(node, graph)
+        Assert.Equal(3, policy.MaxAttempts)
 
 // ============================================================================
 // Fidelity Projection — all 6 modes
@@ -3389,6 +3538,50 @@ module EdgeSelectionAdditionalTests =
         let edge = EdgeSelection.selectEdge node (Outcome.Success()) (Context()) graph
         Assert.Equal("C", edge.Value.ToNode)
 
+    [<Fact>]
+    let ``Preferred label cannot select a conditional edge`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        let graph =
+            { Name = "t"
+              Nodes =
+                Map.ofList
+                    [ "A", node
+                      "B", { Id = "B"; Attributes = Map.empty }
+                      "C", { Id = "C"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "A"
+                    ToNode = "B"
+                    Attributes =
+                        Map.ofList
+                            [ "label", AttrValue.String "Fix"
+                              "condition", AttrValue.String "outcome=fail"
+                              "weight", AttrValue.Integer 100 ] }
+                  { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
+              GraphAttributes = Map.empty }
+        let edge = EdgeSelection.selectEdge node outcome (Context()) graph
+        Assert.True(edge.IsSome)
+        Assert.Equal("C", edge.Value.ToNode)
+
+    [<Fact>]
+    let ``Suggested next ids cannot select a conditional edge`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+        let outcome = { Outcome.Success() with SuggestedNextIds = [ "B" ] }
+        let graph =
+            { Name = "t"
+              Nodes =
+                Map.ofList
+                    [ "A", node
+                      "B", { Id = "B"; Attributes = Map.empty }
+                      "C", { Id = "C"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList [ "condition", AttrValue.String "outcome=fail" ] }
+                  { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
+              GraphAttributes = Map.empty }
+        let edge = EdgeSelection.selectEdge node outcome (Context()) graph
+        Assert.True(edge.IsSome)
+        Assert.Equal("C", edge.Value.ToNode)
+
 // ============================================================================
 // Sprint 004 Coverage
 // ============================================================================
@@ -3638,3 +3831,94 @@ module NonRetriableErrorTests =
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.DoesNotContain("C", result.CompletedNodes)
+
+module Sprint006Phase3Tests =
+
+    let private createTempDir () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    [<Fact>]
+    let ``Tool pre-hook failure skips tool execution`` () =
+        let workDir = createTempDir()
+        let dot = $"""
+        digraph Test {{
+            graph [cwd="{workDir}"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            tool_node [
+                shape=parallelogram,
+                tool_hooks.pre="echo blocked >&2; exit 7",
+                tool_command="echo ran > tool-ran.txt"
+            ]
+            start -> tool_node -> exit
+        }}
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let result = Engine.run graph (RunConfig.Default(logsRoot))
+
+        Assert.Equal(StageStatus.Skipped, result.NodeOutcomes["tool_node"].Status)
+        Assert.False(File.Exists(Path.Combine(workDir, "tool-ran.txt")))
+        Assert.False(File.Exists(Path.Combine(logsRoot, "tool_node", "tool_output.txt")))
+
+    [<Fact>]
+    let ``writeStatus serializes preferred_label key`` () =
+        let logsRoot = createTempDir()
+        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        Handlers.writeStatus logsRoot logsRoot outcome
+        let statusJson = File.ReadAllText(Path.Combine(logsRoot, "status.json"))
+        Assert.Contains("\"preferred_label\"", statusJson)
+        Assert.DoesNotContain("preferred_next_label", statusJson)
+
+    [<Fact>]
+    let ``Engine loads preferred_next_label for backward compatibility`` () =
+        let handler =
+            { new IHandler with
+                member _.Execute(node, _, _, logsRoot) =
+                    let stageDir = Path.Combine(logsRoot, node.Id)
+                    Directory.CreateDirectory(stageDir) |> ignore
+                    File.WriteAllText(
+                        Path.Combine(stageDir, "status.json"),
+                        """{"outcome":"success","preferred_next_label":"LegacyFix"}""")
+                    Outcome.Success() }
+
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [type="legacy"]
+            start -> A -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("legacy", handler)
+        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+        let result = Engine.run graph config
+
+        Assert.Equal("LegacyFix", result.Context.Get("preferred_label"))
+        Assert.Equal("LegacyFix", result.NodeOutcomes["A"].PreferredLabel)
+
+    [<Fact>]
+    let ``Parallel deprecated attrs are ignored without parse or runtime errors`` () =
+        let dot = """
+        digraph Test {
+            graph [default_fidelity="full"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            fan_out [shape=component, error_policy="continue", k_of_n=1, quorum=1]
+            branch [shape=box, prompt="branch"]
+            fan_in [shape=tripleoctagon]
+            start -> fan_out
+            fan_out -> branch
+            branch -> fan_in
+            fan_in -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let result = Engine.run graph (RunConfig.Default(logsRoot))
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)

@@ -76,20 +76,27 @@ module Validation =
         { new ILintRule with
             member _.Name = "terminal_node"
             member _.Apply(graph) =
-                let exitNodes =
+                let terminalCandidates =
                     graph.Nodes
                     |> Map.toList
-                    |> List.filter (fun (_, n) -> n.Shape = "Msquare")
-                match exitNodes.Length with
+                    |> List.filter (fun (id, n) -> n.Shape = "Msquare" || id = "exit" || id = "end")
+                    |> List.map fst
+                    |> List.distinct
+                match terminalCandidates.Length with
                 | 1 -> []
                 | 0 ->
-                    [ Diagnostic.Error("terminal_node", "Pipeline must have exactly one exit node (shape=Msquare)",
-                        fix = "Add a node with shape=Msquare") ]
+                    match graph.FindExitNode() with
+                    | Some _ -> []
+                    | None ->
+                        [ Diagnostic.Error(
+                            "terminal_node",
+                            "Pipeline must have exactly one exit node (shape=Msquare or id=exit/end)",
+                            fix = "Add a node with shape=Msquare or id=exit/end") ]
                 | count ->
                     [ Diagnostic.Error(
                         "terminal_node",
                         $"Pipeline must have exactly one exit node but found {count}",
-                        fix = "Remove extra shape=Msquare nodes so exactly one remains") ] }
+                        fix = "Remove extra terminal nodes so exactly one remains") ] }
 
     /// Rule: All nodes reachable from start
     let reachabilityRule: ILintRule =

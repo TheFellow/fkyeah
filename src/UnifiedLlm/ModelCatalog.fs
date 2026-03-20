@@ -72,10 +72,10 @@ module ModelCatalog =
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
         // Gemini
-        { Id = "gemini-3-pro-preview"; Provider = "gemini"; DisplayName = "Gemini 3 Pro (Preview)"
+        { Id = "gemini-3.1-pro-preview"; Provider = "gemini"; DisplayName = "Gemini 3.1 Pro (Preview)"
           ContextWindow = 1048576; MaxOutput = 65536
           InputCostPerMillion = 7.0; OutputCostPerMillion = 21.0
-          Aliases = [ "gemini-3-pro"; "gemini-pro" ]
+          Aliases = [ "gemini-3-pro"; "gemini-pro"; "gemini-3.1-pro" ]
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
         { Id = "gemini-3-flash-preview"; Provider = "gemini"; DisplayName = "Gemini 3 Flash (Preview)"
@@ -90,7 +90,7 @@ module ModelCatalog =
         Map.ofList [
             "anthropic", "claude-opus-4-6"
             "openai", "gpt-5.4"
-            "gemini", "gemini-3-pro-preview"
+            "gemini", "gemini-3.1-pro-preview"
         ]
 
     /// Get model info by exact ID. Returns None if unknown.

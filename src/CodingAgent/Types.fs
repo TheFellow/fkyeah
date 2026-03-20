@@ -66,7 +66,7 @@ type SessionConfig = {
     EnableLoopDetection: bool
     LoopDetectionWindow: int
     MaxSubagentDepth: int
-    ToolCallHook: (ToolCallHookPhase -> UnifiedLlm.ToolCallData -> UnifiedLlm.ToolResultData option -> unit) option
+    ToolCallHook: (ToolCallHookPhase -> UnifiedLlm.ToolCallData -> UnifiedLlm.ToolResultData option -> Result<unit, string>) option
     OnEvent: (SessionEvent -> unit) option
 } with
     static member Default = {

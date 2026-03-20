@@ -30,7 +30,7 @@ type Token =
 
 module Lexer =
     let private isIdentStart c = Char.IsLetter(c) || c = '_'
-    let private isIdentChar c = Char.IsLetterOrDigit(c) || c = '_' || c = '.'
+    let private isIdentChar c = Char.IsLetterOrDigit(c) || c = '_' || c = '.' || c = ':' || c = '-'
 
     let private stripComments (input: string) =
         let sb = StringBuilder(input.Length)

@@ -209,11 +209,13 @@ type Node =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue ""
 
-    member this.MaxRetries =
+    member this.MaxRetriesOption =
         this.Attributes
         |> Map.tryFind "max_retries"
         |> Option.bind (fun v -> v.AsInt())
-        |> Option.defaultValue 0
+
+    member this.MaxRetries =
+        defaultArg this.MaxRetriesOption 0
 
     member this.GoalGate =
         this.Attributes
@@ -386,11 +388,14 @@ type Graph =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue ""
 
-    member this.DefaultMaxRetry =
+    member this.DefaultMaxRetriesOption =
         this.GraphAttributes
-        |> Map.tryFind "default_max_retry"
+        |> Map.tryFind "default_max_retries"
+        |> Option.orElseWith (fun () -> Map.tryFind "default_max_retry" this.GraphAttributes)
         |> Option.bind (fun v -> v.AsInt())
-        |> Option.defaultValue 50
+
+    member this.DefaultMaxRetry =
+        defaultArg this.DefaultMaxRetriesOption 0
 
     member this.RetryTarget =
         this.GraphAttributes
@@ -555,6 +560,7 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
         lock lockObj (fun () -> logs |> Seq.toList)
 
     member _.Clone() =
+        // F# strings are immutable; copy is by value. Artifact store handle is intentionally shared.
         let ctx =
             match artifactStore with
             | Some store -> Context(artifactStore = store, offloadThresholdBytes = thresholdBytes)

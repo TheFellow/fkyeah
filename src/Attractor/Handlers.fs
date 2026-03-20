@@ -176,8 +176,10 @@ module Handlers =
         (stageDir: string)
         (logsRoot: string)
         (extraEnv: (string * string) list)
-        : unit =
-        if hookCommand <> "" then
+        : Result<string, string> =
+        if hookCommand = "" then
+            Result.Ok ""
+        else
             let psi = System.Diagnostics.ProcessStartInfo("/bin/sh")
             psi.ArgumentList.Add("-c")
             psi.ArgumentList.Add(hookCommand)
@@ -193,16 +195,26 @@ module Handlers =
                 psi.EnvironmentVariables[k] <- v
 
             use proc = System.Diagnostics.Process.Start(psi)
+            let stdoutTask = proc.StandardOutput.ReadToEndAsync()
+            let stderrTask = proc.StandardError.ReadToEndAsync()
             proc.WaitForExit()
-            if proc.ExitCode <> 0 then
-                let stderr = proc.StandardError.ReadToEnd()
-                eprintfn "Warning: hook command failed for node %s: %s" nodeId stderr
+            let stdout = stdoutTask.Result
+            let stderr = stderrTask.Result
+
+            if proc.ExitCode = 0 then
+                Result.Ok stdout
+            else
+                let details =
+                    if not (String.IsNullOrWhiteSpace(stderr)) then stderr.Trim()
+                    elif not (String.IsNullOrWhiteSpace(stdout)) then stdout.Trim()
+                    else "(no output)"
+                Result.Error $"Hook failed with exit code {proc.ExitCode}: {details}"
 
     /// Write a status.json file for a node outcome
     let writeStatus (stageDir: string) (rootDir: string) (outcome: Outcome) =
         let status =
             {| outcome = outcome.Status.ToString()
-               preferred_next_label = outcome.PreferredLabel
+               preferred_label = outcome.PreferredLabel
                suggested_next_ids = outcome.SuggestedNextIds
                context_updates = outcome.ContextUpdates
                notes = outcome.Notes |}
@@ -344,6 +356,7 @@ module Handlers =
                                         [ "TOOL_NAME", toolCall.Name
                                           "TOOL_ARGS", toolCall.Arguments
                                           "NODE_ID", node.Id ]
+                                    |> Result.map (fun _ -> ())
                                 elif kind = CodingAgent.ToolCallHookPhase.Post then
                                     let resultContent =
                                         toolResult
@@ -353,7 +366,8 @@ module Handlers =
                                         toolResult
                                         |> Option.map (fun r -> if r.IsError then "1" else "0")
                                         |> Option.defaultValue "1"
-                                    runHook
+                                    match
+                                        runHook
                                         postHook
                                         workingDir
                                         node.Id
@@ -363,8 +377,13 @@ module Handlers =
                                           "TOOL_RESULT", resultContent
                                           "EXIT_CODE", exitCode
                                           "NODE_ID", node.Id ]
+                                    with
+                                    | Result.Ok _ -> Result.Ok()
+                                    | Result.Error err ->
+                                        eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
+                                        Result.Ok()
                                 else
-                                    ())
+                                    Result.Ok())
 
                     let sessionConfig =
                         { SessionConfig.Default with
@@ -601,6 +620,8 @@ module Handlers =
 
     /// Parallel handler: fans out execution to branches concurrently.
     /// Accepts a registry resolver so it can actually execute branch node handlers.
+    /// Spec note (§4.8): `error_policy`, `k_of_n`, and `quorum` attributes are intentionally unsupported.
+    /// They are parsed as inert metadata and ignored at runtime.
     type ParallelHandler(?resolveHandler: Node -> IHandler) =
         interface IHandler with
             member _.Execute(node, context, graph, logsRoot) =
@@ -627,13 +648,12 @@ module Handlers =
                                                 // Fallback: no resolver, just mark success
                                                 Outcome.Success(notes = $"Branch {targetNode.Id} (no handler)")
 
-                                        // Merge branch outcome into parent context
-                                        context.ApplyUpdates(outcome.ContextUpdates)
-                                        return (branch.ToNode, outcome.Status, branchContext)
-                                    with ex ->
-                                        return (branch.ToNode, StageStatus.Fail, branchContext)
+                                        // Keep branch updates isolated until all branches complete.
+                                        return (branch.ToNode, outcome.Status, outcome.ContextUpdates)
+                                    with _ ->
+                                        return (branch.ToNode, StageStatus.Fail, Map.empty)
                                 | None ->
-                                    return (branch.ToNode, StageStatus.Fail, branchContext)
+                                    return (branch.ToNode, StageStatus.Fail, Map.empty)
                             })
                         |> Array.ofList
 
@@ -646,10 +666,16 @@ module Handlers =
                     let successCount = results |> List.filter (fun (_, s, _) -> s = StageStatus.Success) |> List.length
                     let failCount = results |> List.filter (fun (_, s, _) -> s <> StageStatus.Success) |> List.length
 
+                    let mergedBranchUpdates =
+                        results
+                        |> List.fold (fun acc (_, _, updates) ->
+                            updates
+                            |> Map.fold (fun state key value -> Map.add key value state) acc) Map.empty
+
                     // Write per-branch results to context + record executed nodes
                     let executedNodes =
                         results |> List.map (fun (id, _, _) -> id) |> String.concat ","
-                    let contextUpdates =
+                    let metadataUpdates =
                         results
                         |> List.fold (fun acc (branchId, status, _) ->
                             acc |> Map.add $"parallel.branch.{branchId}.status" (status.ToString()))
@@ -657,6 +683,9 @@ module Handlers =
                                 [ "parallel.success_count", string successCount
                                   "parallel.fail_count", string failCount
                                   "parallel.executed_nodes", executedNodes ])
+                    let contextUpdates =
+                        metadataUpdates
+                        |> Map.fold (fun state key value -> Map.add key value state) mergedBranchUpdates
 
                     let status =
                         if failCount = 0 then StageStatus.Success
@@ -720,111 +749,134 @@ module Handlers =
                             else
                                 None
 
-                        runHook
-                            node.ToolHooksPre
-                            workingDir
-                            node.Id
-                            stageDir
-                            logsRoot
-                            [ "TOOL_NAME", "shell"
-                              "TOOL_ARGS", command
-                              "NODE_ID", node.Id ]
-
-                        let psi = System.Diagnostics.ProcessStartInfo("/bin/sh")
-                        psi.ArgumentList.Add("-c")
-                        psi.ArgumentList.Add(command)
-                        psi.RedirectStandardOutput <- true
-                        psi.RedirectStandardError <- true
-                        psi.RedirectStandardInput <- (promptFile.IsSome)
-                        psi.UseShellExecute <- false
-                        psi.WorkingDirectory <- workingDir
-
-                        // Set env vars for the tool command
-                        match promptFile with
-                        | Some path ->
-                            psi.EnvironmentVariables["ATTRACTOR_PROMPT_FILE"] <- path
-                        | None -> ()
-                        psi.EnvironmentVariables["ATTRACTOR_STAGE_DIR"] <- rootDir
-                        psi.EnvironmentVariables["ATTRACTOR_LOGS_ROOT"] <- logsRoot
-                        psi.EnvironmentVariables["ATTRACTOR_NODE_ID"] <- node.Id
-                        psi.EnvironmentVariables["ATTRACTOR_CWD"] <- workingDir
-
-                        let proc = System.Diagnostics.Process.Start(psi)
-
-                        // Pipe prompt to stdin if available
-                        match promptFile with
-                        | Some path ->
-                            let promptText = File.ReadAllText(path)
-                            proc.StandardInput.Write(promptText)
-                            proc.StandardInput.Close()
-                        | None -> ()
-
-                        // Read stdout and stderr asynchronously to avoid deadlocks
-                        let stdoutTask = proc.StandardOutput.ReadToEndAsync()
-                        let stderrTask = proc.StandardError.ReadToEndAsync()
-
-                        // Apply timeout if configured
-                        let timeoutMs =
-                            node.Timeout
-                            |> Option.map (fun d -> int d.Milliseconds)
-                            |> Option.defaultValue 0 // 0 = no timeout
-
-                        let completed =
-                            if timeoutMs > 0 then
-                                proc.WaitForExit(timeoutMs)
-                            else
-                                proc.WaitForExit()
-                                true
-
-                        if not completed then
-                            try proc.Kill(true) with _ -> ()
+                        match
                             runHook
-                                node.ToolHooksPost
+                                node.ToolHooksPre
                                 workingDir
                                 node.Id
                                 stageDir
                                 logsRoot
                                 [ "TOOL_NAME", "shell"
-                                  "TOOL_RESULT", ""
-                                  "EXIT_CODE", "124"
+                                  "TOOL_ARGS", command
                                   "NODE_ID", node.Id ]
-                            Outcome.Fail($"Tool timed out after {timeoutMs}ms: {command}")
-                        else
-                            let fullOutput = stdoutTask.Result
-                            let stderr = stderrTask.Result
-                            let exitCode = proc.ExitCode
+                        with
+                        | Result.Error hookError ->
+                            eprintfn "Warning: pre-hook command failed for node %s: %s" node.Id hookError
+                            let outcome =
+                                { Status = StageStatus.Skipped
+                                  PreferredLabel = ""
+                                  SuggestedNextIds = []
+                                  ContextUpdates = Map.empty
+                                  Notes = "Tool execution skipped because pre-hook failed"
+                                  FailureReason = hookError }
+                            writeStatus stageDir rootDir outcome
+                            outcome
+                        | Result.Ok _ ->
+                            let psi = System.Diagnostics.ProcessStartInfo("/bin/sh")
+                            psi.ArgumentList.Add("-c")
+                            psi.ArgumentList.Add(command)
+                            psi.RedirectStandardOutput <- true
+                            psi.RedirectStandardError <- true
+                            psi.RedirectStandardInput <- (promptFile.IsSome)
+                            psi.UseShellExecute <- false
+                            psi.WorkingDirectory <- workingDir
 
-                            // Write full output to logs
-                            writeStageFile stageDir rootDir "tool_output.txt" fullOutput
-                            if stderr.Length > 0 then
-                                writeStageFile stageDir rootDir "tool_stderr.txt" stderr
+                            // Set env vars for the tool command
+                            match promptFile with
+                            | Some path ->
+                                psi.EnvironmentVariables["ATTRACTOR_PROMPT_FILE"] <- path
+                            | None -> ()
+                            psi.EnvironmentVariables["ATTRACTOR_STAGE_DIR"] <- rootDir
+                            psi.EnvironmentVariables["ATTRACTOR_LOGS_ROOT"] <- logsRoot
+                            psi.EnvironmentVariables["ATTRACTOR_NODE_ID"] <- node.Id
+                            psi.EnvironmentVariables["ATTRACTOR_CWD"] <- workingDir
 
-                            // Truncate output for context
-                            let truncatedOutput =
-                                if fullOutput.Length > outputLimit then
-                                    fullOutput.Substring(0, outputLimit) + $"\n[WARNING: Tool output was truncated. {fullOutput.Length - outputLimit} characters removed]"
+                            let proc = System.Diagnostics.Process.Start(psi)
+
+                            // Pipe prompt to stdin if available
+                            match promptFile with
+                            | Some path ->
+                                let promptText = File.ReadAllText(path)
+                                proc.StandardInput.Write(promptText)
+                                proc.StandardInput.Close()
+                            | None -> ()
+
+                            // Read stdout and stderr asynchronously to avoid deadlocks
+                            let stdoutTask = proc.StandardOutput.ReadToEndAsync()
+                            let stderrTask = proc.StandardError.ReadToEndAsync()
+
+                            // Apply timeout if configured
+                            let timeoutMs =
+                                node.Timeout
+                                |> Option.map (fun d -> int d.Milliseconds)
+                                |> Option.defaultValue 0 // 0 = no timeout
+
+                            let completed =
+                                if timeoutMs > 0 then
+                                    proc.WaitForExit(timeoutMs)
                                 else
-                                    fullOutput
+                                    proc.WaitForExit()
+                                    true
 
-                            runHook
-                                node.ToolHooksPost
-                                workingDir
-                                node.Id
-                                stageDir
-                                logsRoot
-                                [ "TOOL_NAME", "shell"
-                                  "TOOL_RESULT", truncatedOutput
-                                  "EXIT_CODE", string exitCode
-                                  "NODE_ID", node.Id ]
-
-                            if exitCode = 0 then
-                                let updates =
-                                    Map.ofList [ "tool.output", truncatedOutput; "tool.stderr", stderr ]
-                                Outcome.Success(
-                                    notes = $"Tool completed: {command}",
-                                    contextUpdates = updates)
+                            if not completed then
+                                try proc.Kill(true) with _ -> ()
+                                match
+                                    runHook
+                                        node.ToolHooksPost
+                                        workingDir
+                                        node.Id
+                                        stageDir
+                                        logsRoot
+                                        [ "TOOL_NAME", "shell"
+                                          "TOOL_RESULT", ""
+                                          "EXIT_CODE", "124"
+                                          "NODE_ID", node.Id ]
+                                with
+                                | Result.Error err ->
+                                    eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
+                                | Result.Ok _ -> ()
+                                Outcome.Fail($"Tool timed out after {timeoutMs}ms: {command}")
                             else
-                                Outcome.Fail($"Tool failed with exit code {exitCode}")
+                                let fullOutput = stdoutTask.Result
+                                let stderr = stderrTask.Result
+                                let exitCode = proc.ExitCode
+
+                                // Write full output to logs
+                                writeStageFile stageDir rootDir "tool_output.txt" fullOutput
+                                if stderr.Length > 0 then
+                                    writeStageFile stageDir rootDir "tool_stderr.txt" stderr
+
+                                // Truncate output for context
+                                let truncatedOutput =
+                                    if fullOutput.Length > outputLimit then
+                                        fullOutput.Substring(0, outputLimit) + $"\n[WARNING: Tool output was truncated. {fullOutput.Length - outputLimit} characters removed]"
+                                    else
+                                        fullOutput
+
+                                match
+                                    runHook
+                                        node.ToolHooksPost
+                                        workingDir
+                                        node.Id
+                                        stageDir
+                                        logsRoot
+                                        [ "TOOL_NAME", "shell"
+                                          "TOOL_RESULT", truncatedOutput
+                                          "EXIT_CODE", string exitCode
+                                          "NODE_ID", node.Id ]
+                                with
+                                | Result.Error err ->
+                                    eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
+                                | Result.Ok _ -> ()
+
+                                if exitCode = 0 then
+                                    let updates =
+                                        Map.ofList [ "tool.output", truncatedOutput; "tool.stderr", stderr ]
+                                    Outcome.Success(
+                                        notes = $"Tool completed: {command}",
+                                        contextUpdates = updates)
+                                else
+                                    Outcome.Fail($"Tool failed with exit code {exitCode}")
                     with ex ->
                         Outcome.Fail(ex.Message)
 

@@ -4,3 +4,4 @@ sprint_id	title	status	created_at	updated_at
 003	003: Attractor Spec Conformance	completed	2026-02-24T22:48:40.219187	2026-02-25T00:39:53.494028
 004	004: Cross-Spec Gap Closure	completed	2026-02-25T10:10:58.506026	2026-02-25T11:01:57.655963
 005	005: Test Coverage Hardening	completed	2026-02-25T20:17:37.834733	2026-02-25T23:25:04.782578
+006	006: Spec Sync (fb57a55)	in_progress	2026-03-20T10:52:38.259921	2026-03-20T10:59:07.019434

@@ -5,6 +5,13 @@ open System
 /// Condition expression language for edge guards
 module Conditions =
 
+    let private parseLiteral (literal: string) : string =
+        let trimmed = literal.Trim()
+        if trimmed.Length >= 2 && trimmed.StartsWith("\"") && trimmed.EndsWith("\"") then
+            trimmed.Substring(1, trimmed.Length - 2)
+        else
+            trimmed
+
     /// Resolve a key to a string value from outcome and context
     let resolveKey (key: string) (outcome: Outcome) (context: Context) : string =
         match key.Trim() with
@@ -35,7 +42,7 @@ module Conditions =
             let parts = clause.Split("!=", 2, StringSplitOptions.None)
             if parts.Length = 2 then
                 let key = parts[0].Trim()
-                let value = parts[1].Trim()
+                let value = parseLiteral parts[1]
                 resolveKey key outcome context <> value
             else
                 false
@@ -43,7 +50,7 @@ module Conditions =
             let parts = clause.Split("=", 2, StringSplitOptions.None)
             if parts.Length = 2 then
                 let key = parts[0].Trim()
-                let value = parts[1].Trim()
+                let value = parseLiteral parts[1]
                 resolveKey key outcome context = value
             else
                 false

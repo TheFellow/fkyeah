@@ -170,7 +170,7 @@ module ProviderAdapters =
     [<Fact>]
     let ``Mock Gemini adapter complete returns response`` () =
         let adapter = MockGeminiAdapter() :> IProviderAdapter
-        let request = Request.Create("gemini-3-pro-preview", [ Message.user("test") ])
+        let request = Request.Create("gemini-3.1-pro-preview", [ Message.user("test") ])
         let response = adapter.Complete(request)
         Assert.Equal("gemini", response.Provider)
 
@@ -1118,6 +1118,7 @@ module Sprint004Coverage =
         Assert.True(ModelCatalog.getLatestModel("anthropic").IsSome)
         Assert.True(ModelCatalog.getLatestModel("openai").IsSome)
         Assert.True(ModelCatalog.getLatestModel("gemini").IsSome)
+        Assert.Equal("gemini-3.1-pro-preview", ModelCatalog.getLatestModel("gemini").Value.Id)
 
     [<Fact>]
     let ``ToolResultData supports image payload fields`` () =
@@ -1318,7 +1319,7 @@ module Sprint004Coverage =
         let providerOptions : Map<string, obj> =
             Map.ofList [ "gemini", box (Map.ofList [ "custom_setting", box 123; "nested", box (Map.ofList [ "flag", box true ]) ]) ]
         let request =
-            { Request.Create("gemini-3-pro-preview", [ Message.user("Hi") ]) with
+            { Request.Create("gemini-3.1-pro-preview", [ Message.user("Hi") ]) with
                 ProviderOptions = Some providerOptions }
 
         let body = buildBody.Invoke(adapter, [| box request |])

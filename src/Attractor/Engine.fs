@@ -38,9 +38,9 @@ type RetryPolicy =
 
     static member FromNode(node: Node, graph: Graph) =
         let maxRetries =
-            if node.MaxRetries > 0 then node.MaxRetries
-            elif graph.DefaultMaxRetry > 0 && graph.DefaultMaxRetry <> 50 then graph.DefaultMaxRetry
-            else 0
+            match node.MaxRetriesOption with
+            | Some n -> n
+            | None -> graph.DefaultMaxRetry
         { MaxAttempts = maxRetries + 1
           Backoff = BackoffConfig.Default }
 
@@ -81,6 +81,7 @@ module EdgeSelection =
         if edges.IsEmpty then
             None
         else
+            let unconditional = edges |> List.filter (fun e -> e.Condition = "")
             // Step 1: Condition matching
             let conditionMatched =
                 edges
@@ -93,7 +94,7 @@ module EdgeSelection =
                 let labelMatch =
                     if outcome.PreferredLabel <> "" then
                         let normalizedPref = AcceleratorKey.normalizeLabel outcome.PreferredLabel
-                        edges
+                        unconditional
                         |> List.tryFind (fun e ->
                             AcceleratorKey.normalizeLabel e.Label = normalizedPref)
                     else
@@ -106,7 +107,7 @@ module EdgeSelection =
                         if not outcome.SuggestedNextIds.IsEmpty then
                             outcome.SuggestedNextIds
                             |> List.tryPick (fun suggestedId ->
-                                edges |> List.tryFind (fun e -> e.ToNode = suggestedId))
+                                unconditional |> List.tryFind (fun e -> e.ToNode = suggestedId))
                         else
                             None
                     match suggestedMatch with
@@ -115,7 +116,6 @@ module EdgeSelection =
                         // Step 4 & 5: Block unconditional edges if pipeline was cancelled
                         if UnifiedLlm.HttpCancellation.isCancelled() then None
                         else
-                            let unconditional = edges |> List.filter (fun e -> e.Condition = "")
                             if not unconditional.IsEmpty then
                                 bestByWeightThenLexical unconditional
                             else
@@ -149,7 +149,7 @@ module GoalGates =
         targets
         |> List.tryFind (fun t -> t <> "" && graph.Nodes |> Map.containsKey t)
 
-/// Fidelity resolution: edge > node > graph > default(full)
+/// Fidelity resolution: edge > node > graph > default(compact)
 module FidelityResolution =
 
     /// Resolve fidelity mode for a node, considering incoming edge override
@@ -172,7 +172,7 @@ module FidelityResolution =
                     FidelityMode.Parse(graph.DefaultFidelity) |> Option.defaultValue FidelityMode.Full
                 else
                     // 4. Default
-                    FidelityMode.Full
+                    FidelityMode.Compact
 
 /// The pipeline execution engine
 module Engine =

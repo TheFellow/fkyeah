@@ -2117,3 +2117,56 @@ module Sprint005Coverage =
             let content = File.ReadAllText(Path.Combine(dir, "ws.txt"))
             Assert.Contains("return 42", content)
         finally cleanupDir dir
+
+module Sprint006Phase3Coverage =
+
+    [<Fact>]
+    let ``Tool pre-hook Error skips executor and returns tool error`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mock = ConfigurableMockAdapter("test")
+            let mutable calls = 0
+            mock.SetCompleteHandler(fun _ ->
+                calls <- calls + 1
+                if calls = 1 then
+                    let tc = { Id = "call_1"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
+                    { Id = "r1"; Model = "m"; Provider = "test"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = "m"; Provider = "test"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"; Usage = Usage.Zero; ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+
+            let mutable executed = false
+            let config =
+                { SessionConfig.Default with
+                    ToolCallHook =
+                        Some(fun phase _ _ ->
+                            if phase = ToolCallHookPhase.Pre then
+                                Result.Error "blocked by pre-hook"
+                            else
+                                Result.Ok()) }
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(TestProfile("m"), env, client, config)
+            session.RegisterTool(
+                { Definition = SharedTools.shell
+                  Execute = fun _ _ ->
+                    executed <- true
+                    "ran" })
+
+            session.ProcessInput("run tool")
+
+            let toolResult =
+                session.History
+                |> List.tryPick (function
+                    | ToolResultsTurn(results, _) -> results |> List.tryHead
+                    | _ -> None)
+
+            Assert.True(toolResult.IsSome)
+            Assert.True(toolResult.Value.IsError)
+            Assert.Contains("blocked by pre-hook", toolResult.Value.Content)
+            Assert.False(executed)
+        finally cleanupDir dir

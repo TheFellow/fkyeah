@@ -678,7 +678,29 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
               Warnings = []
               RateLimit = None }
 
-    let finalizeToolResult (tc: ToolCallData) (result: ToolResultData) =
+    let preHookResult (tc: ToolCallData) (errorMessage: string) =
+        { ToolCallId = tc.Id
+          Content = errorMessage
+          IsError = true
+          ImageData = None
+          ImageMediaType = None }
+
+    let runToolCallHook (phase: ToolCallHookPhase) (tc: ToolCallData) (result: ToolResultData option) =
+        match config.ToolCallHook with
+        | None -> Result.Ok()
+        | Some hook ->
+            try
+                hook phase tc result
+            with ex ->
+                Result.Error ex.Message
+
+    let runPostHookBestEffort (tc: ToolCallData) (result: ToolResultData) =
+        match runToolCallHook ToolCallHookPhase.Post tc (Some result) with
+        | Result.Ok() -> ()
+        | Result.Error msg ->
+            emit EventKind.Warning (Map.ofList [ "call_id", tc.Id; "message", $"Tool post-hook failed: {msg}" ])
+
+    let finalizeToolResult (tc: ToolCallData) (result: ToolResultData) (invokePostHook: bool) =
         let fullOutput = result.Content
         let truncatedContent = Truncation.truncateToolOutput fullOutput tc.Name config
 
@@ -696,31 +718,57 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                 (Map.ofList [ "call_id", tc.Id; "output", truncatedContent ])
                 (Some fullOutput)
 
-        match config.ToolCallHook with
-        | Some hook -> hook ToolCallHookPhase.Post tc (Some result)
-        | None -> ()
+        if invokePostHook then
+            runPostHookBestEffort tc result
 
         { result with Content = truncatedContent }
 
     let executeToolCall (tc: ToolCallData) =
         emit CodingAgent.EventKind.ToolCallStart (Map.ofList [ "tool_name", tc.Name; "call_id", tc.Id ])
-        match config.ToolCallHook with
-        | Some hook -> hook ToolCallHookPhase.Pre tc None
-        | None -> ()
-        let result = toolRegistry.Dispatch(tc, env)
-        finalizeToolResult tc result
+        match runToolCallHook ToolCallHookPhase.Pre tc None with
+        | Result.Error msg ->
+            finalizeToolResult tc (preHookResult tc msg) false
+        | Result.Ok() ->
+            let result = toolRegistry.Dispatch(tc, env)
+            finalizeToolResult tc result true
 
     let executeToolCalls (toolCalls: ToolCallData list) : ToolResultData list =
         let runParallel = profile.SupportsParallelToolCalls && toolCalls.Length > 1
         if runParallel then
-            for tc in toolCalls do
-                emit CodingAgent.EventKind.ToolCallStart (Map.ofList [ "tool_name", tc.Name; "call_id", tc.Id ])
-                match config.ToolCallHook with
-                | Some hook -> hook ToolCallHookPhase.Pre tc None
-                | None -> ()
+            let preResults =
+                toolCalls
+                |> List.map (fun tc ->
+                    emit CodingAgent.EventKind.ToolCallStart (Map.ofList [ "tool_name", tc.Name; "call_id", tc.Id ])
+                    (tc, runToolCallHook ToolCallHookPhase.Pre tc None))
 
-            let rawResults = toolRegistry.DispatchAll(toolCalls, env, runParallel = true)
-            (toolCalls, rawResults) ||> List.map2 finalizeToolResult
+            let dispatchable =
+                preResults
+                |> List.choose (fun (tc, hookResult) ->
+                    match hookResult with
+                    | Result.Ok() -> Some tc
+                    | Result.Error _ -> None)
+
+            let rawResultsByCallId =
+                if dispatchable.IsEmpty then
+                    Map.empty
+                else
+                    let raw = toolRegistry.DispatchAll(dispatchable, env, runParallel = true)
+                    (dispatchable, raw)
+                    ||> List.zip
+                    |> List.map (fun (tc, result) -> tc.Id, result)
+                    |> Map.ofList
+
+            preResults
+            |> List.map (fun (tc, hookResult) ->
+                match hookResult with
+                | Result.Error msg ->
+                    finalizeToolResult tc (preHookResult tc msg) false
+                | Result.Ok() ->
+                    let raw =
+                        rawResultsByCallId
+                        |> Map.tryFind tc.Id
+                        |> Option.defaultValue (preHookResult tc $"Tool dispatch failed for call_id '{tc.Id}'")
+                    finalizeToolResult tc raw true)
         else
             toolCalls |> List.map executeToolCall
 
