@@ -17,5 +17,6 @@ type JsonRpcError =
       Data: JsonElement option }
 
 type JsonRpcMessage =
+    | Request of JsonRpcRequest
     | Response of id: JsonRpcId * result: Result<JsonElement, JsonRpcError>
     | Notification of method: string * parameters: JsonElement option

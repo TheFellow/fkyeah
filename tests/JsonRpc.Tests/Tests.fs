@@ -126,6 +126,46 @@ module JsonRpcCodecAndCorrelatorTests =
         | other -> Assert.Fail($"Unexpected decode result: {other}")
 
     [<Fact>]
+    let ``decode request with id returns request`` () =
+        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"method":"filesystem/read_text_file","params":{"path":"notes.txt"}}""")
+
+        match Codec.decode payload with
+        | Ok(Request request) ->
+            match request.Id with
+            | NumberId id -> Assert.Equal(7, id)
+            | _ -> Assert.Fail("Expected numeric id")
+            Assert.Equal("filesystem/read_text_file", request.Method)
+            let parameters =
+                request.Params
+                |> Option.defaultWith (fun () ->
+                    Assert.Fail("Expected params")
+                    Unchecked.defaultof<_>)
+            Assert.Equal("notes.txt", parameters.GetProperty("path").GetString())
+        | other -> Assert.Fail($"Unexpected decode result: {other}")
+
+    [<Fact>]
+    let ``encode response writes result object`` () =
+        let payload = Codec.encodeResponse (StringId "abc") (parseJson """{"ok":true}""")
+        let json = Encoding.UTF8.GetString(payload)
+
+        Assert.Contains("\"id\":\"abc\"", json)
+        Assert.Contains("\"result\":{\"ok\":true}", json)
+
+    [<Fact>]
+    let ``encode error writes error object`` () =
+        let payload =
+            Codec.encodeError
+                (NumberId 3)
+                { Code = -32601
+                  Message = "Method not found"
+                  Data = None }
+        let json = Encoding.UTF8.GetString(payload)
+
+        Assert.Contains("\"id\":3", json)
+        Assert.Contains("\"code\":-32601", json)
+        Assert.Contains("Method not found", json)
+
+    [<Fact>]
     let ``decode malformed json returns descriptive error`` () =
         let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":1,"result":""")
 

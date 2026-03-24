@@ -536,6 +536,12 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
         if autoApprove then AutoApproveInterviewer() :> IInterviewer
         else ConsoleInterviewer() :> IInterviewer
 
+    let acpPermissionStrategy =
+        if autoApprove then
+            AcpRuntime.PermissionStrategy.AutoApprove
+        else
+            AcpRuntime.PermissionStrategy.DenyAll
+
     let anthropicKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
     let openaiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     let geminiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
@@ -545,7 +551,7 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
 
     if simulate then
         eprintfn "  Simulation mode (--simulate)"
-        Ok(HandlerRegistry.CreateDefault(interviewer = interviewer))
+        Ok(HandlerRegistry.CreateDefault(interviewer = interviewer, acpPermissionStrategy = acpPermissionStrategy))
     elif hasAnthropic || hasOpenai || hasGemini then
         let llmClient = UnifiedLlm.Client()
         if hasAnthropic then
@@ -559,7 +565,14 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
             llmClient.RegisterAdapter(UnifiedLlm.GeminiAdapter(geminiKey))
         let backend = LlmBackend(llmClient) :> ICodergenBackend
         eprintfn "  Using live LLM backend"
-        Ok(HandlerRegistry.CreateDefault(interviewer = interviewer, backend = backend, llmClient = llmClient))
+        Ok(
+            HandlerRegistry.CreateDefault(
+                interviewer = interviewer,
+                backend = backend,
+                llmClient = llmClient,
+                acpPermissionStrategy = acpPermissionStrategy
+            )
+        )
     else
         eprintfn "Error: No API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY — or pass --simulate."
         eprintfn ""

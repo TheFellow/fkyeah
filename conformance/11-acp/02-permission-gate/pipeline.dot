@@ -1,0 +1,13 @@
+digraph acp_permission_gate {
+    graph [goal="Test ACP deny-all permissions"]
+
+    start [shape=Mdiamond]
+    done [shape=Msquare]
+    gated_task [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="dotnet",
+        acp_args_json="[\"../../../tests/Fixtures/MockAcpAgent/bin/Debug/net10.0/MockAcpAgent.dll\",\"--deny-test\"]",
+        prompt="Try to read a file if needed"]
+
+    start -> gated_task -> done
+}

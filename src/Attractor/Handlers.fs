@@ -82,7 +82,7 @@ module Handlers =
             | SystemTurn(content, timestamp) ->
                 box {| kind = "system"; content = content; timestamp = timestamp |})
 
-    let private buildCodingAgentInput (node: Node) (context: Context) (graph: Graph) =
+    let buildCodingAgentInput (node: Node) (context: Context) (graph: Graph) =
         let promptBase =
             if node.Prompt <> "" then node.Prompt
             else node.Label
@@ -150,7 +150,7 @@ module Handlers =
 
         ContextPrompt.preparePromptContext fidelity context graph.Goal
 
-    let private resolveWorkingDir (node: Node) (graph: Graph) (defaultWorkingDir: string) =
+    let resolveWorkingDir (node: Node) (graph: Graph) (defaultWorkingDir: string) =
         let nodeCwd = node.GetAttrString("cwd", "")
         let graphCwd = graph.GetGraphAttrString("cwd", "")
         let configuredWorkingDir =
@@ -1017,10 +1017,18 @@ type HandlerRegistry() =
             | false, _ -> defaultHandler
 
     /// Create a registry with all built-in handlers registered
-    static member CreateDefault(?interviewer: IInterviewer, ?backend: ICodergenBackend, ?llmClient: Client) =
+    static member CreateDefault
+        (
+            ?interviewer: IInterviewer,
+            ?backend: ICodergenBackend,
+            ?llmClient: Client,
+            ?acpPermissionStrategy: AcpRuntime.PermissionStrategy
+        ) =
         let registry = HandlerRegistry()
         let interviewer = defaultArg interviewer (AutoApproveInterviewer() :> IInterviewer)
         let llmClient = defaultArg llmClient (Client())
+        let acpPermissionStrategy =
+            defaultArg acpPermissionStrategy AcpRuntime.PermissionStrategy.DenyAll
         registry.Register("start", Handlers.StartHandler())
         registry.Register("exit", Handlers.ExitHandler())
         match backend with
@@ -1034,6 +1042,7 @@ type HandlerRegistry() =
         registry.Register("parallel.fan_in", Handlers.FanInHandler())
         registry.Register("tool", Handlers.ToolHandler())
         registry.Register("mcp.tool", McpHandlers.McpToolHandler())
+        registry.Register("acp.agent", AcpHandlers.AcpAgentHandler(permissionStrategy = acpPermissionStrategy))
         registry.Register("stack.manager_loop", Handlers.ManagerLoopHandler())
         match backend with
         | Some b -> registry.SetDefault(Handlers.CodergenHandler(b))

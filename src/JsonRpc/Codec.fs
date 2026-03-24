@@ -63,6 +63,38 @@ module Codec =
         writer.Flush()
         stream.ToArray()
 
+    let encodeResponse (id: JsonRpcId) (result: JsonElement) =
+        use stream = new MemoryStream()
+        use writer = new Utf8JsonWriter(stream)
+        writer.WriteStartObject()
+        writer.WriteString("jsonrpc", "2.0")
+        writeId writer id
+        writer.WritePropertyName("result")
+        result.WriteTo(writer)
+        writer.WriteEndObject()
+        writer.Flush()
+        stream.ToArray()
+
+    let encodeError (id: JsonRpcId) (error: JsonRpcError) =
+        use stream = new MemoryStream()
+        use writer = new Utf8JsonWriter(stream)
+        writer.WriteStartObject()
+        writer.WriteString("jsonrpc", "2.0")
+        writeId writer id
+        writer.WritePropertyName("error")
+        writer.WriteStartObject()
+        writer.WriteNumber("code", error.Code)
+        writer.WriteString("message", error.Message)
+        match error.Data with
+        | Some value ->
+            writer.WritePropertyName("data")
+            value.WriteTo(writer)
+        | None -> ()
+        writer.WriteEndObject()
+        writer.WriteEndObject()
+        writer.Flush()
+        stream.ToArray()
+
     let decode (payload: byte array) =
         try
             use document = JsonDocument.Parse(payload)
@@ -107,7 +139,17 @@ module Codec =
                         | None ->
                             match tryGetProperty "result" root with
                             | Some resultElement -> Ok(Response(id, Ok(resultElement.Clone())))
-                            | None -> Error "JSON-RPC response must contain either result or error"
+                            | None ->
+                                match tryGetProperty "method" root with
+                                | Some methodElement when methodElement.ValueKind = JsonValueKind.String ->
+                                    Ok(
+                                        Request
+                                            { Id = id
+                                              Method = methodElement.GetString()
+                                              Params = tryGetProperty "params" root |> cloneOption }
+                                    )
+                                | Some _ -> Error "JSON-RPC request method must be a string"
+                                | None -> Error "JSON-RPC response must contain either result or error"
                 | None ->
                     match tryGetProperty "method" root with
                     | Some methodElement when methodElement.ValueKind = JsonValueKind.String ->

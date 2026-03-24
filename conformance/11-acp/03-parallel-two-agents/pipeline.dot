@@ -1,0 +1,25 @@
+digraph acp_parallel_two {
+    graph [goal="Test ACP parallel fan-out/fan-in"]
+
+    start [shape=Mdiamond]
+    fork [shape=component]
+    agent_a [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="dotnet",
+        acp_args_json="[\"../../../tests/Fixtures/MockAcpAgent/bin/Debug/net10.0/MockAcpAgent.dll\"]",
+        prompt="Handle task A"]
+    agent_b [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="dotnet",
+        acp_args_json="[\"../../../tests/Fixtures/MockAcpAgent/bin/Debug/net10.0/MockAcpAgent.dll\"]",
+        prompt="Handle task B"]
+    join [shape=tripleoctagon]
+    done [shape=Msquare]
+
+    start -> fork
+    fork -> agent_a
+    fork -> agent_b
+    agent_a -> join
+    agent_b -> join
+    join -> done
+}

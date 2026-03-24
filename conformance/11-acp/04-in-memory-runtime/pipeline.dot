@@ -1,0 +1,11 @@
+digraph acp_memory_test {
+    graph [goal="Test ACP in-memory runtime"]
+
+    start [shape=Mdiamond]
+    done [shape=Msquare]
+    mem_task [shape=tab, type="acp.agent",
+        acp_transport="memory",
+        prompt="Return a simulated answer"]
+
+    start -> mem_task -> done
+}

@@ -51,6 +51,9 @@ module Correlator =
                         keepReading <- false
                     else
                         match Codec.decode enumerator.Current with
+                        | Ok(Request _) ->
+                            keepReading <- false
+                            mailbox.Post(FailAllPending(transportClosed "Transport received unexpected JSON-RPC request"))
                         | Ok(Response(id, result)) -> mailbox.Post(Resolve(id, result))
                         | Ok(Notification(methodName, parameters)) -> onNotification methodName parameters
                         | Error error ->
