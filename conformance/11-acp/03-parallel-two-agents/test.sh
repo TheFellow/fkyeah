@@ -3,12 +3,31 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../lib.sh"
 setup
 
-# Patch pipeline.dot to use pre-built fixture binary when available (Docker/CI)
+# Patch pipeline to use pre-built fixture binary in Docker/CI
 if [[ -n "${MOCK_ACP_AGENT:-}" && -x "$MOCK_ACP_AGENT" ]]; then
-    sed -i.bak \
-        -e "s|acp_command=\"dotnet\"|acp_command=\"$MOCK_ACP_AGENT\"|g" \
-        -e 's|acp_args_json="[^"]*"|acp_args_json="[]"|g' \
-        "$TEST_DIR/pipeline.dot"
+    cat > "$TEST_DIR/pipeline.dot" <<DOTEOF
+digraph acp_parallel_two {
+    graph [goal="Test ACP parallel fan-out/fan-in"]
+    start [shape=Mdiamond]
+    fork [shape=component]
+    agent_a [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="$MOCK_ACP_AGENT",
+        prompt="Handle task A"]
+    agent_b [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="$MOCK_ACP_AGENT",
+        prompt="Handle task B"]
+    join [shape=tripleoctagon]
+    done [shape=Msquare]
+    start -> fork
+    fork -> agent_a
+    fork -> agent_b
+    agent_a -> join
+    agent_b -> join
+    join -> done
+}
+DOTEOF
 fi
 
 export OPENAI_API_KEY="${OPENAI_API_KEY:-mock-key}"

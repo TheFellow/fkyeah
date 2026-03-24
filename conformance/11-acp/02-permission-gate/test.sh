@@ -3,12 +3,21 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../../lib.sh"
 setup
 
-# Patch pipeline.dot to use pre-built fixture binary when available (Docker/CI)
+# Patch pipeline to use pre-built fixture binary in Docker/CI
 if [[ -n "${MOCK_ACP_AGENT:-}" && -x "$MOCK_ACP_AGENT" ]]; then
-    sed -i.bak \
-        -e "s|acp_command=\"dotnet\"|acp_command=\"$MOCK_ACP_AGENT\"|" \
-        -e 's|acp_args_json="[^"]*"|acp_args_json="[\"--deny-test\"]"|' \
-        "$TEST_DIR/pipeline.dot"
+    cat > "$TEST_DIR/pipeline.dot" <<DOTEOF
+digraph acp_permission_gate {
+    graph [goal="Test ACP deny-all permissions"]
+    start [shape=Mdiamond]
+    done [shape=Msquare]
+    gated_task [shape=tab, type="acp.agent",
+        acp_transport="stdio",
+        acp_command="$MOCK_ACP_AGENT",
+        acp_args_json="[\"--deny-test\"]",
+        prompt="Try to read a file if needed"]
+    start -> gated_task -> done
+}
+DOTEOF
 fi
 
 export OPENAI_API_KEY="${OPENAI_API_KEY:-mock-key}"
