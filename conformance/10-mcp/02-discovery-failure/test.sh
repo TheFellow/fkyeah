@@ -16,6 +16,9 @@ json.dump(cfg, open('$TEST_DIR/mcp.json', 'w'), indent=2)
 "
 fi
 
+# MCP nodes don't use LLM, but attractor requires at least one API key to start
+export OPENAI_API_KEY="${OPENAI_API_KEY:-mock-key}"
+
 run_pipeline_live "$TEST_DIR/pipeline-invalid-tool.dot"
 assert_exit_code 1 "$PIPELINE_EXIT" "invalid tool pipeline should fail"
 assert_node_outcome "$LOGS_DIR" "mcp" "fail"
