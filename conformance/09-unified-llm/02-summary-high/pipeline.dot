@@ -1,0 +1,12 @@
+digraph summary_high {
+    graph [goal="Verify summary high fidelity"]
+
+    start [shape=Mdiamond]
+    plan [shape=box, llm_model="gpt-5.4", llm_provider="openai", prompt="Plan stage output for: $goal"]
+    implement [shape=box, llm_model="gpt-5.4", llm_provider="openai", fidelity="summary:high", prompt="Summarize the prior context and proceed"]
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement
+    implement -> done
+}

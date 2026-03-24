@@ -17,6 +17,27 @@ type ModelInfo = {
 } with
     member this.SupportsImages = this.SupportsVision
 
+type CapabilityRequirement = {
+    RequiresStreaming: bool
+    RequiresTools: bool
+    RequiresReasoning: bool
+    RequiresVision: bool
+}
+
+module CapabilityRequirement =
+
+    let none =
+        { RequiresStreaming = false
+          RequiresTools = false
+          RequiresReasoning = false
+          RequiresVision = false }
+
+    let satisfiedBy (model: ModelInfo) (required: CapabilityRequirement) : bool =
+        (not required.RequiresStreaming || model.SupportsStreaming)
+        && (not required.RequiresTools || model.SupportsTools)
+        && (not required.RequiresReasoning || model.SupportsReasoning)
+        && (not required.RequiresVision || model.SupportsVision)
+
 /// Built-in catalog of known models
 module ModelCatalog =
 
@@ -112,3 +133,28 @@ module ModelCatalog =
         latestByProvider
         |> Map.tryFind normalized
         |> Option.bind getModelInfo
+
+    /// Find the latest provider model satisfying the required capabilities.
+    let findModel (provider: string) (required: CapabilityRequirement) : ModelInfo option =
+        let normalized = provider.Trim().ToLowerInvariant()
+        let candidates =
+            models
+            |> List.filter (fun model ->
+                model.Provider = normalized
+                && CapabilityRequirement.satisfiedBy model required)
+
+        match getLatestModel normalized with
+        | Some latest when candidates |> List.exists (fun candidate -> candidate.Id = latest.Id) -> Some latest
+        | _ -> candidates |> List.tryHead
+
+    /// Find all models satisfying the required capabilities across providers.
+    let findModels (required: CapabilityRequirement) : ModelInfo list =
+        models
+        |> List.filter (fun model -> CapabilityRequirement.satisfiedBy model required)
+
+    /// Resolve a model by exact ID first, then alias.
+    let resolveModel (modelId: string) : ModelInfo option =
+        getModelInfo modelId
+        |> Option.orElseWith (fun () ->
+            models
+            |> List.tryFind (fun model -> model.Aliases |> List.contains modelId))

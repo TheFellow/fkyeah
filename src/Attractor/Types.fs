@@ -180,6 +180,27 @@ type FidelityMode =
         | SummaryMedium -> "summary:medium"
         | SummaryHigh -> "summary:high"
 
+module FidelityMode =
+
+    /// Approximate token budget for each fidelity level.
+    let tokenBudget (mode: FidelityMode) : int =
+        match mode with
+        | FidelityMode.Full -> Int32.MaxValue
+        | FidelityMode.Truncate -> 100
+        | FidelityMode.Compact -> 800
+        | FidelityMode.SummaryLow -> 600
+        | FidelityMode.SummaryMedium -> 1500
+        | FidelityMode.SummaryHigh -> 3000
+
+    /// Approximate character budget using 1 token ~= 4 characters.
+    let charBudget (mode: FidelityMode) : int =
+        let tokens = tokenBudget mode
+        if tokens = Int32.MaxValue then Int32.MaxValue else tokens * 4
+
+    /// Reduced-fidelity requests should use a fresh session.
+    let useFreshSession (mode: FidelityMode) : bool =
+        mode <> FidelityMode.Full
+
 /// A parsed node from the DOT graph
 type Node =
     { Id: string
@@ -586,47 +607,69 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
 
     /// Project context through a fidelity mode, returning a filtered clone
     member this.Project(fidelity: FidelityMode, ?truncateLimit: int) : Context =
-        let limit = defaultArg truncateLimit 500
+        let createProjectedContext () =
+            match artifactStore with
+            | Some store -> Context(artifactStore = store, offloadThresholdBytes = thresholdBytes)
+            | None -> Context(offloadThresholdBytes = thresholdBytes)
+
+        let copyLogs (ctx: Context) =
+            for log in logs do
+                ctx.AppendLog(log)
+
+        let charLimit = defaultArg truncateLimit (FidelityMode.charBudget fidelity)
+
+        let setWithinBudget (ctx: Context) (key: string) (value: string) (charCount: int) =
+            if charCount >= charLimit then
+                charCount
+            else
+                let remaining = charLimit - charCount
+                let stored =
+                    if value.Length > remaining then value.Substring(0, remaining)
+                    else value
+                ctx.Set(key, stored)
+                charCount + key.Length + stored.Length
+
         match fidelity with
         | FidelityMode.Full ->
             this.Clone()
         | FidelityMode.Truncate ->
-            let ctx = Context()
+            let ctx = createProjectedContext ()
             lock lockObj (fun () ->
                 for kv in values do
                     let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
-                    let v = if resolved.Length > limit then resolved.Substring(0, limit) else resolved
+                    let v = if resolved.Length > charLimit then resolved.Substring(0, charLimit) else resolved
                     ctx.Set(kv.Key, v)
-                for log in logs do
-                    ctx.AppendLog(log))
+                copyLogs ctx)
             ctx
         | FidelityMode.Compact ->
-            let ctx = Context()
+            let ctx = createProjectedContext ()
             lock lockObj (fun () ->
+                let mutable charCount = 0
                 for kv in values do
                     if kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome" then
-                        ctx.Set(kv.Key, kv.Value))
+                        let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
+                        charCount <- setWithinBudget ctx kv.Key resolved charCount
+
+                for kv in values do
+                    if not (kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome") then
+                        let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
+                        charCount <- setWithinBudget ctx kv.Key resolved charCount
+
+                copyLogs ctx)
             ctx
-        | FidelityMode.SummaryLow ->
-            let ctx = Context()
-            lock lockObj (fun () ->
-                let pairs = values |> Seq.map (fun kv -> kv.Key, kv.Value) |> Seq.toList
-                let top = pairs |> List.truncate 20
-                for (k, v) in top do
-                    let resolved = tryResolveArtifactRef v |> Option.defaultValue v
-                    ctx.Set(k, resolved))
-            ctx
+        | FidelityMode.SummaryLow
         | FidelityMode.SummaryMedium ->
-            let ctx = Context()
+            let ctx = createProjectedContext ()
             lock lockObj (fun () ->
-                let pairs = values |> Seq.map (fun kv -> kv.Key, kv.Value) |> Seq.toList
-                let top = pairs |> List.truncate 10
-                for (k, v) in top do
-                    let resolved = tryResolveArtifactRef v |> Option.defaultValue v
-                    ctx.Set(k, resolved))
+                let mutable charCount = 0
+                for kv in values do
+                    let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
+                    charCount <- setWithinBudget ctx kv.Key resolved charCount
+
+                copyLogs ctx)
             ctx
         | FidelityMode.SummaryHigh ->
-            let ctx = Context()
+            let ctx = createProjectedContext ()
             lock lockObj (fun () ->
                 let summary =
                     values
@@ -635,7 +678,11 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
                         let v = if resolved.Length > 50 then resolved.Substring(0, 50) + "..." else resolved
                         $"{kv.Key}={v}")
                     |> String.concat "; "
-                ctx.Set("context_summary", summary))
+                let truncated =
+                    if summary.Length > charLimit then summary.Substring(0, charLimit)
+                    else summary
+                ctx.Set("context_summary", truncated)
+                copyLogs ctx)
             ctx
 
 /// Checkpoint for crash recovery

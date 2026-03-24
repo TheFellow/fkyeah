@@ -1,6 +1,7 @@
 namespace UnifiedLlm
 
 open System
+open System.Globalization
 
 /// Base SDK error
 type SDKError(message: string, ?cause: Exception) =
@@ -46,8 +47,8 @@ type RateLimitError(message: string, ?retryAfter: float, ?cause: Exception) =
     inherit ProviderError(message, Some 429, true, ?retryAfter = retryAfter, ?cause = cause)
 
 /// 5xx - Provider internal error
-type ServerError(message: string, statusCode: int, ?cause: Exception) =
-    inherit ProviderError(message, Some statusCode, true, ?cause = cause)
+type ServerError(message: string, statusCode: int, ?retryAfter: float, ?cause: Exception) =
+    inherit ProviderError(message, Some statusCode, true, ?retryAfter = retryAfter, ?cause = cause)
 
 /// Network-level failure
 type NetworkError(message: string, ?cause: Exception) =
@@ -81,6 +82,68 @@ type ContentFilterError(message: string, ?cause: Exception) =
 type NoObjectGeneratedError(message: string, ?cause: Exception) =
     inherit SDKError(message, ?cause = cause)
 
+/// Structured failure classification for provider errors.
+[<RequireQualifiedAccess>]
+type ProviderFailureKind =
+    | Authentication
+    | AccessDenied
+    | ContextLength
+    | QuotaExceeded
+    | InvalidRequest of statusCode: int
+    | NotFound
+    | RateLimited
+    | ServerFailure of statusCode: int
+    | Network
+    | Timeout
+    | ContentFilter
+
+type ProviderError with
+    member this.Kind : ProviderFailureKind =
+        match this with
+        | :? AuthenticationError -> ProviderFailureKind.Authentication
+        | :? AccessDeniedError -> ProviderFailureKind.AccessDenied
+        | :? ContextLengthError -> ProviderFailureKind.ContextLength
+        | :? QuotaExceededError -> ProviderFailureKind.QuotaExceeded
+        | :? InvalidRequestError as error ->
+            ProviderFailureKind.InvalidRequest(defaultArg error.StatusCode 400)
+        | :? NotFoundError -> ProviderFailureKind.NotFound
+        | :? RateLimitError -> ProviderFailureKind.RateLimited
+        | :? ServerError as error ->
+            ProviderFailureKind.ServerFailure(defaultArg error.StatusCode 500)
+        | :? NetworkError -> ProviderFailureKind.Network
+        | :? TimeoutError
+        | :? RequestTimeoutError -> ProviderFailureKind.Timeout
+        | :? ContentFilterError -> ProviderFailureKind.ContentFilter
+        | _ ->
+            match this.StatusCode with
+            | Some code -> ProviderFailureKind.ServerFailure(code)
+            | None -> ProviderFailureKind.Network
+
+module RetryAfterParsing =
+
+    /// Parse Retry-After header value as delta-seconds or HTTP-date.
+    let parse (headerValue: string) : float option =
+        let trimmed = headerValue.Trim()
+
+        if String.IsNullOrWhiteSpace(trimmed) then
+            None
+        else
+            match Double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture) with
+            | true, seconds when seconds >= 0.0 -> Some seconds
+            | _ ->
+                match DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal) with
+                | true, timestamp ->
+                    let delta = (timestamp.ToUniversalTime() - DateTimeOffset.UtcNow).TotalSeconds
+                    if delta > 0.0 then Some delta else Some 0.0
+                | _ -> None
+
+    /// Extract Retry-After from a string-header map.
+    let fromHeaders (headers: Map<string, string>) : float option =
+        headers
+        |> Map.tryFind "Retry-After"
+        |> Option.orElseWith (fun () -> headers |> Map.tryFind "retry-after")
+        |> Option.bind parse
+
 /// Map HTTP status codes to error types
 module ErrorMapping =
 
@@ -104,10 +167,23 @@ module ErrorMapping =
                 match retryAfter with
                 | Some ra -> RateLimitError(message, ra) :> ProviderError
                 | Option.None -> RateLimitError(message) :> ProviderError
-        | code when code >= 500 && code < 600 -> ServerError(message, code) :> ProviderError
+        | code when code >= 500 && code < 600 ->
+            match retryAfter with
+            | Some ra -> ServerError(message, code, ra) :> ProviderError
+            | None -> ServerError(message, code) :> ProviderError
         | 408 -> TimeoutError(message) :> ProviderError
         | 400 | 422 -> InvalidRequestError(message, statusCode) :> ProviderError
-        | _ -> ProviderError(message, Some statusCode, true) // unknown defaults to retryable
+        | _ -> ProviderError(message, Some statusCode, true, ?retryAfter = retryAfter) // unknown defaults to retryable
+
+    /// Classify an HTTP response using both status code and response headers.
+    let classifyHttpResponse (httpResp: System.Net.Http.HttpResponseMessage) (body: string) : ProviderError =
+        let mutable values = Unchecked.defaultof<System.Collections.Generic.IEnumerable<string>>
+        let retryAfter =
+            if httpResp.Headers.TryGetValues("Retry-After", &values) then
+                values |> Seq.tryHead |> Option.bind RetryAfterParsing.parse
+            else
+                None
+        fromStatusCode (int httpResp.StatusCode) body retryAfter
 
     /// Classify error by message content for ambiguous cases
     let classifyByMessage (message: string) (statusCode: int) : ProviderError =

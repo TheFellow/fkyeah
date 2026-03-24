@@ -1,0 +1,12 @@
+digraph fidelity_truncate {
+    graph [goal="Verify truncate fidelity budgeting"]
+
+    start [shape=Mdiamond]
+    plan [shape=box, llm_model="gpt-5.4", llm_provider="openai", prompt="Plan stage output for: $goal"]
+    implement [shape=box, llm_model="gpt-5.4", llm_provider="openai", prompt="Write the code based on the plan"]
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement [fidelity="truncate"]
+    implement -> done
+}

@@ -7,6 +7,10 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
+    <Compile Include="MiddlewareTests.fs" />
+    <Compile Include="StreamAccumulatorTests.fs" />
+    <Compile Include="ErrorTests.fs" />
+    <Compile Include="ModelCatalogTests.fs" />
     <Compile Include="LiveApiTests.fs" />
   </ItemGroup>
 

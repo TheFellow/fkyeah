@@ -1,0 +1,12 @@
+digraph edge_overrides_node {
+    graph [goal="Verify edge fidelity overrides node fidelity"]
+
+    start [shape=Mdiamond]
+    plan [shape=box, llm_model="gpt-5.4", llm_provider="openai", prompt="Plan stage output for: $goal"]
+    implement [shape=box, llm_model="gpt-5.4", llm_provider="openai", fidelity="full", prompt="Implement using the incoming context"]
+    done [shape=Msquare]
+
+    start -> plan
+    plan -> implement [fidelity="truncate"]
+    implement -> done
+}

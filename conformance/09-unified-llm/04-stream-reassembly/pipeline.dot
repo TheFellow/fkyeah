@@ -1,0 +1,12 @@
+digraph stream_reassembly {
+    graph [goal="Verify streamed tool call reassembly"]
+
+    start [shape=Mdiamond]
+    agent [shape=tab, llm_model="claude-sonnet-4-6", llm_provider="anthropic", cwd="workdir", prompt="Write notes.txt with hello"]
+    summarize [shape=box, llm_model="claude-sonnet-4-6", llm_provider="anthropic", fidelity="truncate", prompt="Summarize the agent output"]
+    done [shape=Msquare]
+
+    start -> agent
+    agent -> summarize
+    summarize -> done
+}

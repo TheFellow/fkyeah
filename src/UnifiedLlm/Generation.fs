@@ -65,9 +65,40 @@ module Generation =
     let private toAsyncEnumerable (source: seq<'T>) : IAsyncEnumerable<'T> =
         SeqAsyncEnumerable(source) :> IAsyncEnumerable<'T>
 
+    type private JsonBalanceTracker() =
+        let mutable depth = 0
+        let mutable inString = false
+        let mutable escaped = false
+
+        member _.Feed(fragment: string) =
+            for c in fragment do
+                if escaped then
+                    escaped <- false
+                elif c = '\\' && inString then
+                    escaped <- true
+                elif c = '"' then
+                    inString <- not inString
+                elif not inString then
+                    match c with
+                    | '{'
+                    | '[' -> depth <- depth + 1
+                    | '}'
+                    | ']' -> depth <- depth - 1
+                    | _ -> ()
+
+        member _.IsBalanced =
+            depth <= 0 && not inString
+
+        member _.Reset() =
+            depth <- 0
+            inString <- false
+            escaped <- false
+
     type StreamAccumulator(stream: IAsyncEnumerable<StreamEvent>, ?model: string, ?provider: string) =
         let text = System.Text.StringBuilder()
+        let reasoning = System.Text.StringBuilder()
         let toolCalls = Dictionary<string, ToolCallData>()
+        let jsonTrackers = Dictionary<string, JsonBalanceTracker>()
         let toolOrder = ResizeArray<string>()
         let mutable usage = Usage.Zero
         let mutable finishReason = Stop "streaming"
@@ -76,12 +107,41 @@ module Generation =
         let mutable responseId: string option = None
         let mutable finalized: Response option = None
 
+        let upsertToolCall (toolCall: ToolCallData) =
+            if not (toolCalls.ContainsKey(toolCall.Id)) then
+                toolOrder.Add(toolCall.Id)
+            toolCalls[toolCall.Id] <- toolCall
+
+        let ensureTracker (id: string) =
+            match jsonTrackers.TryGetValue(id) with
+            | true, tracker -> tracker
+            | false, _ ->
+                let tracker = JsonBalanceTracker()
+                jsonTrackers[id] <- tracker
+                tracker
+
+        let trackToolArguments (toolCall: ToolCallData) =
+            let tracker = ensureTracker toolCall.Id
+            tracker.Reset()
+            if not (String.IsNullOrEmpty(toolCall.Arguments)) then
+                tracker.Feed(toolCall.Arguments)
+
+            let metadata =
+                if tracker.IsBalanced && not (String.IsNullOrEmpty(toolCall.Arguments)) then
+                    toolCall.Metadata |> Map.add "json_complete" "true"
+                else
+                    toolCall.Metadata |> Map.remove "json_complete"
+
+            { toolCall with Metadata = metadata }
+
         let snapshot () =
             match finalized with
             | Some response -> response
             | None ->
                 let contentParts =
                     [
+                        if reasoning.Length > 0 then
+                            yield Thinking { Text = reasoning.ToString(); Signature = None; Redacted = false }
                         if text.Length > 0 then
                             yield Text(text.ToString())
                         for id in toolOrder do
@@ -111,27 +171,45 @@ module Generation =
             | TextEnd _
             | ReasoningStart _
             | ReasoningEnd _
-            | ThinkingEvent _
             | ProviderEvent _
             | StreamError _ -> ()
+            | ThinkingEvent delta ->
+                reasoning.Append(delta) |> ignore
             | TextDelta(_, delta) ->
                 text.Append(delta) |> ignore
             | ToolCallStart tc ->
-                if not (toolCalls.ContainsKey(tc.Id)) then
-                    toolOrder.Add(tc.Id)
-                toolCalls[tc.Id] <- tc
+                upsertToolCall (trackToolArguments tc)
             | ToolCallDelta(id, argsDelta) ->
                 if toolCalls.ContainsKey(id) then
                     let existing = toolCalls[id]
-                    toolCalls[id] <- { existing with Arguments = existing.Arguments + argsDelta }
+                    let nextArgs = existing.Arguments + argsDelta
+                    let tracker = ensureTracker id
+                    tracker.Feed(argsDelta)
+                    let metadata =
+                        if tracker.IsBalanced && nextArgs <> "" then
+                            existing.Metadata |> Map.add "json_complete" "true"
+                        else
+                            existing.Metadata |> Map.remove "json_complete"
+                    toolCalls[id] <- { existing with Arguments = nextArgs; Metadata = metadata }
                 else
-                    let tc = { Id = id; Name = "unknown_tool"; Arguments = argsDelta; Metadata = Map.empty }
-                    toolCalls[id] <- tc
-                    toolOrder.Add(id)
+                    let tracker = ensureTracker id
+                    tracker.Feed(argsDelta)
+                    let metadata =
+                        [ "orphan", "true" ]
+                        |> Map.ofList
+                        |> fun current ->
+                            if tracker.IsBalanced && argsDelta <> "" then
+                                current |> Map.add "json_complete" "true"
+                            else
+                                current
+                    upsertToolCall { Id = id; Name = ""; Arguments = argsDelta; Metadata = metadata }
             | ToolCallEnd tc ->
-                if not (toolCalls.ContainsKey(tc.Id)) then
-                    toolOrder.Add(tc.Id)
-                toolCalls[tc.Id] <- tc
+                let merged =
+                    match toolCalls.TryGetValue(tc.Id) with
+                    | true, existing ->
+                        { tc with Metadata = Map.fold (fun state key value -> state |> Map.add key value) existing.Metadata tc.Metadata }
+                    | false, _ -> tc
+                upsertToolCall (trackToolArguments merged)
             | StepFinish(_, responseOpt) ->
                 match responseOpt with
                 | Some response ->
@@ -200,6 +278,9 @@ module Generation =
 
         member _.PartialResponse() =
             snapshot ()
+
+        member _.ReasoningText =
+            if reasoning.Length > 0 then Some(reasoning.ToString()) else None
 
     type StreamObjectResult<'T> = {
         PartialObjects: IAsyncEnumerable<'T>

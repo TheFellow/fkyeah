@@ -21,67 +21,16 @@ let ExitValidationError = 1
 [<Literal>]
 let ExitConfigError = 3
 
-/// Build a system message from pipeline context so LLM nodes see prior stage outputs
+let private resolveContextFidelity (node: Node) =
+    node.GetAttrString("__resolved_fidelity", "").Trim()
+    |> function
+        | "" -> FidelityMode.Compact
+        | raw -> FidelityMode.Parse(raw) |> Option.defaultValue FidelityMode.Compact
+
+/// Build a system message from pipeline context so LLM nodes see prior stage outputs.
 let buildContextMessage (context: Attractor.Context) (goal: string) : string =
-    let sb = System.Text.StringBuilder()
-    sb.AppendLine("You are a stage in an Attractor pipeline. Use the context below to inform your response.") |> ignore
-    sb.AppendLine("Do NOT hallucinate information. Only reference files, code, and data that appear in the context.") |> ignore
-    sb.AppendLine("If the context doesn't contain enough information, say so explicitly.") |> ignore
-    sb.AppendLine() |> ignore
-
-    if goal <> "" then
-        sb.AppendLine($"## Pipeline Goal\n{goal}") |> ignore
-        sb.AppendLine() |> ignore
-
-    // Include prior stage outputs — this is the critical context chain
-    let snap = context.Snapshot()
-
-    // Tool outputs from previous stages
-    let toolOutput = snap |> Map.tryFind "tool.output"
-    if toolOutput.IsSome && toolOutput.Value <> "" then
-        let truncated = if toolOutput.Value.Length > 30000 then toolOutput.Value.Substring(0, 30000) + "\n[truncated]" else toolOutput.Value
-        sb.AppendLine($"## Tool Output (from previous stage)\n```\n{truncated}\n```") |> ignore
-        sb.AppendLine() |> ignore
-
-    let toolStderr = snap |> Map.tryFind "tool.stderr"
-    if toolStderr.IsSome && toolStderr.Value <> "" then
-        sb.AppendLine($"## Tool Stderr\n```\n{toolStderr.Value}\n```") |> ignore
-        sb.AppendLine() |> ignore
-
-    // Last LLM response from previous stage
-    let lastResponse = snap |> Map.tryFind "last_response"
-    if lastResponse.IsSome && lastResponse.Value <> "" then
-        sb.AppendLine($"## Previous Stage Response\n{lastResponse.Value}") |> ignore
-        sb.AppendLine() |> ignore
-
-    // Parallel branch results
-    let branchKeys =
-        snap |> Map.toList
-        |> List.filter (fun (k, _) -> k.StartsWith("parallel.branch."))
-    if not branchKeys.IsEmpty then
-        sb.AppendLine("## Parallel Branch Results") |> ignore
-        for (k, v) in branchKeys do
-            sb.AppendLine($"  {k} = {v}") |> ignore
-        sb.AppendLine() |> ignore
-
-    // Human gate selections
-    let humanSelected = snap |> Map.tryFind "human.gate.selected"
-    let humanLabel = snap |> Map.tryFind "human.gate.label"
-    if humanSelected.IsSome then
-        let label = humanLabel |> Option.defaultValue "unknown"
-        sb.AppendLine($"## Human Gate Decision: {label} (key: {humanSelected.Value})") |> ignore
-        let humanInput = snap |> Map.tryFind "human.gate.input"
-        if humanInput.IsSome && humanInput.Value <> "" then
-            sb.AppendLine($"Human input: {humanInput.Value}") |> ignore
-        sb.AppendLine() |> ignore
-
-    // Current pipeline state
-    let lastStage = snap |> Map.tryFind "last_stage" |> Option.defaultValue ""
-    let outcome = snap |> Map.tryFind "outcome" |> Option.defaultValue ""
-    if lastStage <> "" then
-        sb.AppendLine($"## Pipeline State\nLast stage: {lastStage} | Outcome: {outcome}") |> ignore
-
-    sb.ToString()
+    ContextPrompt.preparePromptContext FidelityMode.Compact context goal
+    |> fun prepared -> prepared.SystemMessage
 
 /// LLM backend that routes through the UnifiedLlm client, with full pipeline context
 type LlmBackend(llmClient: Client) =
@@ -101,11 +50,13 @@ type LlmBackend(llmClient: Client) =
 
                 // Build context from pipeline state
                 let goal = context.Get("graph.goal", "")
-                let systemMsg = buildContextMessage context goal
+                let preparedContext =
+                    ContextPrompt.preparePromptContext (resolveContextFidelity node) context goal
+                let systemMsg = preparedContext.SystemMessage
 
                 if verbose then
                     let providerStr = provider |> Option.defaultValue "auto"
-                    eprintfn "        LLM call: model=%s provider=%s prompt=%d chars context=%d chars" model providerStr prompt.Length systemMsg.Length
+                    eprintfn "        LLM call: model=%s provider=%s prompt=%d chars context=%d chars fidelity=%s budget=%d/%d" model providerStr prompt.Length systemMsg.Length (preparedContext.FidelityMode.ToString()) preparedContext.CharBudgetUsed (FidelityMode.charBudget preparedContext.FidelityMode)
 
                 // Read reasoning effort from node (set by stylesheet or attribute)
                 let reasoningEffort =

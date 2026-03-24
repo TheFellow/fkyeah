@@ -165,11 +165,11 @@ module FidelityResolution =
         | None ->
             // 2. Node-level
             if node.Fidelity <> "" then
-                FidelityMode.Parse(node.Fidelity) |> Option.defaultValue FidelityMode.Full
+                FidelityMode.Parse(node.Fidelity) |> Option.defaultValue FidelityMode.Compact
             else
                 // 3. Graph-level default
                 if graph.DefaultFidelity <> "" then
-                    FidelityMode.Parse(graph.DefaultFidelity) |> Option.defaultValue FidelityMode.Full
+                    FidelityMode.Parse(graph.DefaultFidelity) |> Option.defaultValue FidelityMode.Compact
                 else
                     // 4. Default
                     FidelityMode.Compact
@@ -475,13 +475,18 @@ module Engine =
             else
                 // Resolve fidelity for this node
                 let fidelity = FidelityResolution.resolve lastEdge node graph
+                let nodeForHandler =
+                    { node with
+                        Attributes =
+                            node.Attributes
+                            |> Map.add "__resolved_fidelity" (AttrValue.String(string fidelity)) }
                 let handlerContext =
                     if fidelity = FidelityMode.Full then context
                     else context.Project(fidelity)
 
                 // Step 2: Execute node handler with retry policy
-                let handler = registry.Resolve(node)
-                let retryPolicy = RetryPolicy.FromNode(node, graph)
+                let handler = registry.Resolve(nodeForHandler)
+                let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
 
                 emitter.Emit(PipelineEvent.StageStarted(node.Id, nodeIndex))
                 let handlerType = ShapeMapping.resolveHandlerType node
@@ -517,7 +522,7 @@ module Engine =
                     if visitCount > node.MaxVisits then
                         Outcome.Fail($"Node '{node.Id}' exceeded max_visits ({node.MaxVisits})")
                     else
-                        let raw = executeWithRetry handler node handlerContext graph currentLogsRoot retryPolicy emitter nodeIndex
+                        let raw = executeWithRetry handler nodeForHandler handlerContext graph currentLogsRoot retryPolicy emitter nodeIndex
                         let statusPath = Path.Combine(currentLogsRoot, node.Id, "status.json")
                         match tryLoadStatusOutcome statusPath raw with
                         | Some parsed -> parsed

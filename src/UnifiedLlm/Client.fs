@@ -46,6 +46,10 @@ type Client(?config: ClientConfig) =
     member _.AddMiddleware(middleware: IMiddleware) =
         middlewareChain.Add(middleware)
 
+    /// Add functional middleware
+    member _.AddMiddlewareFn(middleware: Middleware) =
+        middlewareChain.AddFn(middleware)
+
     /// Get the default provider id
     member _.DefaultProvider = defaultProvider
 

@@ -144,6 +144,20 @@ module Handlers =
             ensureDir rootDir
             File.WriteAllText(Path.Combine(rootDir, fileName), content)
 
+    let private resolvePreparedContext (node: Node) (context: Context) (graph: Graph) =
+        let fidelity =
+            let resolved = node.GetAttrString("__resolved_fidelity", "").Trim()
+            if resolved <> "" then
+                FidelityMode.Parse(resolved) |> Option.defaultValue FidelityMode.Compact
+            elif node.Fidelity <> "" then
+                FidelityMode.Parse(node.Fidelity) |> Option.defaultValue FidelityMode.Compact
+            elif graph.DefaultFidelity <> "" then
+                FidelityMode.Parse(graph.DefaultFidelity) |> Option.defaultValue FidelityMode.Compact
+            else
+                FidelityMode.Compact
+
+        ContextPrompt.preparePromptContext fidelity context graph.Goal
+
     let private resolveWorkingDir (node: Node) (graph: Graph) (defaultWorkingDir: string) =
         let nodeCwd = node.GetAttrString("cwd", "")
         let graphCwd = graph.GetGraphAttrString("cwd", "")
@@ -254,6 +268,20 @@ module Handlers =
                         |> List.map (fun (k, v) -> sprintf "  %s: %s" (System.Text.Json.JsonSerializer.Serialize(k)) (System.Text.Json.JsonSerializer.Serialize(v)))
                         |> String.concat ",\n"
                     writeStageFile stageDir rootDir "context.json" (sprintf "{\n%s\n}" contextJson)
+
+                let preparedContext = resolvePreparedContext node context graph
+                let contextBudgetJson =
+                    JsonSerializer.Serialize(
+                        {| fidelity_mode = preparedContext.FidelityMode.ToString()
+                           token_budget = preparedContext.TokenBudget
+                           char_budget = FidelityMode.charBudget preparedContext.FidelityMode
+                           char_budget_used = preparedContext.CharBudgetUsed
+                           fresh_session = preparedContext.UsedFreshSession
+                           included_keys = preparedContext.IncludedKeys
+                           truncated_keys = preparedContext.TruncatedKeys
+                           excluded_keys = preparedContext.ExcludedKeys |},
+                        JsonSerializerOptions(WriteIndented = true))
+                writeStageFile stageDir rootDir "context_budget.json" contextBudgetJson
 
                 // 3. Call backend (once!)
                 match backend with

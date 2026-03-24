@@ -553,7 +553,11 @@ module private HttpAdapterHelpers =
 /// Real Anthropic Messages API adapter
 type AnthropicAdapter(apiKey: string) =
     let client = new HttpClient(Timeout = Timeout.InfiniteTimeSpan)
-    let baseUrl = "https://api.anthropic.com/v1/messages"
+    let baseUrl =
+        match Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") with
+        | null
+        | "" -> "https://api.anthropic.com/v1/messages"
+        | value -> value
 
     let tryGetAnthropicOptions (request: Request) =
         request.ProviderOptions
@@ -774,7 +778,7 @@ type AnthropicAdapter(apiKey: string) =
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
             if not httpResp.IsSuccessStatusCode then
-                let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) respBody None
+                let err = ErrorMapping.classifyHttpResponse httpResp respBody
                 raise err
 
             HttpAdapterHelpers.responseFromAnthropic model respBody httpResp
@@ -788,7 +792,7 @@ type AnthropicAdapter(apiKey: string) =
 
                 if not httpResp.IsSuccessStatusCode then
                     let body = httpResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                    let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) body None
+                    let err = ErrorMapping.classifyHttpResponse httpResp body
                     raise err
 
                 use stream = httpResp.Content.ReadAsStream(cts.Token)
@@ -956,7 +960,11 @@ type AnthropicAdapter(apiKey: string) =
 /// Real OpenAI Responses API adapter
 type OpenAIAdapter(apiKey: string) =
     let client = new HttpClient(Timeout = Timeout.InfiniteTimeSpan)
-    let baseUrl = "https://api.openai.com/v1/responses"
+    let baseUrl =
+        match Environment.GetEnvironmentVariable("OPENAI_BASE_URL") with
+        | null
+        | "" -> "https://api.openai.com/v1/responses"
+        | value -> value
 
     let buildBody (request: Request) (stream: bool) =
         let model = if request.Model = "" then "gpt-4o" else request.Model
@@ -1080,7 +1088,7 @@ type OpenAIAdapter(apiKey: string) =
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
             if not httpResp.IsSuccessStatusCode then
-                let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) respBody None
+                let err = ErrorMapping.classifyHttpResponse httpResp respBody
                 raise err
 
             HttpAdapterHelpers.responseFromOpenAI model respBody httpResp
@@ -1094,7 +1102,7 @@ type OpenAIAdapter(apiKey: string) =
 
                 if not httpResp.IsSuccessStatusCode then
                     let body = httpResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                    let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) body None
+                    let err = ErrorMapping.classifyHttpResponse httpResp body
                     raise err
 
                 use stream = httpResp.Content.ReadAsStream(cts.Token)
@@ -1406,7 +1414,7 @@ type GeminiAdapter(apiKey: string) =
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
             if not httpResp.IsSuccessStatusCode then
-                let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) respBody None
+                let err = ErrorMapping.classifyHttpResponse httpResp respBody
                 raise err
 
             HttpAdapterHelpers.responseFromGemini model respBody httpResp
@@ -1422,7 +1430,7 @@ type GeminiAdapter(apiKey: string) =
 
                 if not httpResp.IsSuccessStatusCode then
                     let body = httpResp.Content.ReadAsStringAsync().GetAwaiter().GetResult()
-                    let err = ErrorMapping.fromStatusCode (int httpResp.StatusCode) body None
+                    let err = ErrorMapping.classifyHttpResponse httpResp body
                     raise err
 
                 use stream = httpResp.Content.ReadAsStream(cts.Token)

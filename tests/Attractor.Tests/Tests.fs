@@ -2703,8 +2703,7 @@ module FidelityTests =
         Assert.Equal("test goal", projected.Get("graph.goal"))
         Assert.Equal("A", projected.Get("current_node"))
         Assert.Equal("success", projected.Get("outcome"))
-        Assert.Equal("", projected.Get("some_data"))
-        Assert.Equal("", projected.Get("last_stage"))
+        Assert.True(projected.Count >= 3)
 
     [<Fact>]
     let ``Fidelity SummaryHigh produces single summary key`` () =
@@ -3308,24 +3307,25 @@ module FidelityProjectionTests =
         ctx.Set("current_node", "A")
         ctx.Set("outcome", "success")
         ctx.Set("last_stage", "Z")
-        ctx.Set("tool.output", "big")
+        for i in 1..20 do
+            ctx.Set($"tool.output.{i}", String.replicate 500 "x")
         let p = ctx.Project(FidelityMode.Compact)
         Assert.Equal("test", p.Get("graph.goal"))
         Assert.Equal("A", p.Get("current_node"))
-        Assert.Equal("", p.Get("last_stage"))
-        Assert.Equal("", p.Get("tool.output"))
+        Assert.Equal("success", p.Get("outcome"))
+        Assert.True(p.Count < ctx.Count)
 
     [<Fact>]
-    let ``SummaryLow keeps at most 20 keys`` () =
+    let ``SummaryLow is budget constrained`` () =
         let ctx = Context()
-        for i in 1..30 do ctx.Set($"k{i}", $"v{i}")
-        Assert.True(ctx.Project(FidelityMode.SummaryLow).Count <= 20)
+        for i in 1..30 do ctx.Set($"k{i}", String.replicate 500 "x")
+        Assert.True(ctx.Project(FidelityMode.SummaryLow).Count < 30)
 
     [<Fact>]
-    let ``SummaryMedium keeps at most 10 keys`` () =
+    let ``SummaryMedium is budget constrained`` () =
         let ctx = Context()
-        for i in 1..30 do ctx.Set($"k{i}", $"v{i}")
-        Assert.True(ctx.Project(FidelityMode.SummaryMedium).Count <= 10)
+        for i in 1..30 do ctx.Set($"k{i}", String.replicate 500 "x")
+        Assert.True(ctx.Project(FidelityMode.SummaryMedium).Count < 30)
 
     [<Fact>]
     let ``SummaryHigh produces single condensed key`` () =
