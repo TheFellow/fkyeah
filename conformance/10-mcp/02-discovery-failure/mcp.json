@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "name": "mock",
+      "transport": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "../../../tests/Fixtures/MockMcpServer/MockMcpServer.fsproj"
+      ]
+    }
+  ]
+}

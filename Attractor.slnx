@@ -2,9 +2,14 @@
   <Folder Name="/src/">
     <Project Path="src/Attractor.Cli/Attractor.Cli.fsproj" />
     <Project Path="src/Attractor/Attractor.fsproj" />
+    <Project Path="src/JsonRpc/JsonRpc.fsproj" />
+    <Project Path="src/McpClient/McpClient.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Attractor.Tests/Attractor.Tests.fsproj" />
+    <Project Path="tests/JsonRpc.Tests/JsonRpc.Tests.fsproj" />
+    <Project Path="tests/McpClient.Tests/McpClient.Tests.fsproj" />
+    <Project Path="tests/Fixtures/MockMcpServer/MockMcpServer.fsproj" />
   </Folder>
   <Project Path="src/CodingAgent/CodingAgent.fsproj" />
   <Project Path="src/UnifiedLlm/UnifiedLlm.fsproj" />

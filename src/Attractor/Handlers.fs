@@ -8,14 +8,6 @@ open System.Text.Json
 open CodingAgent
 open UnifiedLlm
 
-/// Handler interface: every node handler implements this
-type IHandler =
-    abstract member Execute: node: Node * context: Context * graph: Graph * logsRoot: string -> Outcome
-
-/// CodergenBackend interface for LLM integration
-type ICodergenBackend =
-    abstract member Run: node: Node * prompt: string * context: Context -> Result<string, Outcome>
-
 module Handlers =
 
     let private truncate (maxChars: int) (text: string) =
@@ -226,14 +218,7 @@ module Handlers =
 
     /// Write a status.json file for a node outcome
     let writeStatus (stageDir: string) (rootDir: string) (outcome: Outcome) =
-        let status =
-            {| outcome = outcome.Status.ToString()
-               preferred_label = outcome.PreferredLabel
-               suggested_next_ids = outcome.SuggestedNextIds
-               context_updates = outcome.ContextUpdates
-               notes = outcome.Notes |}
-        let json = JsonSerializer.Serialize(status, JsonSerializerOptions(WriteIndented = true))
-        writeStageFile stageDir rootDir "status.json" json
+        HandlerArtifacts.writeStatus stageDir rootDir outcome
 
     /// Start handler: no-op, returns SUCCESS
     type StartHandler() =
@@ -1048,6 +1033,7 @@ type HandlerRegistry() =
         registry.Register("parallel", Handlers.ParallelHandler(resolveHandler = registry.Resolve))
         registry.Register("parallel.fan_in", Handlers.FanInHandler())
         registry.Register("tool", Handlers.ToolHandler())
+        registry.Register("mcp.tool", McpHandlers.McpToolHandler())
         registry.Register("stack.manager_loop", Handlers.ManagerLoopHandler())
         match backend with
         | Some b -> registry.SetDefault(Handlers.CodergenHandler(b))

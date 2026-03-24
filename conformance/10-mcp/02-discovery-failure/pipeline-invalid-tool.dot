@@ -1,0 +1,7 @@
+digraph McpInvalidTool {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    seed [shape=parallelogram, tool_command="printf hello"]
+    mcp [type="mcp.tool", mcp_config_file="mcp.json", mcp_server="mock", mcp_tool="nonexistent"]
+    start -> seed -> mcp -> exit
+}

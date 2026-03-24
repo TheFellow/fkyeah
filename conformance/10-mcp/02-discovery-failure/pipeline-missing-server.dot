@@ -1,0 +1,7 @@
+digraph McpMissingServer {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    seed [shape=parallelogram, tool_command="printf hello"]
+    mcp [type="mcp.tool", mcp_config_file="mcp.json", mcp_server="missing", mcp_tool="echo_upper"]
+    start -> seed -> mcp -> exit
+}

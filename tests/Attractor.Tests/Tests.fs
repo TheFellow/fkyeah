@@ -3922,3 +3922,180 @@ module Sprint006Phase3Tests =
         let logsRoot = createTempDir()
         let result = Engine.run graph (RunConfig.Default(logsRoot))
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+
+module Sprint008McpHandlerTests =
+
+    let private createTempDir () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-mcp-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    let private parseJson (json: string) =
+        System.Text.Json.JsonDocument.Parse(json).RootElement.Clone()
+
+    let private mockConfigJson =
+        """{"servers":[{"name":"mock","transport":"stdio","command":"/bin/cat","args":[]}]}"""
+
+    let private toolDefinition name : McpClient.McpToolDefinition =
+        { Name = name
+          Description = "Test tool"
+          InputSchema = parseJson """{"type":"object"}""" }
+
+    let private successfulServer config : McpClient.McpRemoteServer =
+        { Config = config
+          ListTools = fun () -> async { return Ok [ toolDefinition "echo_upper" ] }
+          CallTool =
+            fun _ _ ->
+                async {
+                    return
+                        Ok
+                            { Content = parseJson """[{"type":"text","text":"HELLO"}]"""
+                              IsError = false }
+                }
+          Cleanup = fun () -> async { return () } }
+
+    let private failingServer config : McpClient.McpRemoteServer =
+        { Config = config
+          ListTools = fun () -> async { return Ok [ toolDefinition "echo_upper" ] }
+          CallTool = fun _ _ -> async { return Error(McpClient.McpError.RpcError(-32601, "Tool not found")) }
+          Cleanup = fun () -> async { return () } }
+
+    [<Fact>]
+    let ``Handler registry resolves mcp tool via explicit type`` () =
+        let registry = HandlerRegistry.CreateDefault()
+        let node =
+            { Id = "mcp"
+              Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "shape", AttrValue.String "box" ] }
+
+        let handler = registry.Resolve(node)
+        Assert.True(handler :? McpHandlers.McpToolHandler)
+
+    [<Fact>]
+    let ``Mcp handler fails when mcp server attribute is missing`` () =
+        let handler = McpHandlers.McpToolHandler() :> IHandler
+        let node =
+            { Id = "mcp"
+              Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "mcp_tool", AttrValue.String "echo_upper" ] }
+        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let outcome = handler.Execute(node, Context(), graph, createTempDir ())
+
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("mcp_server", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Mcp handler fails when mcp tool attribute is missing`` () =
+        let handler = McpHandlers.McpToolHandler() :> IHandler
+        let node =
+            { Id = "mcp"
+              Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "mcp_server", AttrValue.String "mock" ] }
+        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let outcome = handler.Execute(node, Context(), graph, createTempDir ())
+
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("mcp_tool", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Mcp handler validates requested tool against discovered definitions`` () =
+        let handler =
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config))
+            :> IHandler
+        let node =
+            { Id = "mcp"
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_server", AttrValue.String "mock"
+                      "mcp_tool", AttrValue.String "missing" ] }
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), graph, logsRoot)
+
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("echo_upper", outcome.FailureReason)
+        Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "mcp_request.json")))
+
+    [<Fact>]
+    let ``Mcp handler successful tool call writes artifacts and updates context`` () =
+        let configDir = createTempDir ()
+        let configPath = Path.Combine(configDir, "mcp.json")
+        File.WriteAllText(configPath, mockConfigJson)
+
+        let handler =
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config))
+            :> IHandler
+
+        let node =
+            { Id = "mcp"
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_config_file", AttrValue.String configPath
+                      "mcp_server", AttrValue.String "mock"
+                      "mcp_tool", AttrValue.String "echo_upper" ] }
+        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let context = Context()
+        context.Set("tool.output", "hello")
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, context, graph, logsRoot)
+
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("HELLO", outcome.ContextUpdates["tool.output"])
+        Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "mcp_request.json")))
+        Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "mcp_response.json")))
+        Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "status.json")))
+
+        let requestJson = File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+        Assert.Contains("initialize", requestJson)
+        Assert.Contains("tools/list", requestJson)
+        Assert.Contains("tools/call", requestJson)
+        Assert.Contains("echo_upper", requestJson)
+
+    [<Fact>]
+    let ``Mcp handler returns failure when server call fails`` () =
+        let handler =
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(failingServer config))
+            :> IHandler
+        let node =
+            { Id = "mcp"
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_server", AttrValue.String "mock"
+                      "mcp_tool", AttrValue.String "echo_upper" ] }
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), graph, logsRoot)
+
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("RPC error", outcome.FailureReason)
+        Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "mcp_response.json")))
+
+    [<Fact>]
+    let ``Mcp handler returns failure when server creation fails`` () =
+        let handler =
+            McpHandlers.McpToolHandler(serverFactory = fun _ _ -> Error(McpClient.McpError.TransportClosed "boom"))
+            :> IHandler
+        let node =
+            { Id = "mcp"
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_server", AttrValue.String "mock"
+                      "mcp_tool", AttrValue.String "echo_upper" ] }
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+        let outcome = handler.Execute(node, Context(), graph, createTempDir ())
+
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("Transport closed", outcome.FailureReason)

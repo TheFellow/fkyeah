@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CodingAgent\CodingAgent.fsproj" />
+    <ProjectReference Include="..\McpClient\McpClient.fsproj" />
     <ProjectReference Include="..\UnifiedLlm\UnifiedLlm.fsproj" />
   </ItemGroup>
 
@@ -20,6 +21,8 @@
     <Compile Include="Validation.fs" />
     <Compile Include="Transforms.fs" />
     <Compile Include="ContextPrompt.fs" />
+    <Compile Include="HandlerContracts.fs" />
+    <Compile Include="McpHandlers.fs" />
     <Compile Include="Handlers.fs" />
     <Compile Include="Engine.fs" />
     <Compile Include="Library.fs" />
