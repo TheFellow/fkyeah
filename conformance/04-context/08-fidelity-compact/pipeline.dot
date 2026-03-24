@@ -1,0 +1,12 @@
+digraph fidelity_compact {
+    graph [goal="Test fidelity compact mode"]
+
+    start  [shape=Mdiamond]
+    gen    [shape=parallelogram, tool_command="python3 -c \"print('X' * 5000)\""]
+    sink   [shape=box, prompt="Summarize the input."]
+    done   [shape=Msquare]
+
+    start -> gen
+    gen   -> sink [fidelity="Compact"]
+    sink  -> done
+}

@@ -1,0 +1,128 @@
+module UnifiedLlm.ValidationTests
+
+open Xunit
+open UnifiedLlm
+
+let private validator = RequestValidator.fromCatalog()
+
+[<Fact>]
+let ``validator rejects unknown model and invalid temperature`` () =
+    let request =
+        { Request.Create("unknown-model", [ Message.user("hello") ]) with
+            Temperature = Some 9.0 }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(ValidationIssue.UnknownModel "unknown-model", issues)
+
+[<Fact>]
+let ``validator rejects prompt and messages together`` () =
+    let request =
+        { Request.Create("gpt-5.4", [ Message.user("hello") ]) with
+            Prompt = Some "duplicate" }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(ValidationIssue.PromptAndMessagesBothPresent, issues)
+
+[<Fact>]
+let ``validator rejects named tool choice when tool missing`` () =
+    let request =
+        { Request.Create("gpt-5.4", [ Message.user("hello") ]) with
+            ToolChoice = Some(ToolChoice.Named "missing_tool") }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(
+            ValidationIssue.InvalidToolChoice("Named tool 'missing_tool' requires request.Tools"),
+            issues)
+
+// ── New Sprint-010 tests ──
+
+[<Fact>]
+let ``validator accepts valid request with known model`` () =
+    let request = Request.Create("gpt-5.4", [ Message.user("hello") ])
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``validator rejects empty messages with no prompt`` () =
+    let request = Request.Create("gpt-5.4", [])
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(ValidationIssue.EmptyMessages, issues)
+
+[<Fact>]
+let ``validator accepts tools request with model that supports tools`` () =
+    let tool = { Name = "my_tool"; Description = "does stuff"; Parameters = "{}" }
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("use tools") ]) with
+            Tools = Some [ tool ] }
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``validator rejects negative temperature`` () =
+    let request =
+        { Request.Create("gpt-5.4", [ Message.user("hi") ]) with
+            Temperature = Some -1.0 }
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.InvalidTemperature _ -> true | _ -> false),
+            "expected InvalidTemperature issue")
+
+[<Fact>]
+let ``validator rejects temperature above 2`` () =
+    let request =
+        { Request.Create("gpt-5.4", [ Message.user("hi") ]) with
+            Temperature = Some 3.5 }
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.InvalidTemperature _ -> true | _ -> false),
+            "expected InvalidTemperature issue")
+
+[<Fact>]
+let ``validator reports multiple simultaneous issues`` () =
+    let request =
+        { Request.Create("unknown-model-xyz", []) with
+            Temperature = Some 5.0 }
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.UnknownModel _ -> true | _ -> false),
+            "expected UnknownModel issue")
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.EmptyMessages -> true | _ -> false),
+            "expected EmptyMessages issue")
+
+[<Fact>]
+let ``validator accepts reasoning request against supported model`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("think hard") ]) with
+            ReasoningEffort = Some "high" }
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``validator rejects ToolChoice Required with no tools`` () =
+    let request =
+        { Request.Create("gpt-5.4", [ Message.user("hello") ]) with
+            ToolChoice = Some ToolChoice.Required }
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.InvalidToolChoice _ -> true | _ -> false),
+            "expected InvalidToolChoice issue")

@@ -11,6 +11,13 @@
     <Compile Include="StreamAccumulatorTests.fs" />
     <Compile Include="ErrorTests.fs" />
     <Compile Include="ModelCatalogTests.fs" />
+    <Compile Include="ValidationTests.fs" />
+    <Compile Include="CostingTests.fs" />
+    <Compile Include="CachingTests.fs" />
+    <Compile Include="CircuitBreakerTests.fs" />
+    <Compile Include="PromptCachingTests.fs" />
+    <Compile Include="AbortTimeoutTests.fs" />
+    <Compile Include="IntegrationTests.fs" />
     <Compile Include="LiveApiTests.fs" />
   </ItemGroup>
 
