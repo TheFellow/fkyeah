@@ -7,10 +7,12 @@ SERVER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mock-llm.XXXXXX")"
 PORT=$((8800 + RANDOM % 200))
 SERVER_LOG="$SERVER_DIR/server.log"
 
-dotnet run --project "$TEST_DIR/../../../tests/Fixtures/MockLlmServer/MockLlmServer.fsproj" -- \
-  --port "$PORT" \
-  --record-dir "$SERVER_DIR" \
-  --scenario truncate >"$SERVER_LOG" 2>&1 &
+if [[ -n "${MOCK_LLM_SERVER:-}" && -x "$MOCK_LLM_SERVER" ]]; then
+  "$MOCK_LLM_SERVER" --port "$PORT" --record-dir "$SERVER_DIR" --scenario truncate >"$SERVER_LOG" 2>&1 &
+else
+  dotnet run --project "$TEST_DIR/../../../tests/Fixtures/MockLlmServer/MockLlmServer.fsproj" -- \
+    --port "$PORT" --record-dir "$SERVER_DIR" --scenario truncate >"$SERVER_LOG" 2>&1 &
+fi
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT
 sleep 1
