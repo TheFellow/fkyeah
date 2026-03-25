@@ -10,7 +10,12 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.3.1"
+let cliVersion = "0.6.0"
+let mutable tracePath: string option = None
+let mutable cacheEnabled = false
+let mutable cacheDirectory: string option = None
+let mutable sharedCostLedger: CostLedger option = None
+let mutable sharedObservabilitySink = ObservabilitySink.none
 
 [<Literal>]
 let ExitSuccess = 0
@@ -84,6 +89,18 @@ type LlmBackend(llmClient: Client) =
                 let response = llmClient.Complete(request)
                 sw.Stop()
 
+                match Costing.tryCalculateCostById response.Model response.Usage (response.Usage.CacheReadTokens |> Option.defaultValue 0 > 0) with
+                | Some cost ->
+                    context.Set("llm.cost_microdollars", string cost.TotalMicrodollars)
+                    context.Set("llm.cost_usd", cost.TotalUsd.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    context.Set("llm.input_tokens", string response.Usage.InputTokens)
+                    context.Set("llm.output_tokens", string response.Usage.OutputTokens)
+                    context.Set("llm.cache_hit", string cost.CacheHit)
+                    context.Set("llm.model", response.Model)
+                    context.Set("llm.provider", response.Provider)
+                    context.Set("llm.last_node", node.Id)
+                | None -> ()
+
                 // Store response ID for conversation chaining on next call
                 match response.ResponseId with
                 | Some respId -> context.Set($"llm.response_id.{model}", respId)
@@ -116,6 +133,9 @@ type LlmBackend(llmClient: Client) =
             | :? OperationCanceledException ->
                 eprintfn "        LLM call cancelled (Ctrl-C)"
                 Result.Error (Outcome.Fail("Cancelled by user"))
+            | :? ValidationError as ex ->
+                eprintfn "        LLM validation error: %s" ex.Message
+                Result.Error (Outcome.Fail($"Validation failed: {ex.Message}"))
             | ex ->
                 eprintfn "        LLM error: %s" ex.Message
                 Result.Error (Outcome.Retry($"LLM call failed: {ex.Message}"))
@@ -192,6 +212,10 @@ Options:
   --resume <dir>     Resume from checkpoint in the given logs directory
   --auto-approve     Auto-approve all human gates (no interactive prompts)
   --simulate         Run with simulated LLM responses (no API keys needed)
+  --cache            Enable persisted LLM response caching
+  --cache-dir <dir>  Cache directory override (default: ./.fkyeah-cache)
+  --trace <path>     Write structured observability JSON Lines
+  --verbose          Print verbose stats/logging (default)
   --quiet            Suppress verbose stats/logging (LLM calls, tokens, timing)
   --version          Print version
   --help, -h         Show this help
@@ -443,6 +467,10 @@ let parseArgs (args: string array) =
     let mutable showVersion = false
     let mutable simulate = false
     let mutable quiet = false
+    let mutable explicitVerbose = false
+    let mutable trace = None
+    let mutable cache = false
+    let mutable cacheDir = None
     let mutable servePort = None
     let mutable i = 0
 
@@ -464,6 +492,17 @@ let parseArgs (args: string array) =
             simulate <- true
         | "--quiet" | "-q" ->
             quiet <- true
+        | "--verbose" ->
+            explicitVerbose <- true
+        | "--trace" when i + 1 < args.Length ->
+            trace <- Some args[i + 1]
+            i <- i + 1
+        | "--cache" ->
+            cache <- true
+        | "--cache-dir" when i + 1 < args.Length ->
+            cacheDir <- Some args[i + 1]
+            cache <- true
+            i <- i + 1
         | "--version" ->
             showVersion <- true
         | "serve" ->
@@ -489,7 +528,7 @@ let parseArgs (args: string array) =
             showHelp <- true
         i <- i + 1
 
-    (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, servePort)
+    (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort)
 
 let validate (source: string) =
     let graph = Pipeline.parseOrRaise source
@@ -531,6 +570,35 @@ let validate (source: string) =
         ExitSuccess
 
 /// Create a handler registry with LLM backend if keys are available
+let private configureClientMiddleware (client: UnifiedLlm.Client) =
+    let validator = RequestValidator.fromCatalog()
+    let ledger = CostLedger.inMemory()
+    sharedCostLedger <- Some ledger
+
+    let consoleSink =
+        if verbose then ObservabilitySink.console true
+        else ObservabilitySink.none
+
+    let sink =
+        match tracePath with
+        | Some path -> ObservabilitySink.combine [ consoleSink; ObservabilitySink.jsonLines path ]
+        | None -> consoleSink
+
+    sharedObservabilitySink <- sink
+
+    client.AddMiddlewareFn(Middleware.validation validator sink)
+    client.AddMiddlewareFn(Middleware.circuitBreaker CircuitBreakerConfig.Default sink)
+
+    if cacheEnabled then
+        let root = cacheDirectory |> Option.defaultValue (Path.Combine(Environment.CurrentDirectory, ".fkyeah-cache"))
+        let store =
+            CacheStore.fileSystem
+                { CacheConfig.Default with
+                    PersistencePath = Some root }
+        client.AddMiddlewareFn(Middleware.cache store sink)
+
+    client.AddMiddlewareFn(Middleware.observability sink (Some ledger))
+
 let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, int> =
     let interviewer: IInterviewer =
         if autoApprove then AutoApproveInterviewer() :> IInterviewer
@@ -554,6 +622,7 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
         Ok(HandlerRegistry.CreateDefault(interviewer = interviewer, acpPermissionStrategy = acpPermissionStrategy))
     elif hasAnthropic || hasOpenai || hasGemini then
         let llmClient = UnifiedLlm.Client()
+        configureClientMiddleware llmClient
         if hasAnthropic then
             eprintfn "  Registered Anthropic adapter (ANTHROPIC_API_KEY)"
             llmClient.RegisterAdapter(UnifiedLlm.AnthropicAdapter(anthropicKey))
@@ -606,11 +675,13 @@ let run (source: string) (logsRoot: string) (autoApprove: bool) (simulate: bool)
     | StageStatus.Success ->
         printfn "Result: SUCCESS"
         printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+        sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
         printfn "Logs: %s" logsRoot
         ExitSuccess
     | StageStatus.PartialSuccess ->
         printfn "Result: PARTIAL SUCCESS"
         printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+        sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
         printfn "Logs: %s" logsRoot
         ExitSuccess
     | _ ->
@@ -963,13 +1034,20 @@ let main args =
         else
             eprintfn "  Interrupted (Ctrl-C). Cancelling in-flight LLM calls..."
             eprintfn "  Press Ctrl-C again to force quit."
+            CodingAgent.AutoCheckpointRegistry.saveAll()
             UnifiedLlm.HttpCancellation.cancel()
     )
 
-    let (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, servePort) = parseArgs args
+    let (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort) = parseArgs args
 
     if quiet then
         verbose <- false
+    elif explicitVerbose then
+        verbose <- true
+
+    tracePath <- trace
+    cacheEnabled <- cache
+    cacheDirectory <- cacheDir
 
     if showSchema then
         printSchema ()
