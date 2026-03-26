@@ -478,6 +478,93 @@ type Graph =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue defaultValue
 
+module KnownAttributes =
+    let node =
+        set
+            [ "label"
+              "shape"
+              "type"
+              "prompt"
+              "max_retries"
+              "goal_gate"
+              "retry_target"
+              "fallback_retry_target"
+              "fidelity"
+              "thread_id"
+              "class"
+              "timeout"
+              "llm_model"
+              "llm_provider"
+              "reasoning_effort"
+              "auto_status"
+              "allow_partial"
+              "max_visits"
+              "outcome_fail_pattern"
+              "tool_hooks.pre"
+              "tool_hooks.post"
+              "tool_command"
+              "human.default_choice"
+              "system_prompt"
+              "stop_condition_key"
+              "observe_key"
+              "lane"
+              "cwd"
+              "max_turns"
+              "max_tool_rounds"
+              "command_timeout"
+              "max_cycles"
+              "manager.max_cycles"
+              "wait_ms"
+              "acp_command"
+              "acp_url"
+              "acp_transport"
+              "acp_args_json"
+              "acp_timeout_ms"
+              "mcp_server"
+              "mcp_tool"
+              "mcp_config_file" ]
+
+    let edge =
+        set
+            [ "label"
+              "condition"
+              "weight"
+              "fidelity"
+              "thread_id"
+              "loop_restart" ]
+
+    let graph =
+        set
+            [ "goal"
+              "label"
+              "model_stylesheet"
+              "default_fidelity"
+              "default_max_retries"
+              "default_max_retry"
+              "retry_target"
+              "fallback_retry_target"
+              "stack.child_dotfile"
+              "stack.child_workdir"
+              "cwd"
+              "llm_model"
+              "mcp_servers" ]
+
+    let graphvizPassthrough =
+        set
+            [ "color"
+              "fillcolor"
+              "fontname"
+              "fontsize"
+              "style"
+              "penwidth"
+              "margin"
+              "rankdir"
+              "bgcolor"
+              "fontcolor"
+              "width"
+              "height"
+              "fixedsize" ]
+
 /// Thread-safe context key-value store
 type IArtifactStore =
     abstract member Store: key: string * data: string -> unit

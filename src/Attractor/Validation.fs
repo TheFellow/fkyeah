@@ -355,6 +355,134 @@ module Validation =
                             fix = "Set max_visits to a positive integer"))
                     | _ -> None) }
 
+    let private normalizeAttrName (value: string) =
+        value.ToLowerInvariant()
+        |> Seq.filter Char.IsLetterOrDigit
+        |> Seq.toArray
+        |> String
+
+    let private tokenizeAttrName (value: string) =
+        value.ToLowerInvariant().Split([| '.'; '_'; '-' |], StringSplitOptions.RemoveEmptyEntries ||| StringSplitOptions.TrimEntries)
+
+    let private levenshteinDistance (left: string) (right: string) =
+        if left = right then
+            0
+        elif left = "" then
+            right.Length
+        elif right = "" then
+            left.Length
+        else
+            let previous = Array.init (right.Length + 1) id
+            let current = Array.zeroCreate<int> (right.Length + 1)
+
+            for i in 1 .. left.Length do
+                current[0] <- i
+                for j in 1 .. right.Length do
+                    let substitutionCost =
+                        if left[i - 1] = right[j - 1] then 0 else 1
+                    current[j] <-
+                        min
+                            (min (current[j - 1] + 1) (previous[j] + 1))
+                            (previous[j - 1] + substitutionCost)
+                Array.blit current 0 previous 0 current.Length
+
+            previous[right.Length]
+
+    let private suggestAttribute (known: Set<string>) (attrName: string) =
+        let attrNorm = normalizeAttrName attrName
+        if attrNorm = "" then
+            None
+        else
+            let attrLower = attrName.ToLowerInvariant()
+            let attrTokens = tokenizeAttrName attrName
+            known
+            |> Seq.map (fun candidate ->
+                let candidateNorm = normalizeAttrName candidate
+                let candidateTokens = tokenizeAttrName candidate
+                let distance = levenshteinDistance attrNorm candidateNorm
+                let mutable bonus = 0
+
+                if attrLower.Contains(candidate.ToLowerInvariant()) then
+                    bonus <- bonus + 2
+
+                if attrTokens.Length > 0 && candidateTokens.Length > 0 then
+                    if attrTokens[0] = candidateTokens[0] then
+                        bonus <- bonus + 1
+                    if attrTokens[attrTokens.Length - 1] = candidateTokens[candidateTokens.Length - 1] then
+                        bonus <- bonus + 2
+
+                let score = distance - bonus
+                (candidate, score, distance))
+            |> Seq.sortBy (fun (_, score, distance) -> score, distance)
+            |> Seq.tryHead
+            |> Option.bind (fun (candidate, score, _) ->
+                let threshold = max 2 (attrNorm.Length / 2)
+                if score <= threshold then Some candidate else None)
+
+    let private attributeMessage (subject: string) (attrName: string) (suggestion: string option) =
+        match suggestion with
+        | Some candidate ->
+            $"{subject} has unrecognized attribute '{attrName}' (did you mean '{candidate}'?)"
+        | None ->
+            $"{subject} has unrecognized attribute '{attrName}'"
+
+    /// Rule: warn on unrecognized node/edge/graph attribute names
+    let attributeKnownRule: ILintRule =
+        let nodeKnown = Set.union KnownAttributes.node KnownAttributes.graphvizPassthrough
+        let edgeKnown = Set.union KnownAttributes.edge KnownAttributes.graphvizPassthrough
+        let graphKnown = Set.union KnownAttributes.graph KnownAttributes.graphvizPassthrough
+
+        { new ILintRule with
+            member _.Name = "attribute_known"
+            member _.Apply(graph) =
+                let nodeDiags =
+                    graph.Nodes
+                    |> Map.toList
+                    |> List.collect (fun (_, node) ->
+                        node.Attributes
+                        |> Map.toList
+                        |> List.choose (fun (attrName, _) ->
+                            if nodeKnown.Contains(attrName) then None
+                            else
+                                let suggestion = suggestAttribute nodeKnown attrName
+                                Some(
+                                    Diagnostic.Warning(
+                                        "attribute_known",
+                                        attributeMessage $"Node '{node.Id}'" attrName suggestion,
+                                        nodeId = node.Id
+                                    ))))
+
+                let edgeDiags =
+                    graph.Edges
+                    |> List.collect (fun edge ->
+                        edge.Attributes
+                        |> Map.toList
+                        |> List.choose (fun (attrName, _) ->
+                            if edgeKnown.Contains(attrName) then None
+                            else
+                                let suggestion = suggestAttribute edgeKnown attrName
+                                Some(
+                                    Diagnostic.Warning(
+                                        "attribute_known",
+                                        attributeMessage $"Edge {edge.FromNode}->{edge.ToNode}" attrName suggestion,
+                                        edge = (edge.FromNode, edge.ToNode)
+                                    ))))
+
+                let graphDiags =
+                    graph.GraphAttributes
+                    |> Map.toList
+                    |> List.choose (fun (attrName, _) ->
+                        if graphKnown.Contains(attrName) then None
+                        else
+                            let suggestion = suggestAttribute graphKnown attrName
+                            Some(
+                                Diagnostic.Warning(
+                                    "attribute_known",
+                                    attributeMessage "Graph" attrName suggestion
+                                )))
+
+                nodeDiags @ edgeDiags @ graphDiags }
+
     /// Rule: Every non-terminal node must have a path to a terminal node
     let terminalReachabilityRule: ILintRule =
         { new ILintRule with
@@ -571,7 +699,8 @@ module Validation =
           goalGateHasRetryRule
           retryTargetCycleRule
           promptOnLlmNodesRule
-          maxVisitsRule ]
+          maxVisitsRule
+          attributeKnownRule ]
 
     /// Run validation on a graph with optional extra rules
     let validate (graph: Graph) (extraRules: ILintRule list option) : Diagnostic list =

@@ -1,0 +1,7 @@
+digraph graphviz_passthrough {
+    graph [rankdir=LR, bgcolor=lightgray, fontname="Menlo"]
+    start [shape=Mdiamond, color=green, fillcolor=white, style=filled, fontname="Menlo", fontsize=12, penwidth=2]
+    exit [shape=Msquare, color=blue]
+
+    start -> exit [label="Done", color=gray, style=dashed, penwidth=2]
+}

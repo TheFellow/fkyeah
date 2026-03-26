@@ -277,6 +277,7 @@ let printSchema () =
 #   Mdiamond          start                Entry point (exactly one required)
 #   Msquare           exit                 Terminal node (exactly one required)
 #   box               codergen             LLM task (default for unspecified shapes)
+#   tab               coding_agent         LLM agent with tool execution (max_turns attr)
 #   diamond           conditional          Pass-through; engine evaluates edge conditions
 #   hexagon           wait.human           Human approval gate (interactive prompt)
 #   component         parallel             Fan-out: branches execute concurrently
@@ -314,6 +315,15 @@ let printSchema () =
 #   max_cycles         Integer   Max supervision cycles (for house/manager_loop nodes).
 #   stop_condition_key String    Context key to check for stop (manager_loop, default: "manager.stop").
 #   human_default_choice String  Default choice on human gate timeout.
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CODING AGENT ATTRIBUTES (tab shape only)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#   max_turns          Integer   Maximum agent turns (default: 20)
+#   max_tool_rounds    Integer   Maximum tool rounds per input (default: 25)
+#   command_timeout    Duration  Timeout per shell command (default: "120s")
+#   system_prompt      String    System instructions for the agent session
 
 # ═══════════════════════════════════════════════════════════════════════════
 # EDGE ATTRIBUTES (inside `node_a -> node_b [...]`)

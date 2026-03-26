@@ -1,0 +1,7 @@
+digraph unrecognized_llm_prompt {
+    start [shape=Mdiamond]
+    work [shape=box, llm_prompt="Write a complete implementation plan"]
+    exit [shape=Msquare]
+
+    start -> work -> exit
+}

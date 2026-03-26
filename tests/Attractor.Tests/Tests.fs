@@ -4296,3 +4296,203 @@ module Sprint008McpHandlerTests =
 
         Assert.Equal(StageStatus.Fail, outcome.Status)
         Assert.Contains("Transport closed", outcome.FailureReason)
+
+module Sprint013AttributeValidationTests =
+
+    [<Fact>]
+    let ``KnownAttributes registry includes core accessor names`` () =
+        let expectedNode =
+            [ "label"
+              "shape"
+              "type"
+              "prompt"
+              "max_retries"
+              "goal_gate"
+              "retry_target"
+              "fallback_retry_target"
+              "fidelity"
+              "thread_id"
+              "class"
+              "timeout"
+              "llm_model"
+              "llm_provider"
+              "reasoning_effort"
+              "auto_status"
+              "allow_partial"
+              "max_visits"
+              "outcome_fail_pattern"
+              "tool_hooks.pre"
+              "tool_hooks.post"
+              "tool_command"
+              "system_prompt"
+              "max_turns"
+              "max_tool_rounds"
+              "command_timeout"
+              "acp_command"
+              "acp_url"
+              "acp_transport"
+              "acp_args_json"
+              "mcp_server"
+              "mcp_tool"
+              "mcp_config_file" ]
+
+        for attr in expectedNode do
+            Assert.True(KnownAttributes.node.Contains(attr), $"Missing known node attribute '{attr}'")
+
+        let expectedEdge = [ "label"; "condition"; "weight"; "fidelity"; "thread_id"; "loop_restart" ]
+        for attr in expectedEdge do
+            Assert.True(KnownAttributes.edge.Contains(attr), $"Missing known edge attribute '{attr}'")
+
+        let expectedGraph =
+            [ "goal"
+              "label"
+              "model_stylesheet"
+              "default_fidelity"
+              "default_max_retries"
+              "default_max_retry"
+              "retry_target"
+              "fallback_retry_target"
+              "stack.child_dotfile"
+              "stack.child_workdir" ]
+
+        for attr in expectedGraph do
+            Assert.True(KnownAttributes.graph.Contains(attr), $"Missing known graph attribute '{attr}'")
+
+    [<Fact>]
+    let ``attribute_known suggests prompt for llm_prompt typo`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=box, llm_prompt="Write code"]
+            start -> A -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags =
+            Validation.validate graph None
+            |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "A")
+        let diag = diags |> List.tryFind (fun d -> d.Message.Contains("llm_prompt"))
+        Assert.True(diag.IsSome)
+        Assert.Contains("prompt", diag.Value.Message)
+
+    [<Fact>]
+    let ``attribute_known suggests max_turns for max_agent_turns typo`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            agent [shape=tab, max_agent_turns=7, prompt="Implement task"]
+            start -> agent -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags =
+            Validation.validate graph None
+            |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "agent")
+        let diag = diags |> List.tryFind (fun d -> d.Message.Contains("max_agent_turns"))
+        Assert.True(diag.IsSome)
+        Assert.Contains("max_turns", diag.Value.Message)
+
+    [<Fact>]
+    let ``attribute_known suggests type for node_type typo`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=box, node_type="codergen", prompt="Do work"]
+            start -> A -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags =
+            Validation.validate graph None
+            |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "A")
+        let diag = diags |> List.tryFind (fun d -> d.Message.Contains("node_type"))
+        Assert.True(diag.IsSome)
+        Assert.Contains("type", diag.Value.Message)
+
+    [<Fact>]
+    let ``attribute_known does not warn for graphviz passthrough attributes`` () =
+        let dot = """
+        digraph Test {
+            graph [rankdir=LR, bgcolor=lightgray, fontname="Menlo"]
+            start [shape=Mdiamond, color=green, fillcolor=white, fontname="Menlo", fontsize=12, style=filled, penwidth=2, margin=0.2, fontcolor=black, width=1.2, height=0.8, fixedsize=true]
+            exit [shape=Msquare, color=blue]
+            start -> exit [color=gray, style=dashed, penwidth=2, label="Done"]
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))
+
+    [<Fact>]
+    let ``attribute_known does not warn for recognized attributes`` () =
+        let dot = """
+        digraph Test {
+            graph [
+                goal="Ship feature",
+                label="Build",
+                model_stylesheet="* { llm_model: claude-sonnet-4-6; }",
+                default_fidelity=compact,
+                default_max_retries=2,
+                retry_target="agent",
+                fallback_retry_target="exit",
+                stack.child_dotfile="child.dot",
+                stack.child_workdir=".",
+                cwd=".",
+                llm_model="claude-sonnet-4-6",
+                mcp_servers="[]"
+            ]
+            start [shape=Mdiamond]
+            agent [
+                shape=tab,
+                type="coding_agent",
+                prompt="Implement",
+                max_retries=1,
+                goal_gate=true,
+                retry_target="agent",
+                fallback_retry_target="exit",
+                fidelity=compact,
+                thread_id="thread-1",
+                class="critical",
+                timeout="10s",
+                llm_model="claude-sonnet-4-6",
+                llm_provider="anthropic",
+                reasoning_effort=high,
+                auto_status=true,
+                allow_partial=true,
+                max_visits=3,
+                outcome_fail_pattern="error",
+                tool_hooks.pre="echo pre",
+                tool_hooks.post="echo post",
+                tool_command="echo run",
+                human.default_choice="Approve",
+                system_prompt="Follow project conventions.",
+                stop_condition_key="manager.stop",
+                observe_key="manager.subordinate_output",
+                lane="main",
+                cwd=".",
+                max_turns=7,
+                max_tool_rounds=11,
+                command_timeout=120000,
+                max_cycles=4,
+                manager.max_cycles=5,
+                wait_ms=100,
+                acp_command="claude",
+                acp_url="http://localhost:8080",
+                acp_transport="stdio",
+                acp_args_json="[]",
+                acp_timeout_ms=60000,
+                mcp_server="mock",
+                mcp_tool="echo",
+                mcp_config_file="mcp.json"
+            ]
+            exit [shape=Msquare]
+            start -> agent [label="Go", condition="outcome=success", weight=1, fidelity=compact, thread_id="t", loop_restart=false]
+            agent -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))

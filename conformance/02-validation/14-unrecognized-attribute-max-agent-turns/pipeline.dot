@@ -1,0 +1,7 @@
+digraph unrecognized_max_agent_turns {
+    start [shape=Mdiamond]
+    agent [shape=tab, prompt="Implement the requested change", max_agent_turns=5]
+    exit [shape=Msquare]
+
+    start -> agent -> exit
+}

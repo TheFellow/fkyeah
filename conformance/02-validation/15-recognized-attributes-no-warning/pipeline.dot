@@ -1,0 +1,20 @@
+digraph recognized_attributes {
+    graph [
+        goal="Ship feature",
+        default_max_retry=2
+    ]
+
+    start [shape=Mdiamond]
+    agent [
+        shape=tab,
+        prompt="Implement the feature",
+        max_turns=4,
+        max_tool_rounds=6,
+        command_timeout=120000,
+        system_prompt="Follow existing coding conventions."
+    ]
+    exit [shape=Msquare]
+
+    start -> agent [label="Run", condition="outcome=success", weight=1, fidelity=compact, thread_id="main", loop_restart=false]
+    agent -> exit
+}
