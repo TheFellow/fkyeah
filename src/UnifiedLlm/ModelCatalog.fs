@@ -158,3 +158,6 @@ module ModelCatalog =
         |> Option.orElseWith (fun () ->
             models
             |> List.tryFind (fun model -> model.Aliases |> List.contains modelId))
+
+    let tryResolveModel (modelId: string) : ModelInfo option =
+        resolveModel modelId

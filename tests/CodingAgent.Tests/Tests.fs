@@ -144,7 +144,7 @@ module CoreLoopTests =
             client.RegisterAdapter(mock)
             let config = { SessionConfig.Default with MaxToolRoundsPerInput = 2 }
             let session = Session(TestProfile("m"), env, client, config)
-            session.RegisterTool({ Definition = SharedTools.shell; Execute = fun _ _ -> "hi" })
+            session.RegisterTool({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "hi" })
             session.ProcessInput("run a command")
             // Should have stopped due to round limit
             let limitEvents = session.Events |> List.filter (fun e -> e.Kind = TurnLimit)
@@ -220,7 +220,7 @@ module CoreLoopTests =
             client.RegisterAdapter(mock)
             let config = { SessionConfig.Default with LoopDetectionWindow = 4; MaxToolRoundsPerInput = 15 }
             let session = Session(TestProfile("m"), env, client, config)
-            session.RegisterTool({ Definition = SharedTools.shell; Execute = fun _ _ -> "same output" })
+            session.RegisterTool({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "same output" })
             session.ProcessInput("keep running")
             let loopEvents = session.Events |> List.filter (fun e -> e.Kind = LoopDetection)
             Assert.True(loopEvents.Length > 0)
@@ -302,7 +302,7 @@ module ToolExecutionTests =
         try
             let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
             let registry = AgentToolRegistry()
-            registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> "hello world" })
+            registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "hello world" })
             let tc = { Id = "c1"; Name = "shell"; Arguments = """{"command":"echo hello"}"""; Metadata = Map.empty }
             let result = registry.Dispatch(tc, env)
             Assert.False(result.IsError)
@@ -327,7 +327,7 @@ module ToolExecutionTests =
         try
             let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
             let registry = AgentToolRegistry()
-            registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> failwith "boom" })
+            registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> failwith "boom" })
             let tc = { Id = "c1"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
             let result = registry.Dispatch(tc, env)
             Assert.True(result.IsError)
@@ -340,7 +340,7 @@ module ToolExecutionTests =
         try
             let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
             let registry = AgentToolRegistry()
-            registry.Register({ Definition = SharedTools.shell; Execute = fun args _ -> sprintf "result: %s" args })
+            registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun args _ -> sprintf "result: %s" args })
             let tcs = [
                 { Id = "c1"; Name = "shell"; Arguments = """{"command":"a"}"""; Metadata = Map.empty }
                 { Id = "c2"; Name = "shell"; Arguments = """{"command":"b"}"""; Metadata = Map.empty }
@@ -358,6 +358,7 @@ module ToolExecutionTests =
             let registry = AgentToolRegistry()
             let mutable receivedArgs = ""
             registry.Register({ Definition = SharedTools.shell
+                                IsCacheable = false
                                 Execute = fun args _ ->
                                     receivedArgs <- args
                                     "ok" })
@@ -839,7 +840,7 @@ module EventSystemTests =
             let client = Client()
             client.RegisterAdapter(makeToolMock())
             let session = Session(TestProfile("m"), env, client)
-            session.RegisterTool({ Definition = SharedTools.readFile; Execute = fun _ _ -> "file content" })
+            session.RegisterTool({ Definition = SharedTools.readFile; IsCacheable = true; Execute = fun _ _ -> "file content" })
             session.ProcessInput("Read a file")
             let toolStartEvents = session.Events |> List.filter (fun e -> e.Kind = CodingAgent.ToolCallStart)
             let toolEndEvents = session.Events |> List.filter (fun e -> e.Kind = CodingAgent.ToolCallEnd)
@@ -872,7 +873,7 @@ module ErrorHandlingTests =
         try
             let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
             let registry = AgentToolRegistry()
-            registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> failwith "command failed" })
+            registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> failwith "command failed" })
             let tc = { Id = "c1"; Name = "shell"; Arguments = """{"command":"echo hi"}"""; Metadata = Map.empty }
             let result = registry.Dispatch(tc, env)
             Assert.True(result.IsError)
@@ -999,15 +1000,15 @@ module AgentToolRegistryTests =
     [<Fact>]
     let ``Register and resolve tools`` () =
         let registry = AgentToolRegistry()
-        registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> "ok" })
+        registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "ok" })
         Assert.True((registry.Resolve("shell")).IsSome)
         Assert.True((registry.Resolve("unknown")).IsNone)
 
     [<Fact>]
     let ``List and names`` () =
         let registry = AgentToolRegistry()
-        registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> "" })
-        registry.Register({ Definition = SharedTools.readFile; Execute = fun _ _ -> "" })
+        registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "" })
+        registry.Register({ Definition = SharedTools.readFile; IsCacheable = true; Execute = fun _ _ -> "" })
         Assert.Equal(2, registry.Count)
         Assert.Contains("shell", registry.Names())
         Assert.Contains("read_file", registry.Names())
@@ -1015,7 +1016,7 @@ module AgentToolRegistryTests =
     [<Fact>]
     let ``Unregister removes tool`` () =
         let registry = AgentToolRegistry()
-        registry.Register({ Definition = SharedTools.shell; Execute = fun _ _ -> "" })
+        registry.Register({ Definition = SharedTools.shell; IsCacheable = false; Execute = fun _ _ -> "" })
         registry.Unregister("shell")
         Assert.True((registry.Resolve("shell")).IsNone)
 
@@ -1061,7 +1062,7 @@ module Sprint002ToolRegistrationTests =
                 { Name = "needs_location"
                   Description = "Needs location"
                   Parameters = """{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}""" }
-            registry.Register({ Definition = locationTool; Execute = fun _ _ -> "ok" })
+            registry.Register({ Definition = locationTool; IsCacheable = false; Execute = fun _ _ -> "ok" })
             let tc = { Id = "c1"; Name = "needs_location"; Arguments = """{}"""; Metadata = Map.empty }
             let result = registry.Dispatch(tc, env)
             Assert.True(result.IsError)
@@ -1091,7 +1092,7 @@ module Sprint002EventTests =
             let client = Client()
             client.RegisterAdapter(makeToolMock())
             let session = Session(TestProfile("m"), env, client)
-            session.RegisterTool({ Definition = SharedTools.readFile; Execute = fun _ _ -> "file content" })
+            session.RegisterTool({ Definition = SharedTools.readFile; IsCacheable = true; Execute = fun _ _ -> "file content" })
             session.ProcessInput("Read the file")
 
             let kinds = session.Events |> List.map (fun e -> e.Kind)
@@ -1617,6 +1618,7 @@ module Sprint004Coverage =
             let session = Session(TestProfile("m"), env, client, config)
             session.RegisterTool(
                 { Definition = SharedTools.shell
+                  IsCacheable = false
                   Execute = fun _ _ -> String.replicate 35000 "x" + "TAIL_ERROR_FRAGMENT" })
 
             session.ProcessInput("run shell")
@@ -1662,6 +1664,7 @@ module Sprint004Coverage =
             let mutable maxActive = 0
             session.RegisterTool(
                 { Definition = profile.ToolDefinitions.Head
+                  IsCacheable = false
                   Execute = fun args _ ->
                       lock gate (fun () ->
                           active <- active + 1
@@ -1717,6 +1720,7 @@ module Sprint004Coverage =
             let mutable maxActive = 0
             session.RegisterTool(
                 { Definition = profile.ToolDefinitions.Head
+                  IsCacheable = false
                   Execute = fun args _ ->
                       lock gate (fun () ->
                           active <- active + 1
@@ -2153,6 +2157,7 @@ module Sprint006Phase3Coverage =
             let session = Session(TestProfile("m"), env, client, config)
             session.RegisterTool(
                 { Definition = SharedTools.shell
+                  IsCacheable = false
                   Execute = fun _ _ ->
                     executed <- true
                     "ran" })

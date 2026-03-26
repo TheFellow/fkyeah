@@ -355,7 +355,7 @@ module private HttpAdapterHelpers =
 
         let contentParts, warnings = extractMessagePartsFromAnthropic content
 
-        let usage =
+        let usage: Usage =
             match tryGetProperty "usage" root with
             | Some u ->
                 { InputTokens = tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
@@ -439,7 +439,7 @@ module private HttpAdapterHelpers =
             | Some text when text <> "" -> contentParts.Add(ContentPart.Text text)
             | _ -> ()
 
-        let usage =
+        let usage: Usage =
             match tryGetProperty "usage" root with
             | Some u ->
                 let inputTokens = tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
@@ -527,7 +527,7 @@ module private HttpAdapterHelpers =
             | None -> ()
         | _ -> warnings.Add("Gemini response missing candidates")
 
-        let usage =
+        let usage: Usage =
             match tryGetProperty "usageMetadata" root with
             | Some u ->
                 { InputTokens = tryGetProperty "promptTokenCount" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
@@ -895,7 +895,11 @@ type AnthropicAdapter(apiKey: string) =
                                 textBuilders.Remove(idx) |> ignore
 
                             if toolStates.ContainsKey(idx) then
-                                let tc = { Id = toolStates[idx].Id; Name = toolStates[idx].Name; Arguments = toolStates[idx].Args.ToString(); Metadata = toolStates[idx].Metadata }
+                                let tc: ToolCallData =
+                                    { Id = toolStates[idx].Id
+                                      Name = toolStates[idx].Name
+                                      Arguments = toolStates[idx].Args.ToString()
+                                      Metadata = toolStates[idx].Metadata }
                                 contentParts.Add(ContentPart.ToolCall tc)
                                 yield ToolCallEnd tc
                                 toolStates.Remove(idx) |> ignore
@@ -1183,7 +1187,11 @@ type OpenAIAdapter(apiKey: string) =
                                     let id = HttpAdapterHelpers.tryGetString "call_id" item |> Option.defaultValue ""
                                     if id <> "" && toolStates.ContainsKey(id) then
                                         let state = toolStates[id]
-                                        let tc = { Id = state.Id; Name = state.Name; Arguments = state.Args.ToString(); Metadata = state.Metadata }
+                                        let tc: ToolCallData =
+                                            { Id = state.Id
+                                              Name = state.Name
+                                              Arguments = state.Args.ToString()
+                                              Metadata = state.Metadata }
                                         yield ToolCallEnd tc
                                 | Some "reasoning" ->
                                     yield ReasoningEnd None
@@ -1488,7 +1496,7 @@ type GeminiAdapter(apiKey: string) =
                                                 match HttpAdapterHelpers.tryGetString "thoughtSignature" part with
                                                 | Some ts -> Map.ofList [ "thoughtSignature", ts ]
                                                 | None -> Map.empty
-                                            let tc =
+                                            let tc: ToolCallData =
                                                 { Id = "gemini-tc-" + Guid.NewGuid().ToString("N").Substring(0, 8)
                                                   Name = name
                                                   Arguments = argsText

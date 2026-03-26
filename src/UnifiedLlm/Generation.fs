@@ -442,8 +442,9 @@ module Generation =
     /// Execute multiple tool calls concurrently while preserving order.
     let executeAllTools (tools: Tool list) (toolCalls: ToolCallData list) : ToolResultData list =
         toolCalls
-        |> List.map (fun tc -> async { return executeTool tools tc })
-        |> Async.Parallel
+        |> List.map (fun tc -> Task.Run(fun () -> executeTool tools tc))
+        |> Task.WhenAll
+        |> Async.AwaitTask
         |> Async.RunSynchronously
         |> Array.toList
 

@@ -430,6 +430,18 @@ type Graph =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue ""
 
+    member this.StackChildDotfile =
+        this.GraphAttributes
+        |> Map.tryFind "stack.child_dotfile"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.StackChildWorkdir =
+        this.GraphAttributes
+        |> Map.tryFind "stack.child_workdir"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
     member this.DefaultFidelity =
         this.GraphAttributes
         |> Map.tryFind "default_fidelity"

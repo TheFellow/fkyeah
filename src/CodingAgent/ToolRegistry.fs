@@ -115,6 +115,7 @@ module private JsonSchemaValidation =
 /// A registered tool with definition and executor
 type RegisteredTool = {
     Definition: ToolDefinition
+    IsCacheable: bool
     Execute: (string -> IExecutionEnvironment -> string)
 }
 
@@ -182,7 +183,10 @@ type AgentToolRegistry() =
         if runParallel && toolCalls.Length > 1 then
             toolCalls
             |> List.map (fun tc ->
-                async { return this.Dispatch(tc, env) })
+                async {
+                    do! Async.SwitchToThreadPool()
+                    return this.Dispatch(tc, env)
+                })
             |> Async.Parallel
             |> Async.RunSynchronously
             |> Array.toList

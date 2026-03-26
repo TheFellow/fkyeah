@@ -3078,6 +3078,43 @@ module ToolHardeningTests =
 
 module ManagerLoopTests =
 
+    let private createManagerLoopLogsRoot () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    /// Helper: run a child pipeline via Engine.runFromSource, returning (Outcome, contextSnapshot)
+    let private runChildPipeline (dotSource: string) (logsRoot: string) : Outcome * Map<string, string> =
+        let config = RunConfig.Default(logsRoot)
+        let result = Engine.runFromSource dotSource config
+        (result.FinalOutcome, result.Context.Snapshot())
+
+    let private createManagerNode (attrs: (string * AttrValue) list) =
+        { Id = "manager"
+          Attributes =
+            [ "shape", AttrValue.String "house" ]
+            @ attrs
+            |> Map.ofList }
+
+    let private createGraphWithChild (childDotfile: string) (childWorkdir: string option) =
+        let attrs =
+            [ yield "stack.child_dotfile", AttrValue.String childDotfile
+              match childWorkdir with
+              | Some workdir -> yield "stack.child_workdir", AttrValue.String workdir
+              | None -> () ]
+            |> Map.ofList
+        { Name = "parent"
+          Nodes = Map.empty
+          Edges = []
+          GraphAttributes = attrs }
+
+    let private writeChildDot (name: string) (dotSource: string) =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        let path = Path.Combine(dir, name)
+        File.WriteAllText(path, dotSource)
+        path
+
     [<Fact>]
     let ``Manager loop exits after max_cycles`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
@@ -3156,6 +3193,166 @@ module ManagerLoopTests =
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.True(result.CompletedNodes |> List.contains "supervisor")
+
+    [<Fact>]
+    let ``Manager loop runs child pipeline to success`` () =
+        let childDot = """
+        digraph child {
+            start [shape=Mdiamond]
+            step [shape=parallelogram, tool_command="echo child_done", auto_status=true]
+            done [shape=Msquare]
+            start -> step -> done
+        }
+        """
+        let childPath = writeChildDot "child.dot" childDot
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 3 ]
+        let ctx = Context()
+        let graph = createGraphWithChild childPath None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("1", outcome.ContextUpdates["manager.cycle_count"])
+        Assert.Equal("success", outcome.ContextUpdates["manager.child_status"])
+        Assert.True(
+            outcome.ContextUpdates
+            |> Map.toSeq
+            |> Seq.exists (fun (key, _) -> key.StartsWith("child."))
+        )
+
+    [<Fact>]
+    let ``Manager loop retries failing child pipeline up to max_cycles`` () =
+        let childDot = """
+        digraph child_fail {
+            start [shape=Mdiamond]
+            fail [shape=parallelogram, tool_command="exit 1"]
+            done [shape=Msquare]
+            start -> fail -> done
+        }
+        """
+        let childPath = writeChildDot "child-fail.dot" childDot
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node =
+            createManagerNode
+                [ "manager.max_cycles", AttrValue.Integer 2
+                  "manager.poll_interval", AttrValue.Integer 0 ]
+        let ctx = Context()
+        let graph = createGraphWithChild childPath None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("2 cycle(s)", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Manager loop fails when child dotfile not found`` () =
+        let handler = Handlers.ManagerLoopHandler() :> IHandler
+        let node = createManagerNode []
+        let ctx = Context()
+        let graph = createGraphWithChild "/nonexistent/path.dot" None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("not found", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Manager loop falls back to polling mode when no child dotfile`` () =
+        let handler = Handlers.ManagerLoopHandler() :> IHandler
+        let node = createManagerNode [ "max_cycles", AttrValue.Integer 1 ]
+        let ctx = Context()
+        let graph = { Name = "parent"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Contains("max_cycles", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Manager loop propagates child context with child. prefix`` () =
+        let childDot = """
+        digraph child_context {
+            graph [goal="child context"]
+            start [shape=Mdiamond]
+            writer [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"from_child\":\"yes\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+            done [shape=Msquare]
+            start -> writer -> done
+        }
+        """
+        let childPath = writeChildDot "child-context.dot" childDot
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 1 ]
+        let ctx = Context()
+        let graph = createGraphWithChild childPath None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("yes", outcome.ContextUpdates["child.from_child"])
+
+    [<Fact>]
+    let ``Manager loop supports lane attribute`` () =
+        let childDot = """
+        digraph child_lane {
+            start [shape=Mdiamond]
+            step [shape=parallelogram, tool_command="echo lane", auto_status=true]
+            done [shape=Msquare]
+            start -> step -> done
+        }
+        """
+        let childPath = writeChildDot "child-lane.dot" childDot
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node =
+            createManagerNode
+                [ "manager.max_cycles", AttrValue.Integer 1
+                  "lane", AttrValue.String "review" ]
+        let ctx = Context()
+        let graph = createGraphWithChild childPath None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("review", outcome.ContextUpdates["manager.lane"])
+
+    [<Fact>]
+    let ``Manager loop resolves relative child dotfile with stack.child_workdir`` () =
+        let childDot = """
+        digraph child_relative {
+            start [shape=Mdiamond]
+            step [shape=parallelogram, tool_command="echo relative", auto_status=true]
+            done [shape=Msquare]
+            start -> step -> done
+        }
+        """
+        let workdir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(workdir) |> ignore
+        let childFileName = "child.dot"
+        let childPath = Path.Combine(workdir, childFileName)
+        File.WriteAllText(childPath, childDot)
+
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 1 ]
+        let ctx = Context()
+        let graph = createGraphWithChild childFileName (Some workdir)
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+
+    [<Fact>]
+    let ``Manager loop child context flows back to parent with child. prefix`` () =
+        let childDot = """
+        digraph child_result {
+            start [shape=Mdiamond]
+            writer [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"result_key\":\"child_value\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+            done [shape=Msquare]
+            start -> writer -> done
+        }
+        """
+        let childPath = writeChildDot "child-result.dot" childDot
+        let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+        let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 1 ]
+        let ctx = Context()
+        let graph = createGraphWithChild childPath None
+        let logsRoot = createManagerLoopLogsRoot ()
+        let outcome = handler.Execute(node, ctx, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("child_value", outcome.ContextUpdates["child.result_key"])
+        Assert.Equal("success", outcome.ContextUpdates["manager.child_status"])
 
 // ============================================================================
 // Sprint 001: Default Max Retry Tests

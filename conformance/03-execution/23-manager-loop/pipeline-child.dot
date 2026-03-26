@@ -1,0 +1,7 @@
+digraph manager_child {
+    graph [goal="manager runs child pipeline", "stack.child_dotfile"="child.dot", "stack.child_workdir"="__TEST_DIR__"]
+    start   [shape=Mdiamond]
+    manager [shape=house, "manager.max_cycles"=3, "manager.poll_interval"=0]
+    done    [shape=Msquare]
+    start -> manager -> done
+}

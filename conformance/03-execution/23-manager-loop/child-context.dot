@@ -1,0 +1,7 @@
+digraph child_context {
+    graph [goal="child uses parent data"]
+    start  [shape=Mdiamond]
+    reader [shape=parallelogram, tool_command="cat $ATTRACTOR_STAGE_DIR/../../parent_marker.txt && echo CHILD_SAW_MARKER", auto_status=true]
+    done   [shape=Msquare]
+    start -> reader -> done
+}

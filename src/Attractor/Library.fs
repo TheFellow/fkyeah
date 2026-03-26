@@ -23,3 +23,17 @@ module Pipeline =
 
     /// Parse, validate, and run a pipeline from DOT source
     let runFromSource = Engine.runFromSource
+
+    // Wire the child-pipeline callback so ManagerLoopHandler can invoke Engine.runFromSource
+    // without a forward reference from Handlers.fs -> Engine.fs.
+    do
+        if Handlers.childPipelineRunner.IsNone then
+            Handlers.childPipelineRunner <-
+                Some (fun (dotSource: string) (logsRoot: string) ->
+                    let config =
+                        { LogsRoot = logsRoot
+                          Registry = HandlerRegistry.CreateDefault()
+                          EventEmitter = EventEmitter()
+                          ExtraTransforms = [] }
+                    let result = Engine.runFromSource dotSource config
+                    (result.FinalOutcome, result.Context.Snapshot()))

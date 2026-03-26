@@ -230,7 +230,7 @@ module private PatchApplier =
 
 /// The core coding agent session
 type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Client, ?config: SessionConfig, ?depth: int) =
-    let sessionId = Guid.NewGuid().ToString("N")
+    let mutable sessionId = Guid.NewGuid().ToString("N")
     let history = List<Turn>()
     let events = List<SessionEvent>()
     let steeringQueue = Queue<string>()
@@ -246,9 +246,16 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
     let subagentLock = obj()
     let mutable contextWarningEmitted = false
     let mutable awaitingInputRequested = false
+    let toolCache =
+        CacheStore.fileSystem
+            { CacheConfig.Default with
+                MaxEntries = 512
+                PersistencePath = None }
+    let cacheableToolNames = set [ "read_file"; "read_many_files"; "grep"; "glob"; "list_dir" ]
+    let mutatingToolNames = set [ "write_file"; "edit_file"; "apply_patch"; "shell"; "spawn_agent"; "send_input"; "wait"; "close_agent" ]
 
     let emitWithFullOutput (kind: EventKind) (data: Map<string, string>) (fullOutput: string option) =
-        let evt =
+        let evt: SessionEvent =
             { Kind = kind
               Timestamp = DateTime.UtcNow
               SessionId = sessionId
@@ -612,7 +619,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
         for definition in profile.ToolDefinitions do
             match builtInExecutors.TryGetValue(definition.Name) with
             | true, execute ->
-                toolRegistry.Register({ Definition = definition; Execute = execute })
+                toolRegistry.Register({ Definition = definition; IsCacheable = cacheableToolNames.Contains(definition.Name); Execute = execute })
             | false, _ ->
                 ()
 
@@ -729,8 +736,24 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
         | Result.Error msg ->
             finalizeToolResult tc (preHookResult tc msg) false
         | Result.Ok() ->
-            let result = toolRegistry.Dispatch(tc, env)
-            finalizeToolResult tc result true
+            if mutatingToolNames.Contains(tc.Name) then
+                toolCache.Clear()
+
+            match toolRegistry.Resolve(tc.Name) with
+            | Some tool when tool.IsCacheable ->
+                let cacheKey = CacheKey.fromToolCall tc.Name tc.Arguments env.WorkingDirectory
+                match Async.RunSynchronously(toolCache.TryGetTool cacheKey) with
+                | Some cached ->
+                    finalizeToolResult tc { cached with ToolCallId = tc.Id } true
+                | None ->
+                    let result = toolRegistry.Dispatch(tc, env)
+                    let finalized = finalizeToolResult tc result true
+                    if not finalized.IsError then
+                        Async.RunSynchronously(toolCache.PutTool cacheKey finalized)
+                    finalized
+            | _ ->
+                let result = toolRegistry.Dispatch(tc, env)
+                finalizeToolResult tc result true
 
     let executeToolCalls (toolCalls: ToolCallData list) : ToolResultData list =
         let runParallel = profile.SupportsParallelToolCalls && toolCalls.Length > 1
@@ -791,6 +814,20 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
     /// Get the config
     member _.Config = config
 
+    member _.UserInstructions = userInstructions
+
+    member _.CurrentDepth = currentDepth
+
+    member _.SteeringQueueSnapshot = steeringQueue |> Seq.toList
+
+    member _.FollowupQueueSnapshot = followupQueue |> Seq.toList
+
+    member _.SubagentStatusSnapshot =
+        lock subagentLock (fun () ->
+            subagentStatuses
+            |> Seq.map (fun pair -> pair.Key, pair.Value)
+            |> Seq.toList)
+
     /// Set user instructions override
     member _.SetUserInstructions(instructions: string) =
         userInstructions <- Some instructions
@@ -823,6 +860,72 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
         closeAllSubagents ()
         state <- Closed
         emit SessionEnd (Map.ofList [ "reason", "closed" ])
+
+    member this.SaveCheckpoint(path: string) =
+        let checkpoint =
+            { Version = SessionCheckpointV1.CurrentVersion
+              SessionId = sessionId
+              ProviderId = profile.Id
+              Model = profile.Model
+              WorkingDirectory = env.WorkingDirectory
+              State = string state
+              UserInstructions = userInstructions
+              AwaitingInputRequested = awaitingInputRequested
+              CurrentDepth = currentDepth
+              History = this.History |> List.map SessionPersistence.turnToDto
+              Events = this.Events |> List.map SessionPersistence.eventToDto
+              SteeringQueue = this.SteeringQueueSnapshot
+              FollowupQueue = this.FollowupQueueSnapshot
+              SubagentMetadata = this.SubagentStatusSnapshot |> List.map SessionPersistence.subagentToDto
+              SavedAt = DateTimeOffset.UtcNow }
+
+        match Async.RunSynchronously(SessionPersistence.fileBacked().Save path checkpoint) with
+        | Result.Ok () -> ()
+        | Result.Error message -> failwith message
+
+    member private _.RestoreCheckpoint(checkpoint: SessionCheckpointV1) =
+        sessionId <- checkpoint.SessionId
+        history.Clear()
+        events.Clear()
+        steeringQueue.Clear()
+        followupQueue.Clear()
+        lock subagentLock (fun () ->
+            subagentStatuses.Clear()
+            for metadata in checkpoint.SubagentMetadata do
+                subagentStatuses[metadata.AgentId] <- metadata.Status)
+        for turn in checkpoint.History do
+            history.Add(SessionPersistence.turnOfDto turn)
+        for event in checkpoint.Events do
+            events.Add(SessionPersistence.eventOfDto event)
+        for message in checkpoint.SteeringQueue do
+            steeringQueue.Enqueue(message)
+        for message in checkpoint.FollowupQueue do
+            followupQueue.Enqueue(message)
+        userInstructions <- checkpoint.UserInstructions
+        awaitingInputRequested <- checkpoint.AwaitingInputRequested
+        state <-
+            match checkpoint.State with
+            | "Idle" -> Idle
+            | "Processing" -> Processing
+            | "AwaitingInput" -> AwaitingInput
+            | "Closed" -> Closed
+            | _ -> Idle
+
+    static member RestoreFromCheckpoint
+        (
+            profile: IProviderProfile,
+            env: IExecutionEnvironment,
+            client: Client,
+            checkpointPath: string,
+            ?config: SessionConfig
+        ) =
+        match Async.RunSynchronously(SessionPersistence.fileBacked().Load checkpointPath) with
+        | Result.Error message ->
+            failwith message
+        | Result.Ok checkpoint ->
+            let session = Session(profile, env, client, ?config = config, depth = checkpoint.CurrentDepth)
+            session.RestoreCheckpoint(checkpoint)
+            session
 
     /// Process user input through the agentic loop
     member this.ProcessInput(userInput: string) =

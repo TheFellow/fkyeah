@@ -26,6 +26,7 @@ module HandlerArtifacts =
                preferred_label = outcome.PreferredLabel
                suggested_next_ids = outcome.SuggestedNextIds
                context_updates = outcome.ContextUpdates
-               notes = outcome.Notes |}
+               notes = outcome.Notes
+               failure_reason = outcome.FailureReason |}
         let json = JsonSerializer.Serialize(status, JsonSerializerOptions(WriteIndented = true))
         writeStageFile stageDir rootDir "status.json" json

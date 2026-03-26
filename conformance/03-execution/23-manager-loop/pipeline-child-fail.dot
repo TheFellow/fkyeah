@@ -1,0 +1,7 @@
+digraph manager_child_fail {
+    graph [goal="manager child fails", "stack.child_dotfile"="child-fail.dot", "stack.child_workdir"="__TEST_DIR__"]
+    start   [shape=Mdiamond]
+    manager [shape=house, "manager.max_cycles"=2, "manager.poll_interval"=0]
+    done    [shape=Msquare]
+    start -> manager -> done
+}

@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="Tests.fs" />
     <Compile Include="FidelityTests.fs" />
+    <Compile Include="CostAggregationTests.fs" />
     <Compile Include="LiveApiTests.fs" />
   </ItemGroup>
 

@@ -97,6 +97,38 @@ type ProviderFailureKind =
     | Timeout
     | ContentFilter
 
+[<RequireQualifiedAccess>]
+type CircuitState =
+    | Closed of consecutiveFailures: int
+    | Open of openedAt: DateTimeOffset * retryAt: DateTimeOffset
+    | HalfOpen of probeStartedAt: DateTimeOffset * successCount: int
+
+module CircuitFailureClassification =
+
+    let isTransient = function
+        | ProviderFailureKind.RateLimited
+        | ProviderFailureKind.ServerFailure _
+        | ProviderFailureKind.Network
+        | ProviderFailureKind.Timeout -> true
+        | _ -> false
+
+    let isNonTransient kind =
+        not (isTransient kind)
+
+type CircuitOpenError(provider: string, retryAt: DateTimeOffset) =
+    inherit ProviderError(
+        $"Circuit open for provider '{provider}' until {retryAt:O}",
+        Some 503,
+        true,
+        ?retryAfter = Option.None)
+
+    member _.Provider = provider
+    member _.RetryAt = retryAt
+
+    member _.DelaySeconds =
+        let remaining = (retryAt - DateTimeOffset.UtcNow).TotalSeconds
+        if remaining > 0.0 then Some remaining else Some 0.0
+
 type ProviderError with
     member this.Kind : ProviderFailureKind =
         match this with

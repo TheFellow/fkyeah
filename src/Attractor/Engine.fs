@@ -177,6 +177,40 @@ module FidelityResolution =
 /// The pipeline execution engine
 module Engine =
 
+    let private tryParseInt64 (value: string option) =
+        match value with
+        | Some raw ->
+            match Int64.TryParse(raw) with
+            | true, parsed -> Some parsed
+            | _ -> None
+        | None -> None
+
+    let private tryParseInt (value: string option) =
+        match value with
+        | Some raw ->
+            match Int32.TryParse(raw) with
+            | true, parsed -> Some parsed
+            | _ -> None
+        | None -> None
+
+    let private writeCostSummary (logsRoot: string) (perNode: Map<string, int64 * int * int>) =
+        let totalMicros = perNode |> Seq.sumBy (fun pair -> let micros, _, _ = pair.Value in micros)
+        let payload =
+            {| totalCostMicrodollars = totalMicros
+               totalCostUsd = decimal totalMicros / 1_000_000m
+               callCount = perNode.Count
+               perNode =
+                    perNode
+                    |> Seq.map (fun pair ->
+                        let micros, inputTokens, outputTokens = pair.Value
+                        {| nodeId = pair.Key
+                           costMicrodollars = micros
+                           inputTokens = inputTokens
+                           outputTokens = outputTokens |})
+                    |> Seq.toArray |}
+        let json = JsonSerializer.Serialize(payload, JsonSerializerOptions(WriteIndented = true))
+        File.WriteAllText(Path.Combine(logsRoot, "cost-summary.json"), json)
+
     /// Mirror graph attributes into the context
     let mirrorGraphAttributes (graph: Graph) (context: Context) =
         context.Set("graph.goal", graph.Goal)
@@ -400,6 +434,7 @@ module Engine =
         let nodeOutcomes = System.Collections.Generic.Dictionary<string, Outcome>()
         let nodeRetries = System.Collections.Generic.Dictionary<string, int>()
         let nodeVisitCounts = System.Collections.Generic.Dictionary<string, int>()
+        let nodeCosts = System.Collections.Generic.Dictionary<string, int64 * int * int>()
 
         // Find start node
         let startNode =
@@ -601,6 +636,15 @@ module Engine =
                 if outcome.PreferredLabel <> "" then
                     context.Set("preferred_label", outcome.PreferredLabel)
 
+                match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
+                | Some lastNode, Some costMicros when lastNode = node.Id ->
+                    let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+                    let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+                    nodeCosts[node.Id] <- costMicros, inputTokens, outputTokens
+                    writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+                | _ ->
+                    writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
                 // Step 5: Save checkpoint
                 let checkpoint =
                     Checkpoint.Create(
@@ -701,6 +745,8 @@ module Engine =
             emitter.Emit(PipelineEvent.PipelineCompleted(totalDuration, completedNodes.Count))
         | _ ->
             emitter.Emit(PipelineEvent.PipelineFailed(lastOutcome.FailureReason, totalDuration))
+
+        writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
 
         { FinalOutcome = lastOutcome
           CompletedNodes = completedNodes |> Seq.toList
@@ -820,6 +866,7 @@ module Engine =
 
         let completedNodes = ResizeArray<string>(checkpoint.CompletedNodes)
         let nodeOutcomes = System.Collections.Generic.Dictionary<string, Outcome>()
+        let nodeCosts = System.Collections.Generic.Dictionary<string, int64 * int * int>()
         for kv in checkpoint.NodeOutcomes do
             nodeOutcomes[kv.Key] <- kv.Value
         // Backward compatibility for checkpoints that predate node_outcomes
@@ -913,6 +960,15 @@ module Engine =
                 if outcome.PreferredLabel <> "" then
                     context.Set("preferred_label", outcome.PreferredLabel)
 
+                match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
+                | Some lastNode, Some costMicros when lastNode = node.Id ->
+                    let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+                    let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+                    nodeCosts[node.Id] <- costMicros, inputTokens, outputTokens
+                    writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+                | _ ->
+                    writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
                 let cp =
                     Checkpoint.Create(
                         context, node.Id,
@@ -947,6 +1003,8 @@ module Engine =
         | _ ->
             emitter.Emit(PipelineEvent.PipelineFailed(lastOutcome.FailureReason, totalDuration))
 
+        writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
         { FinalOutcome = lastOutcome
           CompletedNodes = completedNodes |> Seq.toList
           NodeOutcomes = nodeOutcomes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
@@ -959,3 +1017,5 @@ module Engine =
         if not errors.IsEmpty then
             failwithf "Validation errors: %s" (errors |> List.map (fun d -> d.Message) |> String.concat "; ")
         run graph config
+
+

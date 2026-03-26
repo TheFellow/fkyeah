@@ -215,6 +215,22 @@ module Validation =
                             nodeId = node.Id))
                     else None) }
 
+    /// Rule: manager_loop nodes should usually configure stack.child_dotfile
+    let managerLoopChildDotfileRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "manager_loop_child_dotfile"
+            member _.Apply(graph) =
+                let hasManagerLoopNode =
+                    graph.Nodes
+                    |> Map.exists (fun _ node -> ShapeMapping.resolveHandlerType node = "stack.manager_loop")
+                if hasManagerLoopNode && String.IsNullOrWhiteSpace(graph.StackChildDotfile) then
+                    [ Diagnostic.Warning(
+                        "manager_loop_child_dotfile",
+                        "Graph contains stack.manager_loop node(s) but no stack.child_dotfile graph attribute; manager will run polling mode fallback",
+                        fix = "Set graph attribute stack.child_dotfile to enable child pipeline mode") ]
+                else
+                    [] }
+
     /// Rule: Fidelity mode values must be valid
     let fidelityValidRule: ILintRule =
         { new ILintRule with
@@ -549,6 +565,7 @@ module Validation =
           conditionSyntaxRule
           stylesheetSyntaxRule
           typeKnownRule
+          managerLoopChildDotfileRule
           fidelityValidRule
           retryTargetExistsRule
           goalGateHasRetryRule

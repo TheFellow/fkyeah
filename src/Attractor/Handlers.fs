@@ -136,6 +136,25 @@ module Handlers =
             ensureDir rootDir
             File.WriteAllText(Path.Combine(rootDir, fileName), content)
 
+    let private appendKnownLlmContext (context: Context) (baseUpdates: (string * string) list) =
+        let extraKeys =
+            [ "llm.cost_microdollars"
+              "llm.cost_usd"
+              "llm.input_tokens"
+              "llm.output_tokens"
+              "llm.cache_hit"
+              "llm.model"
+              "llm.provider"
+              "llm.last_node" ]
+
+        (baseUpdates, extraKeys)
+        ||> List.fold (fun updates key ->
+            match context.TryGet(key) with
+            | Some value when value <> "" -> (key, value) :: updates
+            | _ -> updates)
+        |> List.rev
+        |> Map.ofList
+
     let private resolvePreparedContext (node: Node) (context: Context) (graph: Graph) =
         let fidelity =
             let resolved = node.GetAttrString("__resolved_fidelity", "").Trim()
@@ -281,7 +300,8 @@ module Handlers =
                         let contextResponse =
                             if responseText.Length > 10000 then responseText.Substring(0, 10000) + "\n[response truncated for context — full text in logs]"
                             else responseText
-                        let contextUpdates = Map.ofList [ "last_stage", node.Id; "last_response", contextResponse ]
+                        let contextUpdates =
+                            appendKnownLlmContext context [ "last_stage", node.Id; "last_response", contextResponse ]
                         let outcome =
                             match tryOutcomeFailFromPattern node responseText contextUpdates with
                             | Some failOutcome -> failOutcome
@@ -294,7 +314,8 @@ module Handlers =
                 | None ->
                     let responseText = $"[Simulated] Response for stage: {node.Id}"
                     writeStageFile stageDir rootDir "response.md" responseText
-                    let contextUpdates = Map.ofList [ "last_stage", node.Id; "last_response", responseText ]
+                    let contextUpdates =
+                        appendKnownLlmContext context [ "last_stage", node.Id; "last_response", responseText ]
                     let outcome =
                         match tryOutcomeFailFromPattern node responseText contextUpdates with
                         | Some failOutcome -> failOutcome
@@ -408,16 +429,39 @@ module Handlers =
 
                     let env = LocalExecutionEnvironment(workingDir) :> IExecutionEnvironment
                     env.Initialize()
+                    let checkpointPath = Path.Combine(rootDir, SessionPersistence.checkpointFileName)
+                    let sharedCheckpointPath = Path.Combine(logsRoot, SessionPersistence.checkpointFileName)
+
+                    let saveCheckpoint (session: Session) =
+                        session.SaveCheckpoint(checkpointPath)
+                        if not (String.Equals(sharedCheckpointPath, checkpointPath, StringComparison.Ordinal)) then
+                            session.SaveCheckpoint(sharedCheckpointPath)
 
                     try
                         try
-                            let session = Session(profile, env, llmClient, sessionConfig)
+                            let session =
+                                let restorePath =
+                                    if File.Exists(sharedCheckpointPath) then sharedCheckpointPath
+                                    elif File.Exists(checkpointPath) then checkpointPath
+                                    else ""
+
+                                if restorePath <> "" then
+                                    Session.RestoreFromCheckpoint(profile, env, llmClient, restorePath, sessionConfig)
+                                else
+                                    Session(profile, env, llmClient, sessionConfig)
 
                             let systemPrompt = node.GetAttrString("system_prompt", "").Trim()
-                            if systemPrompt <> "" then
+                            if systemPrompt <> "" && session.UserInstructions.IsNone then
                                 session.SetUserInstructions(systemPrompt)
 
-                            session.ProcessInput(userInput)
+                            let autoCheckpointKey = $"{node.Id}:{session.SessionId}"
+                            AutoCheckpointRegistry.register autoCheckpointKey (fun () -> saveCheckpoint session)
+
+                            try
+                                session.ProcessInput(userInput)
+                                saveCheckpoint session
+                            finally
+                                AutoCheckpointRegistry.unregister autoCheckpointKey
 
                             let finalResponse = getLatestAssistantText session.History
                             writeStageFile stageDir rootDir "response.md" finalResponse
@@ -452,9 +496,7 @@ module Handlers =
                                         && (evt.Data |> Map.tryFind "reason" = Some "aborted")))
 
                             let contextUpdates =
-                                Map.ofList
-                                    [ "last_stage", node.Id
-                                      "last_response", finalResponse ]
+                                appendKnownLlmContext context [ "last_stage", node.Id; "last_response", finalResponse ]
 
                             let outcomeBase =
                                 if session.State = SessionState.Idle && not hitTurnLimit && not aborted then
@@ -893,104 +935,214 @@ module Handlers =
                     with ex ->
                         Outcome.Fail(ex.Message)
 
-    /// Manager loop handler: bounded observe/steer/wait supervision cycles
-    type ManagerLoopHandler() =
-        interface IHandler with
-            member _.Execute(node, context, _, _) =
-                let maxCycles =
-                    node.GetAttr("max_cycles")
-                    |> Option.bind (fun v -> v.AsInt())
-                    |> Option.defaultValue 10
+    /// Mutable callback for running child pipelines, wired up in Engine.fs.
+    /// Signature: dotSource -> logsRoot -> (finalOutcome * contextSnapshot)
+    let mutable childPipelineRunner: (string -> string -> Outcome * Map<string, string>) option = None
 
-                let stopConditionKey =
-                    node.GetAttrString("stop_condition_key", "manager.stop")
+    /// Manager loop handler: child pipeline execution with polling/steering fallback.
+    /// The optional runChild callback has signature: dotSource -> logsRoot -> (finalOutcome * contextSnapshot).
+    /// When omitted, falls back to the module-level childPipelineRunner mutable (wired by EngineWiring in Engine.fs).
+    type ManagerLoopHandler(?runChild: string -> string -> Outcome * Map<string, string>) =
 
-                let observeKey =
-                    node.GetAttrString("observe_key", "manager.subordinate_output")
+        let resolveRunner () =
+            match runChild with
+            | Some f -> Some f
+            | None -> childPipelineRunner
 
-                let waitMs =
-                    node.GetAttr("wait_ms")
-                    |> Option.bind (fun v -> v.AsInt())
-                    |> Option.defaultValue 100
-                    |> max 0
+        let getIntAttr (node: Node) (keys: string list) (defaultValue: int) =
+            keys
+            |> List.tryPick (fun key ->
+                node.GetAttr(key)
+                |> Option.bind (fun v -> v.AsInt()))
+            |> Option.defaultValue defaultValue
+
+        let executePollingMode (node: Node) (context: Context) =
+            let maxCycles = getIntAttr node [ "max_cycles"; "manager.max_cycles" ] 10
+
+            let stopConditionKey =
+                node.GetAttrString("stop_condition_key", "manager.stop")
+
+            let observeKey =
+                node.GetAttrString("observe_key", "manager.subordinate_output")
+
+            let waitMs =
+                node.GetAttr("wait_ms")
+                |> Option.bind (fun v -> v.AsInt())
+                |> Option.defaultValue 100
+                |> max 0
+
+            let mutable cycle = 0
+            let mutable stopped = false
+            let mutable lastObserved = ""
+            let mutable repeatCount = 0
+            let mutable steeringMessage = ""
+
+            let hasStopSignal () =
+                match context.TryGet(stopConditionKey) with
+                | Some raw when raw.Equals("true", StringComparison.OrdinalIgnoreCase) -> true
+                | _ ->
+                    match context.TryGet("manager.child_complete") with
+                    | Some raw when raw.Equals("true", StringComparison.OrdinalIgnoreCase) -> true
+                    | _ -> false
+
+            let shouldInjectSteering (observed: string) =
+                if String.IsNullOrWhiteSpace(observed) then
+                    false
+                else
+                    let lower = observed.ToLowerInvariant()
+                    repeatCount >= 1
+                    || lower.Contains("stuck")
+                    || lower.Contains("off-track")
+                    || lower.Contains("off track")
+                    || lower.Contains("blocked")
+                    || lower.Contains("loop")
+
+            while cycle < maxCycles && not stopped do
+                cycle <- cycle + 1
+
+                // Observe subordinate output.
+                let observed = context.TryGet(observeKey) |> Option.defaultValue ""
+                if observed <> "" then
+                    context.Set("manager.last_observed", observed)
+
+                if observed <> "" && observed = lastObserved then
+                    repeatCount <- repeatCount + 1
+                else
+                    repeatCount <- 0
+                lastObserved <- observed
+
+                if hasStopSignal () then
+                    stopped <- true
+
+                if not stopped then
+                    // Steer when subordinate appears stuck or off-track.
+                    if shouldInjectSteering observed then
+                        steeringMessage <-
+                            $"Cycle {cycle}: steer subordinate back to goal, unblock the next concrete step, and report progress."
+                        context.Set("manager.steering", steeringMessage)
+                        context.Set("manager.correction_injected", "true")
+
+                    context.Set("manager.cycle", string cycle)
+                    if cycle < maxCycles then
+                        System.Threading.Thread.Sleep(waitMs)
+
+            let stoppedStr = if stopped then "true" else "false"
+            let status =
+                if stopped then StageStatus.Success
+                else StageStatus.Fail
+            { Status = status
+              PreferredLabel = ""
+              SuggestedNextIds = []
+              ContextUpdates =
+                Map.ofList
+                    [ "manager.total_cycles", string cycle
+                      "manager.turns_used", string cycle
+                      "manager.stopped", stoppedStr ]
+                    |> fun updates ->
+                        if steeringMessage <> "" then
+                            updates |> Map.add "manager.steering" steeringMessage
+                        else
+                            updates
+              Notes = $"Manager loop: {cycle} cycles, stopped={stopped}"
+              FailureReason =
+                if status = StageStatus.Fail then
+                    $"manager loop reached max_cycles ({maxCycles}) without stop condition"
+                else "" }
+
+        let executeChildMode (node: Node) (_context: Context) (graph: Graph) (logsRoot: string) =
+            let childDotfile = graph.StackChildDotfile.Trim()
+            let childWorkdir = graph.StackChildWorkdir.Trim()
+
+            let resolvedPath =
+                if Path.IsPathRooted(childDotfile) then
+                    childDotfile
+                elif childWorkdir <> "" then
+                    Path.Combine(childWorkdir, childDotfile)
+                else
+                    childDotfile
+
+            if not (File.Exists(resolvedPath)) then
+                Outcome.Fail($"Manager loop node {node.Id}: child DOT not found: {resolvedPath}")
+            else
+                match resolveRunner() with
+                | None ->
+                    Outcome.Fail($"Manager loop node {node.Id}: child pipeline runner not configured (Engine not wired)")
+                | Some runChildFn ->
+                let childDotSource = File.ReadAllText(resolvedPath)
+                let maxCycles = getIntAttr node [ "manager.max_cycles"; "max_cycles" ] 10
+                let pollInterval = getIntAttr node [ "manager.poll_interval"; "poll_interval" ] 5 |> max 0
+                let lane = node.GetAttrString("lane", "")
 
                 let mutable cycle = 0
-                let mutable stopped = false
-                let mutable lastObserved = ""
-                let mutable repeatCount = 0
-                let mutable steeringMessage = ""
+                let mutable finalOutcome: Outcome option = None
+                let mutable lastChildStatus = "unknown"
 
-                let hasStopSignal () =
-                    match context.TryGet(stopConditionKey) with
-                    | Some raw when raw.Equals("true", StringComparison.OrdinalIgnoreCase) -> true
-                    | _ ->
-                        match context.TryGet("manager.child_complete") with
-                        | Some raw when raw.Equals("true", StringComparison.OrdinalIgnoreCase) -> true
-                        | _ -> false
+                while cycle < maxCycles && finalOutcome.IsNone do
+                    let childLogsRoot = Path.Combine(logsRoot, node.Id, $"cycle_{cycle}")
 
-                let shouldInjectSteering (observed: string) =
-                    if String.IsNullOrWhiteSpace(observed) then
-                        false
-                    else
-                        let lower = observed.ToLowerInvariant()
-                        repeatCount >= 1
-                        || lower.Contains("stuck")
-                        || lower.Contains("off-track")
-                        || lower.Contains("off track")
-                        || lower.Contains("blocked")
-                        || lower.Contains("loop")
+                    try
+                        let (childOutcome, childContext) = runChildFn childDotSource childLogsRoot
+                        lastChildStatus <- childOutcome.Status.ToString().ToLowerInvariant()
 
-                while cycle < maxCycles && not stopped do
+                        match childOutcome.Status with
+                        | StageStatus.Success
+                        | StageStatus.PartialSuccess ->
+                            let baseUpdates =
+                                [ "manager.cycle_count", string (cycle + 1)
+                                  "manager.total_cycles", string (cycle + 1)
+                                  "manager.turns_used", string (cycle + 1)
+                                  "manager.child_status", lastChildStatus ]
+                                |> fun updates ->
+                                    if lane <> "" then
+                                        ("manager.lane", lane) :: updates
+                                    else
+                                        updates
+
+                            let updates =
+                                childContext
+                                |> Map.fold (fun acc key value -> acc |> Map.add $"child.{key}" value) (baseUpdates |> Map.ofList)
+
+                            finalOutcome <-
+                                Some
+                                    { Outcome.Success(
+                                        notes = $"Manager loop completed after {cycle + 1} cycle(s)",
+                                        contextUpdates = updates) with
+                                        Status = childOutcome.Status }
+                        | _ ->
+                            if cycle < maxCycles - 1 && pollInterval > 0 then
+                                System.Threading.Thread.Sleep(pollInterval * 1000)
+                    with ex ->
+                        if cycle = maxCycles - 1 then
+                            finalOutcome <-
+                                Some(
+                                    Outcome.Fail(
+                                        $"Manager loop node {node.Id}: child pipeline threw after {cycle + 1} cycle(s): {ex.Message}"
+                                    ))
+                        elif pollInterval > 0 then
+                            System.Threading.Thread.Sleep(pollInterval * 1000)
+
                     cycle <- cycle + 1
 
-                    // Observe subordinate output.
-                    let observed = context.TryGet(observeKey) |> Option.defaultValue ""
-                    if observed <> "" then
-                        context.Set("manager.last_observed", observed)
+                match finalOutcome with
+                | Some outcome -> outcome
+                | None ->
+                    Outcome.Fail(
+                        $"Manager loop node {node.Id}: child pipeline failed after {maxCycles} cycle(s), last status: {lastChildStatus}"
+                    )
 
-                    if observed <> "" && observed = lastObserved then
-                        repeatCount <- repeatCount + 1
+        interface IHandler with
+            member _.Execute(node, context, graph, logsRoot) =
+                let stageDir, rootDir = resolveStageDirs logsRoot node context
+                let childDotfile = graph.StackChildDotfile.Trim()
+
+                let outcome =
+                    if childDotfile = "" then
+                        executePollingMode node context
                     else
-                        repeatCount <- 0
-                    lastObserved <- observed
+                        executeChildMode node context graph logsRoot
 
-                    if hasStopSignal () then
-                        stopped <- true
-
-                    if not stopped then
-                        // Steer when subordinate appears stuck or off-track.
-                        if shouldInjectSteering observed then
-                            steeringMessage <-
-                                $"Cycle {cycle}: steer subordinate back to goal, unblock the next concrete step, and report progress."
-                            context.Set("manager.steering", steeringMessage)
-                            context.Set("manager.correction_injected", "true")
-
-                        context.Set("manager.cycle", string cycle)
-                        if cycle < maxCycles then
-                            System.Threading.Thread.Sleep(waitMs)
-
-                let stoppedStr = if stopped then "true" else "false"
-                let status =
-                    if stopped then StageStatus.Success
-                    else StageStatus.Fail
-                { Status = status
-                  PreferredLabel = ""
-                  SuggestedNextIds = []
-                  ContextUpdates =
-                    Map.ofList
-                        [ "manager.total_cycles", string cycle
-                          "manager.turns_used", string cycle
-                          "manager.stopped", stoppedStr ]
-                        |> fun updates ->
-                            if steeringMessage <> "" then
-                                updates |> Map.add "manager.steering" steeringMessage
-                            else
-                                updates
-                  Notes = $"Manager loop: {cycle} cycles, stopped={stopped}"
-                  FailureReason =
-                    if status = StageStatus.Fail then
-                        $"manager loop reached max_cycles ({maxCycles}) without stop condition"
-                    else "" }
+                writeStatus stageDir rootDir outcome
+                outcome
 
 /// Handler registry
 type HandlerRegistry() =

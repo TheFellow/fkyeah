@@ -1,0 +1,9 @@
+digraph manager_context_e2e {
+    graph [goal="e2e context carried through child", "stack.child_dotfile"="child-context.dot", "stack.child_workdir"="__TEST_DIR__"]
+    start   [shape=Mdiamond]
+    seed    [shape=parallelogram, tool_command="mkdir -p __LOGS_DIR__/manager/cycle_0/reader && echo PARENT_DATA > __LOGS_DIR__/parent_marker.txt", auto_status=true]
+    manager [shape=house, "manager.max_cycles"=1, "manager.poll_interval"=0]
+    verify  [shape=parallelogram, tool_command="echo done", auto_status=true]
+    done    [shape=Msquare]
+    start -> seed -> manager -> verify -> done
+}

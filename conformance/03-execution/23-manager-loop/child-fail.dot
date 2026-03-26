@@ -1,0 +1,7 @@
+digraph child_fail {
+    graph [goal="child that fails"]
+    start [shape=Mdiamond]
+    fail  [shape=parallelogram, tool_command="exit 1"]
+    done  [shape=Msquare]
+    start -> fail -> done
+}

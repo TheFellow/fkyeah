@@ -8,10 +8,15 @@
   <ItemGroup>
     <Compile Include="Types.fs" />
     <Compile Include="Errors.fs" />
-    <Compile Include="Tools.fs" />
-    <Compile Include="Retry.fs" />
-    <Compile Include="Middleware.fs" />
+    <Compile Include="Observability.fs" />
     <Compile Include="ModelCatalog.fs" />
+    <Compile Include="Validation.fs" />
+    <Compile Include="Costing.fs" />
+    <Compile Include="CircuitBreaker.fs" />
+    <Compile Include="Retry.fs" />
+    <Compile Include="Caching.fs" />
+    <Compile Include="Middleware.fs" />
+    <Compile Include="Tools.fs" />
     <Compile Include="ProviderAdapter.fs" />
     <Compile Include="HttpAdapters.fs" />
     <Compile Include="Client.fs" />

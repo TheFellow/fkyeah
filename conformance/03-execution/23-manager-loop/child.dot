@@ -1,0 +1,7 @@
+digraph child_pipeline {
+    graph [goal="child task"]
+    start [shape=Mdiamond]
+    work  [shape=parallelogram, tool_command="echo child_output", auto_status=true]
+    done  [shape=Msquare]
+    start -> work -> done
+}
