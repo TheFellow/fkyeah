@@ -241,8 +241,12 @@ module Engine =
                     finalOutcome <- outcome
                     cont <- false
 
-                | StageStatus.Retry
                 | StageStatus.Fail ->
+                    // Fail is deterministic — stop immediately, let edge conditions route
+                    finalOutcome <- outcome
+                    cont <- false
+
+                | StageStatus.Retry ->
                     if attempt < retryPolicy.MaxAttempts then
                         let delay = retryPolicy.Backoff.DelayForAttempt(attempt)
                         emitter.Emit(PipelineEvent.StageRetrying(node.Id, nodeIndex, attempt, delay))
@@ -250,12 +254,10 @@ module Engine =
                             System.Threading.Thread.Sleep(delay)
                         attempt <- attempt + 1
                     else
-                        if outcome.Status = StageStatus.Retry && node.AllowPartial then
+                        if node.AllowPartial then
                             finalOutcome <- Outcome.PartialSuccess(notes = "retries exhausted, partial accepted")
-                        elif outcome.Status = StageStatus.Retry then
-                            finalOutcome <- Outcome.Fail("max retries exceeded")
                         else
-                            finalOutcome <- outcome
+                            finalOutcome <- Outcome.Fail("max retries exceeded")
                         cont <- false
 
                 | StageStatus.Skipped ->

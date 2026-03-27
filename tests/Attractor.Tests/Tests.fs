@@ -742,13 +742,70 @@ module RetryTests =
         Assert.Equal(StageStatus.PartialSuccess, result.NodeOutcomes["A"].Status)
 
     [<Fact>]
-    let ``FAIL outcomes are retried when retry policy is configured`` () =
+    let ``FAIL outcomes are NOT retried even when retry policy is configured`` () =
         let mutable callCount = 0
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
-                    if callCount < 3 then Outcome.Fail("transient")
+                    Outcome.Fail("deterministic failure") }
+
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [type="custom", max_retries=3]
+            start -> A -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("custom", customHandler)
+        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+        let result = Engine.run graph config
+        Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
+        Assert.Equal(1, callCount) // Fail is deterministic — no retries
+
+    [<Fact>]
+    let ``FAIL outcome routes through condition edges immediately`` () =
+        let mutable callCount = 0
+        let customHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    Outcome.Fail("check failed") }
+
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            check [type="custom", max_retries=5]
+            recover [shape=box, prompt="Recover"]
+            start -> check
+            check -> exit [condition="outcome=success"]
+            check -> recover [condition="outcome=fail"]
+            recover -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("custom", customHandler)
+        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+        let result = Engine.run graph config
+        // check should fail once, route to recover via condition edge — no retries
+        Assert.Equal(1, callCount)
+        Assert.True(result.CompletedNodes |> List.contains "recover")
+
+    [<Fact>]
+    let ``RETRY outcomes are still retried when retry policy is configured`` () =
+        let mutable callCount = 0
+        let customHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    if callCount < 3 then Outcome.Retry("transient")
                     else Outcome.Success() }
 
         let dot = """
@@ -3869,13 +3926,13 @@ module Sprint004Coverage =
         Assert.Equal(StageStatus.PartialSuccess, result.NodeOutcomes["A"].Status)
 
     [<Fact>]
-    let ``Fail outcome retry applies backoff delay`` () =
+    let ``Retry outcome applies backoff delay`` () =
         let mutable attempts = 0
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     attempts <- attempts + 1
-                    if attempts = 1 then Outcome.Fail("first failure")
+                    if attempts = 1 then Outcome.Retry("transient failure")
                     else Outcome.Success() }
 
         let dot = """
