@@ -930,8 +930,6 @@ module Handlers =
                                     Outcome.Success(
                                         notes = $"Tool completed: {command}",
                                         contextUpdates = updates)
-                                else if node.MaxRetries > 0 then
-                                    Outcome.Retry($"Tool failed with exit code {exitCode}")
                                 else
                                     Outcome.Fail($"Tool failed with exit code {exitCode}")
                     with ex ->
