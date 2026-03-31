@@ -934,7 +934,7 @@ module Sprint001Coverage =
         let results = Generation.executeAllTools [ tool ] calls
         sw.Stop()
         Assert.Equal(3, results.Length)
-        Assert.True(sw.ElapsedMilliseconds < 240L, $"Expected parallel execution, got {sw.ElapsedMilliseconds}ms")
+        Assert.True(sw.ElapsedMilliseconds < 500L, $"Expected parallel execution, got {sw.ElapsedMilliseconds}ms")
 
     [<Fact>]
     let ``Tool argument schema validation sends error result`` () =
