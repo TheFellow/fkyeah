@@ -924,7 +924,7 @@ module Sprint001Coverage =
         let tool = {
             Definition = { Name = "slow"; Description = ""; Parameters = """{"type":"object"}""" }
             Execute = Some (fun _ ->
-                System.Threading.Thread.Sleep(100)
+                System.Threading.Thread.Sleep(500)
                 "ok")
         }
         let calls =
@@ -934,7 +934,8 @@ module Sprint001Coverage =
         let results = Generation.executeAllTools [ tool ] calls
         sw.Stop()
         Assert.Equal(3, results.Length)
-        Assert.True(sw.ElapsedMilliseconds < 500L, $"Expected parallel execution, got {sw.ElapsedMilliseconds}ms")
+        // Parallel: ~500ms. Sequential would be ~1500ms. 1000ms threshold proves parallelism with wide margin.
+        Assert.True(sw.ElapsedMilliseconds < 1000L, $"Expected parallel execution, got {sw.ElapsedMilliseconds}ms")
 
     [<Fact>]
     let ``Tool argument schema validation sends error result`` () =
