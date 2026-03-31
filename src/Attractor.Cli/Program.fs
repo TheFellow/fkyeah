@@ -189,6 +189,13 @@ type ConsoleEventObserver() =
             | PipelineEvent.ParallelCompleted(duration, successCount, failureCount) ->
                 if verbose then
                     eprintfn "        [stats] parallel done: %d ok, %d failed (%.1fs)" successCount failureCount duration.TotalSeconds
+            | PipelineEvent.ChangeImplementationStarted _
+            | PipelineEvent.ChangeReviewCompleted _
+            | PipelineEvent.ChangeScenarioCompleted _
+            | PipelineEvent.DeployStarted _
+            | PipelineEvent.DeployVerified _
+            | PipelineEvent.DeployRolledBack _ ->
+                ()
             | _ -> ()
 
 // ============================================================================
@@ -324,6 +331,9 @@ let printSchema () =
 #   max_tool_rounds    Integer   Maximum tool rounds per input (default: 25)
 #   command_timeout    Duration  Timeout per shell command (default: "120s")
 #   system_prompt      String    System instructions for the agent session
+#   acp_preset         String    ACP stdio preset: codex | claude-code | gemini.
+#                                Preset defaults command/args/working directory/timeout;
+#                                explicit acp_* node attributes still override them.
 
 # ═══════════════════════════════════════════════════════════════════════════
 # EDGE ATTRIBUTES (inside `node_a -> node_b [...]`)
@@ -676,7 +686,8 @@ let run (source: string) (logsRoot: string) (autoApprove: bool) (simulate: bool)
         { LogsRoot = logsRoot
           Registry = registry
           EventEmitter = emitter
-          ExtraTransforms = [] }
+          ExtraTransforms = []
+          InitialContextValues = Map.empty }
 
     let result = Pipeline.runFromSource source config
 
@@ -726,7 +737,8 @@ let resume (logsRoot: string) (dotFile: string option) (autoApprove: bool) (simu
                 { LogsRoot = logsRoot
                   Registry = registry
                   EventEmitter = emitter
-                  ExtraTransforms = [] }
+                  ExtraTransforms = []
+                  InitialContextValues = Map.empty }
 
             printfn "Resuming from checkpoint at node '%s' (%d nodes completed)"
                 checkpoint.CurrentNode checkpoint.CompletedNodes.Length
@@ -897,7 +909,8 @@ let serve (port: int) =
                             { LogsRoot = logsRoot
                               Registry = registry
                               EventEmitter = emitter
-                              ExtraTransforms = [] }
+                              ExtraTransforms = []
+                              InitialContextValues = Map.empty }
                         let result = Pipeline.runFromSource dot config
                         run.ContextSnapshot <- result.Context.Snapshot()
                         run.FinalStatus <- result.FinalOutcome.Status.ToString()

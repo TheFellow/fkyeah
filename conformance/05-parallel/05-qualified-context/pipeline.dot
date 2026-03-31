@@ -1,0 +1,18 @@
+digraph qualified_context {
+    graph [goal="Preserve qualified parallel context"]
+
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    fan_out [shape=component]
+    branch_a [shape=parallelogram, lane="alpha", tool_command="printf 'A-output'"]
+    branch_b [shape=parallelogram, lane="beta", tool_command="printf 'B-output'"]
+    fan_in [shape=tripleoctagon]
+
+    start -> fan_out
+    fan_out -> branch_a
+    fan_out -> branch_b
+    branch_a -> fan_in
+    branch_b -> fan_in
+    fan_in -> exit
+}

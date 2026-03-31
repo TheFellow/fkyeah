@@ -11,6 +11,7 @@
     <Compile Include="StreamAccumulatorTests.fs" />
     <Compile Include="ErrorTests.fs" />
     <Compile Include="ModelCatalogTests.fs" />
+    <Compile Include="Sprint014ModelCatalogTests.fs" />
     <Compile Include="ValidationTests.fs" />
     <Compile Include="CostingTests.fs" />
     <Compile Include="CachingTests.fs" />

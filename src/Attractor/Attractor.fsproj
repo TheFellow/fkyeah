@@ -24,6 +24,7 @@
     <Compile Include="ContextPrompt.fs" />
     <Compile Include="HandlerContracts.fs" />
     <Compile Include="McpHandlers.fs" />
+    <Compile Include="AcpPresets.fs" />
     <Compile Include="AcpHandlers.fs" />
     <Compile Include="Handlers.fs" />
     <Compile Include="Engine.fs" />

@@ -534,7 +534,7 @@ module ClientTests =
               WorkingDirectory = None }
 
         let initialize = client.Connect(endpoint, AcpDelegate.denyAll, Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously
-        let prompt = client.Prompt("s-1", [ ContentBlock.text "hello" ], Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously
+        let prompt = client.Prompt("s-1", [ ContentBlock.text "hello" ], None, Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously
 
         match initialize with
         | Ok result -> Assert.Equal("2026-03-23", result.ProtocolVersion)
@@ -582,7 +582,7 @@ module ClientTests =
 
         client.Connect(endpoint, AcpDelegate.denyAll, Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously |> ignore
 
-        match client.Prompt("slow-session", [ ContentBlock.text "slow" ], Some(TimeSpan.FromMilliseconds(100.0))) |> Async.RunSynchronously with
+        match client.Prompt("slow-session", [ ContentBlock.text "slow" ], None, Some(TimeSpan.FromMilliseconds(100.0))) |> Async.RunSynchronously with
         | Error(AcpError.TimedOut _) -> ()
         | other -> Assert.Fail($"Unexpected prompt result: {other}")
 
@@ -623,7 +623,7 @@ module ClientTests =
 
         client.Connect(endpoint, AcpDelegate.denyAll, Some(TimeSpan.FromSeconds(2.0))) |> Async.RunSynchronously |> ignore
         let promptResult =
-            client.Prompt("race-session", [ ContentBlock.text "hello" ], Some(TimeSpan.FromSeconds(5.0)))
+            client.Prompt("race-session", [ ContentBlock.text "hello" ], None, Some(TimeSpan.FromSeconds(5.0)))
             |> Async.RunSynchronously
 
         Assert.True(Result.isOk promptResult, $"Expected success, got {promptResult}")

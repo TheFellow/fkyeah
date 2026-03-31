@@ -50,13 +50,13 @@ let ``calculateCost with zero usage returns zero cost`` () =
 
 [<Fact>]
 let ``calculateCost with known pricing computes correct input cost`` () =
-    // claude-opus-4-6: InputCostPerMillion = 15.0
-    // 1000 input tokens at $15/M = $0.015 = 15000 microdollars
+    // claude-opus-4-6: InputCostPerMillion = 5.0
+    // 1000 input tokens at $5/M = $0.005 = 5000 microdollars
     let usage = { Usage.Zero with InputTokens = 1000 }
     let breakdown =
         Costing.tryCalculateCostById "claude-opus-4-6" usage false
         |> Option.defaultWith (fun () -> failwith "expected model")
-    Assert.Equal(15000L, breakdown.InputMicrodollars)
+    Assert.Equal(5000L, breakdown.InputMicrodollars)
 
 [<Fact>]
 let ``summary format contains Total and token counts`` () =
@@ -83,10 +83,10 @@ let ``ledger thread safety with 100 concurrent records`` () =
 
 [<Fact>]
 let ``micro-dollar precision with large token count does not overflow`` () =
-    // 1_000_000 input tokens at $15/M = $15.00 = 15_000_000 microdollars
+    // 1_000_000 input tokens at $5/M = $5.00 = 5_000_000 microdollars
     let usage = { Usage.Zero with InputTokens = 1_000_000 }
     let breakdown =
         Costing.tryCalculateCostById "claude-opus-4-6" usage false
         |> Option.defaultWith (fun () -> failwith "expected model")
-    Assert.Equal(15_000_000L, breakdown.InputMicrodollars)
+    Assert.Equal(5_000_000L, breakdown.InputMicrodollars)
     Assert.True(breakdown.TotalMicrodollars > 0L)

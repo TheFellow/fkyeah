@@ -110,6 +110,20 @@ module AcpHandlers =
             with ex ->
                 Error ex.Message
 
+    let private resolveMcpServersJson (context: Context) : string option =
+        match context.TryGet("_current_node_acp_mcp_servers_json") with
+        | Some json when json <> "" -> Some json
+        | _ ->
+            match Environment.GetEnvironmentVariable("ATTRACTOR_ACP_MCP_SERVERS") with
+            | null
+            | "" -> None
+            | json ->
+                try
+                    JsonDocument.Parse(json) |> ignore
+                    Some json
+                with _ ->
+                    None
+
     let private renderPromptResult (result: PromptResult) =
         result.Content
         |> List.map (function
@@ -127,24 +141,63 @@ module AcpHandlers =
         writeStageFile stageDir rootDir "acp_session.json" (serialize artifact)
 
     let private buildEndpoint (node: Node) (workingDir: string) =
-        let rawTransport = node.GetAttrString("acp_transport", "stdio")
-        match AcpTransportKind.Parse(rawTransport) with
-        | None -> Error $"Unsupported ACP transport '{rawTransport}'"
-        | Some transport ->
-            match parseArgsJson (node.GetAttrString("acp_args_json", "")) with
-            | Error error -> Error error
-            | Ok args ->
-                Ok
-                    { Transport = transport
-                      Command =
+        let rawPreset = node.GetAttrString("acp_preset", "").Trim()
+        let preset =
+            if rawPreset = "" then
+                Ok None
+            else
+                match AcpPresets.PresetKind.Parse(rawPreset) with
+                | Some kind -> Ok(Some(AcpPresets.resolve kind workingDir))
+                | None -> Error $"Unsupported ACP preset '{rawPreset}'"
+
+        match preset with
+        | Error error -> Error error
+        | Ok presetConfig ->
+            let presetEndpoint = presetConfig |> Option.map AcpPresets.toEndpoint
+            let transportDefault =
+                presetEndpoint
+                |> Option.map _.Transport
+                |> Option.defaultValue AcpTransportKind.Stdio
+            let rawTransport = node.GetAttrString("acp_transport", transportDefault.ToString())
+            match AcpTransportKind.Parse(rawTransport) with
+            | None -> Error $"Unsupported ACP transport '{rawTransport}'"
+            | Some transport ->
+                let hasExplicitArgs = node.GetAttr("acp_args_json").IsSome
+                match parseArgsJson (node.GetAttrString("acp_args_json", "")) with
+                | Error error -> Error error
+                | Ok explicitArgs ->
+                    let args =
+                        if not hasExplicitArgs && explicitArgs.IsEmpty then
+                            presetEndpoint |> Option.map _.Args |> Option.defaultValue []
+                        else
+                            explicitArgs
+                    let command =
                         let value = node.GetAttrString("acp_command", "").Trim()
-                        if value = "" then None else Some value
-                      Args = args
-                      Url =
+                        if value <> "" then Some value
+                        else presetEndpoint |> Option.bind _.Command
+                    let url =
                         let value = node.GetAttrString("acp_url", "").Trim()
-                        if value = "" then None else Some value
-                      Headers = Map.empty
-                      WorkingDirectory = Some workingDir }
+                        if value <> "" then Some value
+                        else presetEndpoint |> Option.bind _.Url
+                    let endpointWorkingDir =
+                        presetEndpoint
+                        |> Option.bind _.WorkingDirectory
+                        |> Option.orElse(Some workingDir)
+                    let timeoutOverride =
+                        node.GetAttr("acp_timeout_ms")
+                        |> Option.bind (fun value -> value.AsInt())
+                    let timeoutMs =
+                        timeoutOverride
+                        |> Option.orElseWith (fun () -> presetConfig |> Option.map _.TimeoutMs)
+                        |> Option.defaultValue 60000
+                    Ok(
+                        { Transport = transport
+                          Command = command
+                          Args = args
+                          Url = url
+                          Headers = Map.empty
+                          WorkingDirectory = endpointWorkingDir },
+                        timeoutMs)
 
     let private startInMemoryAgent (transport: AcpTransport) =
         Async.Start(
@@ -276,12 +329,10 @@ module AcpHandlers =
                     HandlerArtifacts.writeStatus stageDir rootDir outcome
                     outcome
 
-                let workingDir = resolveWorkingDir node graph
-                ensureDir workingDir
-
                 let promptText = buildPrompt node context graph
                 writeStageFile stageDir rootDir "prompt.md" promptText
 
+                let workingDir = resolveWorkingDir node graph
                 match buildEndpoint node workingDir with
                 | Error error ->
                     let artifact =
@@ -292,16 +343,17 @@ module AcpHandlers =
                            notifications = [||]
                            error = error |}
                     fail error artifact
-                | Ok endpoint ->
-                    let timeoutMs =
-                        node.GetAttr("acp_timeout_ms")
-                        |> Option.bind (fun value -> value.AsInt())
-                        |> Option.defaultValue 60000
-
+                | Ok(endpoint, timeoutMs) ->
+                    let effectiveWorkingDir = endpoint.WorkingDirectory |> Option.defaultValue workingDir
+                    ensureDir effectiveWorkingDir
                     let timeout = Some(TimeSpan.FromMilliseconds(float timeoutMs))
+                    let promptMetadata =
+                        match resolveMcpServersJson context with
+                        | Some json -> Some { PromptMetadata.McpServersJson = Some json }
+                        | None -> None
                     let notifications = ResizeArray<obj>()
                     let denials = ResizeArray<string>()
-                    let baseDelegate = DefaultDelegate.createDefaultDelegate workingDir permissionStrategy 65536
+                    let baseDelegate = DefaultDelegate.createDefaultDelegate effectiveWorkingDir permissionStrategy 65536
                     let delegateImpl = wrapDelegate denials baseDelegate
 
                     let client =
@@ -346,7 +398,7 @@ module AcpHandlers =
                             )
                             history.Add(box {| kind = "request"; method = "session/prompt"; session_id = node.Id |})
 
-                            match client.Prompt(node.Id, [ ContentBlock.text promptText ], timeout) |> Async.RunSynchronously with
+                            match client.Prompt(node.Id, [ ContentBlock.text promptText ], promptMetadata, timeout) |> Async.RunSynchronously with
                             | Error error ->
                                 let cancelled =
                                     match error with

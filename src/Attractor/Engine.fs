@@ -49,13 +49,15 @@ type RunConfig =
     { LogsRoot: string
       Registry: HandlerRegistry
       EventEmitter: EventEmitter
-      ExtraTransforms: ITransform list }
+      ExtraTransforms: ITransform list
+      InitialContextValues: Map<string, string> }
 
     static member Default(logsRoot: string) =
         { LogsRoot = logsRoot
           Registry = HandlerRegistry.CreateDefault()
           EventEmitter = EventEmitter()
-          ExtraTransforms = [] }
+          ExtraTransforms = []
+          InitialContextValues = Map.empty }
 
 /// Pipeline run result
 type RunResult =
@@ -216,6 +218,11 @@ module Engine =
         context.Set("graph.goal", graph.Goal)
         for kv in graph.GraphAttributes do
             context.Set($"graph.{kv.Key}", kv.Value.AsString())
+
+    let applyInitialContext (config: RunConfig) (context: Context) (fillMissingOnly: bool) =
+        for kv in config.InitialContextValues do
+            if not fillMissingOnly || context.Get(kv.Key, "") = "" then
+                context.Set(kv.Key, kv.Value)
 
     /// Execute a node with retry policy
     let executeWithRetry
@@ -413,6 +420,7 @@ module Engine =
 
         let mutable context = createContext config.LogsRoot
         mirrorGraphAttributes graph context
+        applyInitialContext config context false
 
         let emitter = config.EventEmitter
         let logsRoot = config.LogsRoot
@@ -721,6 +729,7 @@ module Engine =
                             let freshContext = createContext newLogsRoot
                             for kv in graphAttrs do
                                 freshContext.Set(kv.Key, kv.Value)
+                            applyInitialContext config freshContext false
                             context <- freshContext
                             // Clear tracking state
                             completedNodes.Clear()
@@ -858,6 +867,7 @@ module Engine =
             context.Set(kv.Key, kv.Value)
         for log in checkpoint.Logs do
             context.AppendLog(log)
+        applyInitialContext config context true
 
         let emitter = config.EventEmitter
         let logsRoot = config.LogsRoot
@@ -1019,5 +1029,4 @@ module Engine =
         if not errors.IsEmpty then
             failwithf "Validation errors: %s" (errors |> List.map (fun d -> d.Message) |> String.concat "; ")
         run graph config
-
 

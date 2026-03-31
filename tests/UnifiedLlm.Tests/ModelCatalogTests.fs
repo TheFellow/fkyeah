@@ -45,7 +45,7 @@ module ModelCatalogSprint007 =
     [<Fact>]
     let ``findModels and resolveModel return expected catalog entries`` () =
         let allModels = ModelCatalog.findModels CapabilityRequirement.none
-        Assert.Equal(10, allModels.Length)
+        Assert.Equal(22, allModels.Length)
 
         let alias = ModelCatalog.resolveModel "claude-opus"
         let exact = ModelCatalog.resolveModel "claude-opus-4-6"

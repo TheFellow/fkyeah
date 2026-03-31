@@ -4388,6 +4388,7 @@ module Sprint013AttributeValidationTests =
               "acp_command"
               "acp_url"
               "acp_transport"
+              "acp_preset"
               "acp_args_json"
               "mcp_server"
               "mcp_tool"

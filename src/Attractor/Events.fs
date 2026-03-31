@@ -2,6 +2,18 @@ namespace Attractor
 
 open System
 
+type PipelineEventContext =
+    { TaskId: string option
+      Lane: string option
+      ReleaseId: string option
+      ArtifactIds: string list }
+
+    static member Empty =
+        { TaskId = None
+          Lane = None
+          ReleaseId = None
+          ArtifactIds = [] }
+
 /// Pipeline execution events for observability
 [<RequireQualifiedAccess>]
 type PipelineEvent =
@@ -27,17 +39,31 @@ type PipelineEvent =
     | CheckpointSaved of nodeId: string
     // Loop restart
     | LoopRestarted of targetNode: string * restartCount: int * newLogsRoot: string
+    // Change/deploy flow
+    | ChangeImplementationStarted of ctx: PipelineEventContext * description: string
+    | ChangeReviewCompleted of ctx: PipelineEventContext * success: bool
+    | ChangeScenarioCompleted of ctx: PipelineEventContext * scenarioName: string * success: bool
+    | DeployStarted of ctx: PipelineEventContext * environment: string
+    | DeployVerified of ctx: PipelineEventContext * environment: string * duration: TimeSpan
+    | DeployRolledBack of ctx: PipelineEventContext * environment: string * reason: string
 
 /// Event observer/handler
 type IEventObserver =
     abstract member OnEvent: PipelineEvent -> unit
 
+type IAsyncEventObserver =
+    abstract member OnEventAsync: PipelineEvent -> Async<unit>
+
 /// Event emitter for the pipeline engine
 type EventEmitter() =
     let observers = ResizeArray<IEventObserver>()
+    let asyncObservers = ResizeArray<IAsyncEventObserver>()
 
     member _.AddObserver(observer: IEventObserver) =
         observers.Add(observer)
+
+    member _.AddAsyncObserver(observer: IAsyncEventObserver) =
+        asyncObservers.Add(observer)
 
     member _.RemoveObserver(observer: IEventObserver) =
         observers.Remove(observer) |> ignore
@@ -48,6 +74,26 @@ type EventEmitter() =
                 observer.OnEvent(event)
             with _ ->
                 () // Don't let observer failures break the pipeline
+
+    member _.EmitAsync(event: PipelineEvent) =
+        for observer in observers do
+            try
+                observer.OnEvent(event)
+            with _ ->
+                ()
+
+        if asyncObservers.Count > 0 then
+            asyncObservers
+            |> Seq.map (fun observer ->
+                async {
+                    try
+                        do! observer.OnEventAsync(event)
+                    with _ ->
+                        ()
+                })
+            |> Async.Parallel
+            |> Async.Ignore
+            |> Async.RunSynchronously
 
 /// Simple event collector for testing
 type EventCollector() =

@@ -34,6 +34,7 @@ module Pipeline =
                         { LogsRoot = logsRoot
                           Registry = HandlerRegistry.CreateDefault()
                           EventEmitter = EventEmitter()
-                          ExtraTransforms = [] }
+                          ExtraTransforms = []
+                          InitialContextValues = Map.empty }
                     let result = Engine.runFromSource dotSource config
                     (result.FinalOutcome, result.Context.Snapshot()))

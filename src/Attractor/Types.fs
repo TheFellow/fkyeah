@@ -518,6 +518,7 @@ module KnownAttributes =
               "acp_command"
               "acp_url"
               "acp_transport"
+              "acp_preset"
               "acp_args_json"
               "acp_timeout_ms"
               "mcp_server"

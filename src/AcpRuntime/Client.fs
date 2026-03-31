@@ -17,7 +17,7 @@ type private PendingRequest =
 
 type internal ClientMsg =
     | Connect of endpoint: AcpEndpoint * delegateImpl: AcpDelegate * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<InitializeResult, AcpError>>
-    | Prompt of sessionId: string * content: ContentBlock list * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<PromptResult, AcpError>>
+    | Prompt of sessionId: string * content: ContentBlock list * metadata: PromptMetadata option * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<PromptResult, AcpError>>
     | Cancel of sessionId: string * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<unit, AcpError>>
     | AddObserver of NotificationObserver
     | IncomingMessage of byte array
@@ -41,8 +41,8 @@ type AcpClient internal (agent: MailboxProcessor<ClientMsg>) =
     member _.Connect(endpoint: AcpEndpoint, delegateImpl: AcpDelegate, timeout: TimeSpan option) =
         agent.PostAndAsyncReply(fun reply -> Connect(endpoint, delegateImpl, timeout, reply))
 
-    member _.Prompt(sessionId: string, content: ContentBlock list, timeout: TimeSpan option) =
-        agent.PostAndAsyncReply(fun reply -> Prompt(sessionId, content, timeout, reply))
+    member _.Prompt(sessionId: string, content: ContentBlock list, metadata: PromptMetadata option, timeout: TimeSpan option) =
+        agent.PostAndAsyncReply(fun reply -> Prompt(sessionId, content, metadata, timeout, reply))
 
     member _.Cancel(sessionId: string, timeout: TimeSpan option) =
         agent.PostAndAsyncReply(fun reply -> Cancel(sessionId, timeout, reply))
@@ -63,10 +63,20 @@ module Client =
                clientInfo = {| name = "fkyeah-attractor"; version = "1" |}
                capabilities = defaultCapabilities |}
 
-    let private serializePromptRequest (sessionId: string) (content: ContentBlock list) =
-        Json.serializeToElement
+    let private serializePromptRequest (sessionId: string) (content: ContentBlock list) (metadata: PromptMetadata option) =
+        let baseRequest =
             {| sessionId = sessionId
                prompt = ContentBlock.toElement content |}
+
+        match metadata |> Option.bind (fun value -> value.McpServersJson |> Option.map (fun json -> value, json)) with
+        | Some (_, mcpServersJson) ->
+            Json.serializeToElement
+                {| sessionId = baseRequest.sessionId
+                   prompt = baseRequest.prompt
+                   metadata =
+                    {| mcpServersJson = mcpServersJson |} |}
+        | None ->
+            Json.serializeToElement baseRequest
 
     let private serializeCancelRequest (sessionId: string) =
         Json.serializeToElement {| sessionId = sessionId |}
@@ -329,14 +339,14 @@ module Client =
                                             receiveCancellation.Dispose()
                                             return! loop { initialState with Observers = state.Observers }
 
-                        | Prompt(sessionId, content, timeout, reply) ->
+                        | Prompt(sessionId, content, metadata, timeout, reply) ->
                             match state.ConnectionState, state.Transport with
                             | Connected, Some transport ->
                                 let requestId = NumberId state.NextId
                                 let request =
                                     { Id = requestId
                                       Method = "session/prompt"
-                                      Params = Some(serializePromptRequest sessionId content) }
+                                      Params = Some(serializePromptRequest sessionId content metadata) }
 
                                 let pending = state.Pending |> Map.add requestId (PendingPrompt(sessionId, reply))
                                 let nextState =

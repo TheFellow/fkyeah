@@ -55,6 +55,15 @@ let private promptText (parameters: JsonElement) =
         |> String.concat "\n"
     | _ -> ""
 
+let private promptMetadata (parameters: JsonElement) =
+    tryGetProperty "metadata" parameters
+
+let private mcpServersJson (parameters: JsonElement) =
+    promptMetadata parameters
+    |> Option.bind (tryGetProperty "mcpServersJson")
+    |> Option.filter (fun value -> value.ValueKind = JsonValueKind.String)
+    |> Option.map _.GetString()
+
 [<EntryPoint>]
 let main argv =
     let slow = argv |> Array.exists ((=) "--slow")
@@ -94,6 +103,11 @@ let main argv =
                         |> Option.filter (fun value -> value.ValueKind = JsonValueKind.String)
                         |> Option.map _.GetString()
                         |> Option.defaultValue "mock-session"
+                    let mcpServers = mcpServersJson parameters
+                    let mcpNote =
+                        match mcpServers with
+                        | Some _ -> " [mcp servers provided]"
+                        | None -> ""
 
                     if slow then
                         Threading.Thread.Sleep(2000)
@@ -115,12 +129,15 @@ let main argv =
                         else
                             ""
 
-                    let responseText = $"Mock ACP agent handled: {promptText parameters}{denialNote}"
+                    let responseText = $"Mock ACP agent handled: {promptText parameters}{denialNote}{mcpNote}"
                     let payload =
                         serializeToElement
                             {| sessionId = sessionId
                                content = [ {| ``type`` = "text"; text = responseText |} ]
-                               stopReason = "completed" |}
+                               stopReason = "completed"
+                               metadata =
+                                {| sawMcpServers = mcpServers.IsSome
+                                   mcpServersJson = mcpServers |} |}
                     writeResult request.Id payload
                 | "session/cancel" ->
                     writeResult request.Id (serializeToElement {| cancelled = true |})

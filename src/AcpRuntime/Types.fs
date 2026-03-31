@@ -86,6 +86,10 @@ type PromptResult =
       StopReason: string option
       Metadata: JsonElement option }
 
+[<CLIMutable>]
+type PromptMetadata =
+    { McpServersJson: string option }
+
 type NotificationObserver = string -> JsonElement option -> unit
 
 module AcpError =

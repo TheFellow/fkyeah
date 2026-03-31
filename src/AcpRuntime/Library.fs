@@ -31,8 +31,8 @@ module Library =
     let connect (client: AcpClient) endpoint delegateImpl timeout =
         client.Connect(endpoint, delegateImpl, timeout)
 
-    let prompt (client: AcpClient) sessionId content timeout =
-        client.Prompt(sessionId, content, timeout)
+    let prompt (client: AcpClient) sessionId content metadata timeout =
+        client.Prompt(sessionId, content, metadata, timeout)
 
     let cancel (client: AcpClient) sessionId timeout =
         client.Cancel(sessionId, timeout)

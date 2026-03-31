@@ -565,10 +565,15 @@ module Handlers =
                                 "logs_root", logsRoot
                                 "last_stage", lastStage
                                 "goal", graph.Goal
+                                "node_id", node.Id
                             ]
+                        let withAttrs =
+                            node.Attributes
+                            |> Map.fold (fun acc key value ->
+                                acc |> Map.add $"attr.{key}" (value.AsString())) m
                         match promptFilePath with
-                        | Some pf -> m |> Map.add "prompt_file" pf
-                        | None -> m
+                        | Some pf -> withAttrs |> Map.add "prompt_file" pf
+                        | None -> withAttrs
 
                     // 3. Freeform vs multi-choice path
                     if edges.Length = 1 && hasPrompt then
@@ -723,21 +728,39 @@ module Handlers =
 
                     let mergedBranchUpdates =
                         results
-                        |> List.fold (fun acc (_, _, updates) ->
+                        |> List.fold (fun acc (branchId, _, updates) ->
                             updates
-                            |> Map.fold (fun state key value -> Map.add key value state) acc) Map.empty
+                            |> Map.fold (fun state key value ->
+                                state
+                                |> Map.add $"parallel.{node.Id}.{branchId}.{key}" value
+                                |> Map.add key value) acc) Map.empty
 
                     // Write per-branch results to context + record executed nodes
                     let executedNodes =
                         results |> List.map (fun (id, _, _) -> id) |> String.concat ","
+                    let laneNames =
+                        results
+                        |> List.map (fun (branchId, _, _) ->
+                            let branchNode = graph.Nodes |> Map.tryFind branchId
+                            branchNode
+                            |> Option.map (fun n -> n.GetAttrString("lane", branchId))
+                            |> Option.defaultValue branchId)
                     let metadataUpdates =
                         results
                         |> List.fold (fun acc (branchId, status, _) ->
-                            acc |> Map.add $"parallel.branch.{branchId}.status" (status.ToString()))
+                            let branchNode = graph.Nodes |> Map.tryFind branchId
+                            let lane =
+                                branchNode
+                                |> Option.map (fun n -> n.GetAttrString("lane", branchId))
+                                |> Option.defaultValue branchId
+                            acc
+                            |> Map.add $"parallel.branch.{branchId}.status" (status.ToString())
+                            |> Map.add $"parallel.{node.Id}.{branchId}.lane" lane)
                             (Map.ofList
                                 [ "parallel.success_count", string successCount
                                   "parallel.fail_count", string failCount
                                   "parallel.executed_nodes", executedNodes ])
+                        |> Map.add $"parallel.{node.Id}.lanes" (String.concat "," laneNames)
                     let contextUpdates =
                         metadataUpdates
                         |> Map.fold (fun state key value -> Map.add key value state) mergedBranchUpdates
@@ -957,6 +980,7 @@ module Handlers =
             |> Option.defaultValue defaultValue
 
         let executePollingMode (node: Node) (context: Context) =
+            let lane = node.GetAttrString("lane", "")
             let maxCycles = getIntAttr node [ "max_cycles"; "manager.max_cycles" ] 10
 
             let stopConditionKey =
@@ -1038,6 +1062,11 @@ module Handlers =
                     [ "manager.total_cycles", string cycle
                       "manager.turns_used", string cycle
                       "manager.stopped", stoppedStr ]
+                    |> fun updates ->
+                        if lane <> "" then
+                            updates |> Map.add "manager.lane" lane
+                        else
+                            updates
                     |> fun updates ->
                         if steeringMessage <> "" then
                             updates |> Map.add "manager.steering" steeringMessage
