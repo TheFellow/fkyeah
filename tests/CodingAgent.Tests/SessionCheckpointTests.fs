@@ -178,3 +178,21 @@ let ``atomic write means file exists after save`` () =
         Assert.True(File.Exists(path))
     finally
         if Directory.Exists(dir) then Directory.Delete(dir, true)
+
+[<Fact>]
+let ``turnOfDto fails on unknown turn case`` () =
+    let dto: CheckpointDto.Turn =
+        { Case = "mystery"
+          Content = ""
+          ToolCalls = []
+          ToolResults = []
+          Reasoning = None
+          Usage = None
+          Timestamp = DateTime.UtcNow }
+    let ex = Assert.Throws<Exception>(fun () -> SessionPersistence.turnOfDto dto |> ignore)
+    Assert.Contains("Unknown turn case 'mystery'", ex.Message)
+
+[<Fact>]
+let ``eventKindOfString fails on unknown event kind`` () =
+    let ex = Assert.Throws<Exception>(fun () -> SessionPersistence.eventKindOfString "MysteryEvent" |> ignore)
+    Assert.Contains("Unknown event kind 'MysteryEvent'", ex.Message)

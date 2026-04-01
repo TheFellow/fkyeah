@@ -126,3 +126,18 @@ let ``validator rejects ToolChoice Required with no tools`` () =
         Assert.True(
             issues |> List.exists (function ValidationIssue.InvalidToolChoice _ -> true | _ -> false),
             "expected InvalidToolChoice issue")
+
+[<Fact>]
+let ``validator rejects previous_response_id when explicit provider does not match model provider`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("hello") ]) with
+            PreviousResponseId = Some "resp_123"
+            Provider = Some "openai" }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(
+            ValidationIssue.PreviousResponseMismatch(
+                "provider 'openai' does not match model provider 'anthropic'"),
+            issues)

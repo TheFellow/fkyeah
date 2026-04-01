@@ -256,3 +256,23 @@ let ``cache key differs when stop_sequences change`` () =
     let r1 = Request.Create("gpt-5.4", [ Message.user("hello") ])
     let r2 = { Request.Create("gpt-5.4", [ Message.user("hello") ]) with StopSequences = Some ["STOP"] }
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
+
+[<Fact>]
+let ``cache store drops corrupted persisted entry and returns miss`` () =
+    let root = Path.Combine(Path.GetTempPath(), "fkyeah-cache-corrupt-" + Guid.NewGuid().ToString("N"))
+    try
+        let store =
+            CacheStore.fileSystem
+                { CacheConfig.Default with
+                    PersistencePath = Some root }
+        let key = CacheKey.fromRequest(Request.Create("gpt-5.4", [ Message.user("corrupt-me") ]))
+        let path = Path.Combine(root, "llm", CacheKey.value key + ".json")
+        Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore
+        File.WriteAllText(path, """{"broken":true""")
+
+        let result = Async.RunSynchronously(store.TryGetLlm key)
+
+        Assert.True(result.IsNone)
+        Assert.False(File.Exists(path))
+    finally
+        if Directory.Exists(root) then Directory.Delete(root, true)

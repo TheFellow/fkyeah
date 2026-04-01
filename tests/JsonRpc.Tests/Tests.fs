@@ -174,6 +174,14 @@ module JsonRpcCodecAndCorrelatorTests =
         | Ok _ -> Assert.Fail("Expected decode to fail")
 
     [<Fact>]
+    let ``decode rejects numeric id that does not fit Int32`` () =
+        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9999999999,"result":{}}""")
+
+        match Codec.decode payload with
+        | Error "JSON-RPC id number must fit Int32" -> ()
+        | other -> Assert.Fail($"Unexpected decode result: {other}")
+
+    [<Fact>]
     let ``correlator resolves three concurrent requests out of order`` () =
         let channel = Channel.CreateUnbounded<byte array>()
         let sent = ResizeArray<JsonRpcId * string>()
@@ -234,6 +242,42 @@ module JsonRpcCodecAndCorrelatorTests =
                 Assert.Equal(Correlator.TransportClosedCode, error.Code)
                 Assert.Contains("Transport closed", error.Message)
             | Ok _ -> Assert.Fail("Expected pending request to fail")
+
+        Correlator.stop correlator |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``correlator fails all pending requests when transport yields unexpected request message`` () =
+        let channel = Channel.CreateUnbounded<byte array>()
+        let send _ = async { return Ok() }
+        let correlator =
+            Correlator.start send (ChannelAsyncEnumerable(channel.Reader) :> IAsyncEnumerable<_>) (fun _ _ -> ())
+
+        let pending = Correlator.sendRequest "one" None correlator |> Async.StartAsTask
+        let unexpectedRequest =
+            Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"echo"}}""")
+
+        channel.Writer.WriteAsync(unexpectedRequest).AsTask().Wait()
+
+        match pending.Result with
+        | Error error ->
+            Assert.Equal(Correlator.TransportClosedCode, error.Code)
+            Assert.Contains("unexpected JSON-RPC request", error.Message)
+        | Ok _ -> Assert.Fail("Expected pending request to fail")
+
+        Correlator.stop correlator |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``correlator surfaces transport send failure to waiting caller`` () =
+        let channel = Channel.CreateUnbounded<byte array>()
+        let send _ = async { return Error "boom" }
+        let correlator =
+            Correlator.start send (ChannelAsyncEnumerable(channel.Reader) :> IAsyncEnumerable<_>) (fun _ _ -> ())
+
+        match Correlator.sendRequest "one" None correlator |> Async.RunSynchronously with
+        | Error error ->
+            Assert.Equal(Correlator.TransportClosedCode, error.Code)
+            Assert.Contains("Transport send failed: boom", error.Message)
+        | Ok _ -> Assert.Fail("Expected send failure to surface")
 
         Correlator.stop correlator |> Async.RunSynchronously
 

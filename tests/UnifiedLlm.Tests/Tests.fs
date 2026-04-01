@@ -348,6 +348,42 @@ module GenerationTests =
         Assert.Contains("Alice", result.Text)
 
     [<Fact>]
+    let ``generateObjectWithControl extracts JSON from tool_call arguments when text body is empty`` () =
+        let mock = ConfigurableMockAdapter("test")
+        mock.SetCompleteHandler(fun _ ->
+            let toolCall =
+                { Id = "call_1"
+                  Name = "generated_object"
+                  Arguments = """{"name":"Alice","age":30}"""
+                  Metadata = Map.empty }
+
+            { Id = "r-tool"
+              Model = "m"
+              Provider = "test"
+              Message = { Role = Assistant; Content = [ ToolCall toolCall ]; Name = None; ToolCallId = None }
+              FinishReason = ToolCalls "tool_calls"
+              Usage = Usage.Zero
+              ResponseId = None
+              Raw = None
+              Warnings = []
+              RateLimit = None })
+
+        let client = Client()
+        client.RegisterAdapter(mock)
+
+        let result =
+            Generation.generateObjectWithControl
+                client
+                "m"
+                "Extract user"
+                """{"type":"object","properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name","age"]}"""
+                (Some "test")
+                None
+
+        Assert.Equal("""{"name":"Alice","age":30}""", result.Text)
+        Assert.Equal("""{"name":"Alice","age":30}""", result.Response.Text)
+
+    [<Fact>]
     let ``generate tracks usage`` () =
         let client = makeClient()
         let result = Generation.generate client "gpt-5.2" (Some "Hello") None None None 0 (Some "openai") None None
@@ -843,6 +879,41 @@ module StreamTests =
         let events = (mock :> IProviderAdapter).Stream(Request.Create("m", [])) |> Seq.toList
         let text = events |> List.choose (fun e -> match e with TextDelta (_, t) -> Some t | _ -> None) |> String.concat ""
         Assert.Equal("custom", text)
+
+    [<Fact>]
+    let ``streamWithControl emits StreamError when provider stream ends without Finish`` () =
+        let mock = ConfigurableMockAdapter("test")
+        mock.SetStreamHandler(fun _ ->
+            seq {
+                yield StreamStart
+                yield TextStart "text-1"
+                yield TextDelta(Some "text-1", "partial")
+                yield TextEnd "text-1"
+            })
+
+        let client = Client()
+        client.RegisterAdapter(mock)
+
+        let events =
+            Generation.streamWithControl
+                client
+                "m"
+                (Some "hello")
+                None
+                None
+                None
+                0
+                (Some "test")
+                None
+                None
+                None
+                None
+            |> Seq.toList
+
+        Assert.Contains(events, fun event ->
+            match event with
+            | StreamError "Provider stream ended without a Finish event" -> true
+            | _ -> false)
 
 // ============================================================
 // Response Accessor Tests

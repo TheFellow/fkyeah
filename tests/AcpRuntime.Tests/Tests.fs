@@ -184,6 +184,23 @@ module ContentBlockTypeTests =
         let block = ContentBlock.Image "https://example.com/img.png"
         Assert.NotNull(box block)
 
+    [<Fact>]
+    let ``content_block decoder rejects unsupported type and missing required fields`` () =
+        let unsupported =
+            JsonSerializer.SerializeToElement([ {| ``type`` = "video" |} ])
+            |> fun value -> value.Clone()
+        let missingText =
+            JsonSerializer.SerializeToElement([ {| ``type`` = "text" |} ])
+            |> fun value -> value.Clone()
+
+        match ContentBlock.ofElement unsupported with
+        | Error message -> Assert.Contains("Unsupported content block type 'video'", message)
+        | Ok _ -> Assert.Fail("Expected unsupported block type to fail")
+
+        match ContentBlock.ofElement missingText with
+        | Error message -> Assert.Contains("missing text", message)
+        | Ok _ -> Assert.Fail("Expected missing text field to fail")
+
 module AcpEndpointTypeTests =
 
     [<Fact>]
@@ -471,6 +488,73 @@ module DefaultDelegateTests =
             Assert.True(result.BytesWritten > 0)
         | Error error -> Assert.Fail($"Expected Ok, got Error: {AcpError.describe error}")
 
+    [<Fact>]
+    let ``terminal output max_bytes truncates on UTF8 boundary`` () =
+        let root = Helpers.createTempDir ()
+        let delegateImpl = DefaultDelegate.createDefaultDelegate root PermissionStrategy.AutoApprove 4096
+        // Generate a large multibyte output: 200 × "é" (2 bytes each = 400 UTF-8 bytes)
+        let terminalId =
+            match
+                delegateImpl.TerminalCreate
+                    { Command = "/bin/sh"
+                      Args = [ "-c"; "python3 -c \"print('é' * 200, end='')\"" ]
+                      WorkingDirectory = None
+                      Environment = Map.empty }
+                |> Async.RunSynchronously
+            with
+            | Ok result -> result.TerminalId
+            | Error error -> Assert.Fail(AcpError.describe error); ""
+
+        delegateImpl.TerminalWaitForExit { TerminalId = terminalId; TimeoutMs = Some 5000 } |> Async.RunSynchronously |> ignore
+        // Small delay to ensure drain loops have completed
+        System.Threading.Thread.Sleep(100)
+
+        match delegateImpl.TerminalOutput { TerminalId = terminalId; MaxBytes = Some 50 } |> Async.RunSynchronously with
+        | Ok result ->
+            let byteCount = Encoding.UTF8.GetByteCount(result.Output)
+            Assert.True(byteCount <= 50, $"Expected at most 50 bytes, got {byteCount}")
+            // No replacement characters (U+FFFD) means truncation respected codepoint boundaries
+            Assert.DoesNotContain("\uFFFD", result.Output)
+            // Output should be non-empty (we have plenty of data)
+            Assert.True(result.Output.Length > 0, "Expected non-empty truncated output")
+        | Error error -> Assert.Fail(AcpError.describe error)
+
+    [<Fact>]
+    let ``terminal wait_for_exit returns timed_out without losing later exit result`` () =
+        let root = Helpers.createTempDir ()
+        let delegateImpl = DefaultDelegate.createDefaultDelegate root PermissionStrategy.AutoApprove 4096
+
+        let terminalId =
+            match
+                delegateImpl.TerminalCreate
+                    { Command = "/bin/sh"
+                      Args = [ "-c"; "sleep 0.3; exit 7" ]
+                      WorkingDirectory = None
+                      Environment = Map.empty }
+                |> Async.RunSynchronously
+            with
+            | Ok result -> result.TerminalId
+            | Error error -> Assert.Fail(AcpError.describe error); ""
+
+        let first =
+            delegateImpl.TerminalWaitForExit { TerminalId = terminalId; TimeoutMs = Some 50 }
+            |> Async.RunSynchronously
+        let second =
+            delegateImpl.TerminalWaitForExit { TerminalId = terminalId; TimeoutMs = Some 1000 }
+            |> Async.RunSynchronously
+
+        match first with
+        | Ok result ->
+            Assert.True(result.TimedOut)
+            Assert.True(result.ExitCode.IsNone)
+        | Error error -> Assert.Fail(AcpError.describe error)
+
+        match second with
+        | Ok result ->
+            Assert.False(result.TimedOut)
+            Assert.Equal(Some 7, result.ExitCode)
+        | Error error -> Assert.Fail(AcpError.describe error)
+
 // ===========================================================================
 // CLIENT TESTS
 // ===========================================================================
@@ -627,6 +711,43 @@ module ClientTests =
             |> Async.RunSynchronously
 
         Assert.True(Result.isOk promptResult, $"Expected success, got {promptResult}")
+        client.Disconnect() |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``client returns AlreadyConnected on second connect without disconnect`` () =
+        let clientTransport, serverTransport = Transport.createInMemoryPair()
+
+        Helpers.startServer serverTransport (fun transport request ->
+            async {
+                match request.Method with
+                | "initialize" ->
+                    let payload =
+                        JsonSerializer.SerializeToElement
+                            {| protocolVersion = "2026-03-23"
+                               capabilities = {| |}
+                               serverInfo = {| name = "connect-server" |} |}
+                        |> fun value -> value.Clone()
+                    do! transport.Send(Codec.encodeResponse request.Id payload) |> Async.Ignore
+                | _ -> ()
+            })
+
+        let client = Client.create (fun _ -> Ok clientTransport)
+        let endpoint =
+            { Transport = AcpTransportKind.InMemory
+              Command = None
+              Args = []
+              Url = None
+              Headers = Map.empty
+              WorkingDirectory = None }
+
+        match client.Connect(endpoint, AcpDelegate.denyAll, Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously with
+        | Ok _ -> ()
+        | Error error -> Assert.Fail(AcpError.describe error)
+
+        match client.Connect(endpoint, AcpDelegate.denyAll, Some(TimeSpan.FromSeconds(1.0))) |> Async.RunSynchronously with
+        | Error AcpError.AlreadyConnected -> ()
+        | other -> Assert.Fail($"Unexpected second connect result: {other}")
+
         client.Disconnect() |> Async.RunSynchronously
 
 // ===========================================================================

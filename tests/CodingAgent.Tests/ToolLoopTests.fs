@@ -81,3 +81,51 @@ let ``C3 read edit verify tool loop updates file and records tool turns`` () =
         | _ -> Assert.Fail("Expected final assistant turn")
     finally
         CodingAgent.Tests.cleanupDir dir
+
+[<Fact>]
+let ``mutating tool clears cached read results before subsequent cacheable tool call`` () =
+    let dir = CodingAgent.Tests.createTempDir ()
+
+    try
+        File.WriteAllText(Path.Combine(dir, "target.txt"), "old content")
+
+        let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+        let readArgs = JsonSerializer.Serialize({| file_path = "target.txt" |})
+        let writeArgs = JsonSerializer.Serialize({| file_path = "target.txt"; content = "new content" |})
+
+        let mock =
+            CodingAgent.Tests.makeMockAdapter
+                [ toolCallResponse "call_1" "read_file" readArgs
+                  toolCallResponse "call_2" "write_file" writeArgs
+                  toolCallResponse "call_3" "read_file" readArgs
+                  fun (_: Request) ->
+                      { Id = "r4"
+                        Model = "m"
+                        Provider = "test"
+                        Message = Message.assistant("Cache refreshed.")
+                        FinishReason = Stop "stop"
+                        Usage = Usage.Zero
+                        ResponseId = None
+                        Raw = None
+                        Warnings = []
+                        RateLimit = None } ]
+
+        let client = Client()
+        client.RegisterAdapter(mock)
+
+        let session = Session(CodingAgent.Tests.TestProfile("m"), env, client)
+        session.ProcessInput("Read target.txt, overwrite it, then read it again.")
+
+        let toolResults =
+            session.History
+            |> List.collect (function
+                | ToolResultsTurn(results, _) -> results
+                | _ -> [])
+
+        Assert.True(toolResults.Length >= 3)
+        // read_file returns line-numbered content (e.g. "   1 | old content")
+        Assert.Contains("old content", toolResults.[0].Content)
+        Assert.Contains("new content", toolResults.[2].Content)
+        Assert.Equal("new content", File.ReadAllText(Path.Combine(dir, "target.txt")))
+    finally
+        CodingAgent.Tests.cleanupDir dir

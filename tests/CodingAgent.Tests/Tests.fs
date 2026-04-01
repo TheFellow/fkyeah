@@ -705,6 +705,33 @@ module SystemPromptTests =
                 Assert.Contains("Universal instructions", docs.Value)
         finally cleanupDir dir
 
+    [<Fact>]
+    let ``project docs discovery walks ancestor chain and truncates with marker at 32KB`` () =
+        // Resolve symlinks (macOS /tmp -> /private/tmp) so git root matches our paths
+        let dir = Path.GetFullPath(createTempDir())
+        try
+            let nested = Path.Combine(dir, "a", "b", "c")
+            Directory.CreateDirectory(nested) |> ignore
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            env.ExecCommand("git init -q", 10000, None) |> ignore
+
+            File.WriteAllText(Path.Combine(dir, "AGENTS.md"), "ROOT")
+            Directory.CreateDirectory(Path.Combine(dir, ".codex")) |> ignore
+            File.WriteAllText(Path.Combine(dir, ".codex", "instructions.md"), "ROOT-OPENAI")
+
+            let ancestor = Path.Combine(dir, "a")
+            Directory.CreateDirectory(ancestor) |> ignore
+            File.WriteAllText(Path.Combine(ancestor, "AGENTS.md"), String.replicate 40000 "x")
+
+            let docs = ProjectDocs.discover nested "openai"
+            Assert.True(docs.IsSome)
+
+            let content = docs.Value
+            Assert.Contains("AGENTS.md", content)
+            Assert.Contains("ROOT", content)
+            Assert.Contains("[Project instructions truncated at 32KB]", content)
+        finally cleanupDir dir
+
 // ============================================================
 // 9.9 Subagent Tests
 // ============================================================

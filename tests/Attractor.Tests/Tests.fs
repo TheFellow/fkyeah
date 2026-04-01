@@ -583,6 +583,34 @@ module ExecutionEngineTests =
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
 
+    [<Fact>]
+    let ``selectEdge returns None when cancellation is signaled and only unconditional edges exist`` () =
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                retry [shape=Msquare]
+                gate [shape=diamond]
+                start -> gate
+                gate -> exit [label="Done", weight=1]
+                gate -> retry [label="Retry", weight=2]
+            }
+            """
+
+        let node = graph.Nodes["gate"]
+        let outcome = Outcome.Success()
+        let context = Context()
+
+        UnifiedLlm.HttpCancellation.reset ()
+
+        try
+            UnifiedLlm.HttpCancellation.cancel ()
+            let selected = EdgeSelection.selectEdge node outcome context graph
+            Assert.True(selected.IsNone)
+        finally
+            UnifiedLlm.HttpCancellation.reset ()
+
 // ============================================================================
 // 11.4 Goal Gate Enforcement
 // ============================================================================
@@ -824,6 +852,48 @@ module RetryTests =
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, callCount)
+
+    [<Fact>]
+    let ``executeWithRetry retries thrown retriable exception and succeeds on later attempt`` () =
+        let mutable callCount = 0
+        let customHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    if callCount = 1 then
+                        raise (UnifiedLlm.RateLimitError("retry me"))
+                    else
+                        Outcome.Success(notes = "recovered") }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                A [type="custom", max_retries=2]
+                start -> A -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("custom", customHandler)
+        let emitter = EventEmitter()
+        let collector = EventCollector()
+        emitter.AddObserver(collector :> IEventObserver)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry
+                EventEmitter = emitter }
+
+        let result = Engine.run graph config
+
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        Assert.Equal(2, callCount)
+        Assert.True(
+            collector.Events
+            |> List.exists (function
+                | PipelineEvent.StageRetrying("A", _, 1, _) -> true
+                | _ -> false))
 
     [<Fact>]
     let ``max_visits stops infinite node loops`` () =
@@ -1302,6 +1372,33 @@ module HandlerTests =
         Assert.DoesNotContain("$ATTRACTOR_LOGS_ROOT", content)
         Assert.Contains(logsRoot, content)
         Assert.Contains($"{logsRoot}/merge/response.md", content)
+
+    [<Fact>]
+    let ``wait_for_human falls back to first option when multiple_choice answer does not match any edge`` () =
+        let interviewer = QueueInterviewer([ Answer.FromText("not-a-real-choice") ]) :> IInterviewer
+        let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+        let node =
+            { Id = "review"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "hexagon"
+                      "label", AttrValue.String "Review Changes" ] }
+        let graph =
+            { Name = "test"
+              Nodes =
+                Map.ofList
+                    [ "review", node
+                      "approve", { Id = "approve"; Attributes = Map.empty }
+                      "reject", { Id = "reject"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "review"; ToNode = "approve"; Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "review"; ToNode = "reject"; Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
+              GraphAttributes = Map.empty }
+
+        let outcome = handler.Execute(node, Context(), graph, createTempDir ())
+
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal<string list>([ "approve" ], outcome.SuggestedNextIds)
 
     [<Fact>]
     let ``Custom handlers can be registered by type string`` () =
@@ -4307,6 +4404,59 @@ module Sprint008McpHandlerTests =
         Assert.Contains("tools/list", requestJson)
         Assert.Contains("tools/call", requestJson)
         Assert.Contains("echo_upper", requestJson)
+
+    [<Fact>]
+    let ``mcp handler prefers tool_output over last_response and wraps raw text arguments`` () =
+        let mutable capturedArguments: System.Text.Json.JsonElement option = None
+        let handler =
+            McpHandlers.McpToolHandler(
+                serverFactory =
+                    fun config _ ->
+                        Ok
+                            { Config = config
+                              ListTools = fun () -> async { return Ok [ toolDefinition "echo_upper" ] }
+                              CallTool =
+                                fun _ arguments ->
+                                    async {
+                                        capturedArguments <- Some(arguments.Clone())
+                                        return
+                                            Ok
+                                                { Content = parseJson """[{"type":"text","text":"ok"}]"""
+                                                  IsError = false }
+                                    }
+                              Cleanup = fun () -> async { return () } })
+            :> IHandler
+
+        let node =
+            { Id = "mcp"
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_server", AttrValue.String "mock"
+                      "mcp_tool", AttrValue.String "echo_upper" ] }
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+        let context = Context()
+        context.Set("tool.output", "tool output wins")
+        context.Set("last_response", "last response loses")
+        context.Set("human.gate.input", "human input loses")
+        let logsRoot = createTempDir ()
+
+        let outcome = handler.Execute(node, context, graph, logsRoot)
+        let captured =
+            capturedArguments
+            |> Option.defaultWith (fun () ->
+                Assert.Fail("Expected MCP call arguments to be captured")
+                Unchecked.defaultof<_>)
+
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("tool output wins", captured.GetProperty("text").GetString())
+        let requestJson = File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+        Assert.Contains("tool output wins", requestJson)
+        Assert.DoesNotContain("last response loses", requestJson)
 
     [<Fact>]
     let ``Mcp handler returns failure when server call fails`` () =

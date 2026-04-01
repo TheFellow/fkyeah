@@ -282,6 +282,23 @@ module McpClientTransportAndServerTests =
         Assert.Single(events) |> ignore
         Assert.Equal("", Encoding.UTF8.GetString(events.Head.Data))
 
+    [<Fact>]
+    let ``sse parser captures event_type and last_event_id and resets them per event`` () =
+        use stream =
+            new MemoryStream(
+                Encoding.UTF8.GetBytes(
+                    "event: tool\nid: evt-1\ndata: first\n\nid: evt-2\ndata: second\n\n"))
+
+        let events = Transport.parseSseStream stream CancellationToken.None |> collectAsync
+
+        Assert.Equal(2, events.Length)
+        Assert.Equal("tool", events.[0].EventType)
+        Assert.Equal(Some "evt-1", events.[0].LastEventId)
+        Assert.Equal("first", Encoding.UTF8.GetString(events.[0].Data))
+        Assert.Equal("message", events.[1].EventType)
+        Assert.Equal(Some "evt-2", events.[1].LastEventId)
+        Assert.Equal("second", Encoding.UTF8.GetString(events.[1].Data))
+
     let private createFakeTransport
         (handler: int -> ChannelWriter<byte array> -> JsonRpc.JsonRpcId -> string -> JsonElement option -> Async<Result<unit, McpError>>)
         =
@@ -418,6 +435,32 @@ module McpClientTransportAndServerTests =
         server.Cleanup() |> Async.RunSynchronously
 
     [<Fact>]
+    let ``server list_tools caches first successful response`` () =
+        let transport, methods, _, _ =
+            createFakeTransport (fun _ writer id methodName _ ->
+                async {
+                    match methodName with
+                    | "initialize" ->
+                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        return Ok()
+                    | "tools/list" ->
+                        do! writer.WriteAsync(responseBytes id """{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}""").AsTask() |> Async.AwaitTask
+                        return Ok()
+                    | _ -> return Ok()
+                })
+
+        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+
+        let first = server.ListTools() |> Async.RunSynchronously |> resultOrFail
+        let second = server.ListTools() |> Async.RunSynchronously |> resultOrFail
+
+        Assert.Single(first) |> ignore
+        Assert.Single(second) |> ignore
+        Assert.Equal(1, methods |> Seq.filter ((=) "tools/list") |> Seq.length)
+
+        server.Cleanup() |> Async.RunSynchronously
+
+    [<Fact>]
     let ``server maps rpc error envelopes to McpError RpcError`` () =
         let transport, _, _, _ =
             createFakeTransport (fun _ writer id methodName _ ->
@@ -439,6 +482,31 @@ module McpClientTransportAndServerTests =
             Assert.Equal(-32601, code)
             Assert.Equal("Tool not found", message)
         | other -> Assert.Fail($"Unexpected call result: {other}")
+
+        server.Cleanup() |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``server call_tool accepts is_error alias in payload`` () =
+        let transport, _, _, _ =
+            createFakeTransport (fun _ writer id methodName _ ->
+                async {
+                    match methodName with
+                    | "initialize" ->
+                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        return Ok()
+                    | "tools/call" ->
+                        do! writer.WriteAsync(responseBytes id """{"content":[{"type":"text","text":"bad"}],"is_error":true}""").AsTask() |> Async.AwaitTask
+                        return Ok()
+                    | _ -> return Ok()
+                })
+
+        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+
+        match server.CallTool "echo" (parseJson """{"text":"hello"}""") |> Async.RunSynchronously with
+        | Ok result ->
+            Assert.True(result.IsError)
+            Assert.Equal("bad", result.Content.EnumerateArray() |> Seq.head |> fun item -> item.GetProperty("text").GetString())
+        | Error error -> Assert.Fail(McpError.describe error)
 
         server.Cleanup() |> Async.RunSynchronously
 

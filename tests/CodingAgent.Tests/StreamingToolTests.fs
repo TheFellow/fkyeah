@@ -1,6 +1,7 @@
 module CodingAgent.StreamingToolTests
 
 open System
+open System.IO
 open Xunit
 open UnifiedLlm
 open CodingAgent
@@ -124,3 +125,35 @@ let ``C4 streaming response with multiple tool calls dispatches all tools`` () =
 
     Assert.True(stepFinishIndex < finishIndex)
     Assert.Contains(events, fun event -> match event with | Finish(Stop "stop", _, Some response) when response.Text = "done" -> true | _ -> false)
+
+[<Fact>]
+let ``streaming session synthesizes final response when Finish omits response payload`` () =
+    let dir = CodingAgent.Tests.createTempDir ()
+
+    try
+        let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+        let mock = ConfigurableMockAdapter("test")
+        mock.SetStreamHandler(fun _ ->
+            seq {
+                yield StreamStart
+                yield TextStart "text-1"
+                yield TextDelta(Some "text-1", "hello ")
+                yield TextDelta(Some "text-1", "world")
+                yield TextEnd "text-1"
+                yield Finish(Stop "stop", Some Usage.Zero, None)
+            })
+
+        let client = Client()
+        client.RegisterAdapter(mock)
+        let session = Session(CodingAgent.Tests.TestProfile("m"), env, client, { SessionConfig.Default with EnableStreaming = true })
+
+        session.ProcessInput("stream this")
+
+        Assert.Equal(Idle, session.State)
+        match session.History |> List.last with
+        | AssistantTurn(content, toolCalls, _, _, _) ->
+            Assert.Equal("hello world", content)
+            Assert.True(toolCalls.IsEmpty)
+        | _ -> Assert.Fail("Expected final assistant turn")
+    finally
+        CodingAgent.Tests.cleanupDir dir
