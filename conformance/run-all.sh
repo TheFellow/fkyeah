@@ -85,6 +85,9 @@ main() {
 
     echo -e "${BOLD}Attractor Conformance Suite${NC}"
     echo "Binary: ${ATTRACTOR_BIN:-$HOME/bin/attractor}"
+
+    # Warmup: absorb cold-start / JIT / codesign cost before timed tests
+    "${ATTRACTOR_BIN:-$HOME/bin/attractor}" --version >/dev/null 2>&1 || true
     echo ""
 
     local current_category=""
