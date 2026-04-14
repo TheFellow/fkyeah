@@ -93,6 +93,22 @@ run_pipeline_live() {
     rm -f "$stdout_file" "$stderr_file"
 }
 
+# wait_for_port <port> [timeout_secs]
+# Polls until a TCP connection to 127.0.0.1:<port> succeeds.
+wait_for_port() {
+    local port="$1"
+    local deadline="${2:-10}"
+    local elapsed=0
+    while ! bash -c "echo >/dev/tcp/127.0.0.1/$port" 2>/dev/null; do
+        sleep 0.2
+        elapsed=$((elapsed + 1))
+        if [[ "$elapsed" -ge $((deadline * 5)) ]]; then
+            echo "wait_for_port: 127.0.0.1:$port not ready after ${deadline}s" >&2
+            return 1
+        fi
+    done
+}
+
 # require_env <var_name>
 # Skips the test if the environment variable is not set.
 require_env() {

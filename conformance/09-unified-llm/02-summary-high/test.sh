@@ -15,7 +15,7 @@ else
 fi
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true' EXIT
-sleep 1
+wait_for_port "$PORT" 15
 
 export OPENAI_API_KEY="mock-key"
 export OPENAI_BASE_URL="http://127.0.0.1:$PORT/v1/responses"
