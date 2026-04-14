@@ -534,6 +534,12 @@ module Validation =
                         else None
                     else None) }
 
+    /// Known LLM CLI names that should not be invoked from parallelogram (tool) nodes.
+    /// These should use box (codergen) or tab (coding_agent) nodes instead, which provide
+    /// session management, turn limits, structured outcome parsing, and retry handling.
+    let private llmCliPatterns =
+        [ "claude"; "codex"; "gemini"; "aider"; "cursor"; "opencode" ]
+
     /// Generate a pipeline synopsis (informational diagnostics describing capabilities)
     let generateSynopsis (graph: Graph) : Diagnostic list =
         let nodes = graph.Nodes |> Map.toList |> List.map snd
@@ -551,8 +557,7 @@ module Validation =
                 let handlerType = ShapeMapping.resolveHandlerType n
                 if handlerType = "tool" then
                     let cmd = n.GetAttrString("tool_command", "")
-                    cmd.Contains("claude") || cmd.Contains("codex") || cmd.Contains("aider")
-                    || cmd.Contains("cursor") || cmd.Contains("opencode")
+                    llmCliPatterns |> List.exists (fun (cli: string) -> cmd.Contains(cli))
                 elif handlerType = "coding_agent" then
                     true
                 elif handlerType = "codergen" then
@@ -791,6 +796,29 @@ module Validation =
                                 None // has conditions but not outcome-based; other rules handle this
                     else None) }
 
+    /// Rule: Warn when parallelogram (tool) nodes invoke LLM CLIs directly via tool_command.
+    /// LLM invocations from tool nodes bypass session management, turn limits, loop detection,
+    /// tool exclusion, and structured outcome routing. Use a codergen or coding_agent node instead.
+    let toolNodeLlmInvocationRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "tool_node_llm_invocation"
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    if ShapeMapping.resolveHandlerType node = "tool" then
+                        let cmd = node.GetAttrString("tool_command", "")
+                        if cmd <> "" then
+                            llmCliPatterns
+                            |> List.tryFind (fun cli -> cmd.Contains(cli))
+                            |> Option.map (fun matched ->
+                                Diagnostic.Warning("tool_node_llm_invocation",
+                                    $"Tool node '{node.Id}' invokes '{matched}' via tool_command — LLM invocations from parallelogram nodes bypass session management, turn limits, and structured outcome routing",
+                                    nodeId = node.Id,
+                                    fix = $"Use a box (codergen) or tab (coding_agent) node instead; for ACP agents, set acp_preset=\"{matched}\" on a codergen node"))
+                        else None
+                    else None) }
+
     /// All built-in lint rules
     let builtInRules: ILintRule list =
         [ startNodeRule
@@ -814,7 +842,8 @@ module Validation =
           attributeKnownRule
           cumulativeTurnsRule
           lowMaxTurnsRule
-          parallelogramOutcomeRoutingRule ]
+          parallelogramOutcomeRoutingRule
+          toolNodeLlmInvocationRule ]
 
     /// Run validation on a graph with optional extra rules
     let validate (graph: Graph) (extraRules: ILintRule list option) : Diagnostic list =

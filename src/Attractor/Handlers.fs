@@ -430,7 +430,14 @@ module Handlers =
                     let env = LocalExecutionEnvironment(workingDir) :> IExecutionEnvironment
                     env.Initialize()
                     let checkpointPath = Path.Combine(rootDir, SessionPersistence.checkpointFileName)
-                    let sharedCheckpointPath = Path.Combine(logsRoot, SessionPersistence.checkpointFileName)
+                    let threadId = node.ThreadId
+                    let sharedCheckpointPath =
+                        if threadId <> "" then
+                            let threadDir = Path.Combine(logsRoot, $"thread-{threadId}")
+                            Directory.CreateDirectory(threadDir) |> ignore
+                            Path.Combine(threadDir, SessionPersistence.checkpointFileName)
+                        else
+                            Path.Combine(logsRoot, SessionPersistence.checkpointFileName)
 
                     let saveCheckpoint (session: Session) =
                         session.SaveCheckpoint(checkpointPath)

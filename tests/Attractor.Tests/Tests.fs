@@ -4929,6 +4929,104 @@ module ParallelogramOutcomeRoutingTests =
             diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
             "should not warn on fire-and-forget tool nodes")
 
+    [<Fact>]
+    let ``tool_node_llm_invocation warns when parallelogram invokes claude`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Impl [shape=parallelogram, tool_command="claude --auto 'implement feature'"]
+            start -> Impl -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "tool_node_llm_invocation" && d.Severity = Severity.Warning && d.NodeId = "Impl"),
+            "expected warning when parallelogram invokes claude CLI")
+
+    [<Fact>]
+    let ``tool_node_llm_invocation warns when parallelogram invokes codex`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Build [shape=parallelogram, tool_command="codex exec -m gpt-5.3-codex 'build it'"]
+            start -> Build -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "tool_node_llm_invocation" && d.NodeId = "Build"),
+            "expected warning when parallelogram invokes codex CLI")
+
+    [<Fact>]
+    let ``tool_node_llm_invocation warns when parallelogram invokes gemini`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Gen [shape=parallelogram, tool_command="gemini --acp prompt 'do stuff'"]
+            start -> Gen -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "tool_node_llm_invocation" && d.NodeId = "Gen"),
+            "expected warning when parallelogram invokes gemini CLI")
+
+    [<Fact>]
+    let ``tool_node_llm_invocation does not warn for non-LLM tool commands`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Test [shape=parallelogram, tool_command="dotnet test 2>&1 | tail -10"]
+            start -> Test -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation"),
+            "should not warn for regular shell commands")
+
+    [<Fact>]
+    let ``tool_node_llm_invocation does not warn for codergen nodes using LLM models`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=box, llm_model="claude-sonnet-4-6", prompt="Plan the work"]
+            start -> Plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation"),
+            "should not warn for box/codergen nodes — those are the correct shape for LLM work")
+
+    [<Fact>]
+    let ``tool_node_llm_invocation fix suggests acp_preset`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Bad [shape=parallelogram, tool_command="gemini --prompt 'hello'"]
+            start -> Bad -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        let diag = diags |> List.find (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Bad")
+        Assert.Contains("acp_preset=\"gemini\"", diag.Fix)
+
 module ToolGateEventTests =
 
     let private createTempDir () =
