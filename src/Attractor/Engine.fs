@@ -589,7 +589,16 @@ module Engine =
 
                 match outcome.Status with
                 | StageStatus.Fail ->
-                    emitter.Emit(PipelineEvent.StageFailed(node.Id, nodeIndex, outcome.FailureReason, false))
+                    // Tool/parallelogram nodes with conditional outgoing edges are gate checks —
+                    // a non-zero exit code is an expected routing outcome, not an error
+                    let isGateCheck =
+                        handlerType = "tool"
+                        && graph.OutgoingEdges(node.Id)
+                           |> List.exists (fun e -> e.Condition <> "")
+                    if isGateCheck then
+                        emitter.Emit(PipelineEvent.StageCompleted(node.Id, nodeIndex, stageDuration))
+                    else
+                        emitter.Emit(PipelineEvent.StageFailed(node.Id, nodeIndex, outcome.FailureReason, false))
                 | _ ->
                     emitter.Emit(PipelineEvent.StageCompleted(node.Id, nodeIndex, stageDuration))
 

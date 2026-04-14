@@ -141,3 +141,44 @@ let ``validator rejects previous_response_id when explicit provider does not mat
             ValidationIssue.PreviousResponseMismatch(
                 "provider 'openai' does not match model provider 'anthropic'"),
             issues)
+
+[<Fact>]
+let ``validator warns when thinking budget exceeds explicit max_tokens`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("think hard") ]) with
+            ReasoningEffort = Some "high"
+            MaxTokens = Some 4096 }
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.True(
+            issues |> List.exists (function ValidationIssue.ThinkingBudgetExceedsMaxTokens _ -> true | _ -> false),
+            "expected ThinkingBudgetExceedsMaxTokens issue")
+
+[<Fact>]
+let ``validator does not warn when max_tokens exceeds thinking budget`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("think hard") ]) with
+            ReasoningEffort = Some "high"
+            MaxTokens = Some 40000 }
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``validator does not warn about thinking budget when max_tokens is not set`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("think hard") ]) with
+            ReasoningEffort = Some "high" }
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``validator does not warn about thinking budget when reasoning_effort is not set`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.user("hello") ]) with
+            MaxTokens = Some 4096 }
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")

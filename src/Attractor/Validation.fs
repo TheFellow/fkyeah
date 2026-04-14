@@ -680,6 +680,117 @@ module Validation =
 
         diags |> Seq.toList
 
+    /// Rule: Warn when cumulative max_turns on a linear chain of coding_agent nodes
+    /// exceeds a threshold without thread_id to isolate sessions
+    let cumulativeTurnsRule: ILintRule =
+        let threshold = 60
+        let defaultMaxTurns = 20
+        { new ILintRule with
+            member _.Name = "cumulative_turns"
+            member _.Apply(graph) =
+                let agentTypes = set [ "coding_agent" ]
+                let isAgent (node: Node) =
+                    agentTypes.Contains(ShapeMapping.resolveHandlerType node)
+                let getMaxTurns (node: Node) =
+                    node.GetAttr("max_turns")
+                    |> Option.bind (fun v -> v.AsInt())
+                    |> Option.defaultValue defaultMaxTurns
+                match graph.FindStartNode() with
+                | None -> []
+                | Some startNode ->
+                    let diags = ResizeArray<Diagnostic>()
+                    // BFS tracking cumulative turns per thread along each path
+                    // State: (nodeId, cumulative turns on current thread)
+                    let visited = Dictionary<string, int>()
+                    let queue = Queue<string * int>()
+                    queue.Enqueue(startNode.Id, 0)
+                    while queue.Count > 0 do
+                        let (nodeId, cumulativePrior) = queue.Dequeue()
+                        match graph.Nodes |> Map.tryFind nodeId with
+                        | None -> ()
+                        | Some node ->
+                            let cumulative =
+                                if isAgent node then
+                                    // If node has its own thread_id, it gets a fresh session
+                                    if node.ThreadId <> "" then
+                                        getMaxTurns node
+                                    else
+                                        cumulativePrior + getMaxTurns node
+                                else
+                                    cumulativePrior
+                            // Only warn once per node, using worst-case (highest) cumulative
+                            let shouldProcess =
+                                match visited.TryGetValue(nodeId) with
+                                | true, prev -> cumulative > prev
+                                | false, _ -> true
+                            if shouldProcess then
+                                visited[nodeId] <- cumulative
+                                if isAgent node && node.ThreadId = "" && cumulativePrior >= threshold then
+                                    diags.Add(Diagnostic.Warning("cumulative_turns",
+                                        $"Node '{nodeId}' starts at ~{cumulativePrior} cumulative turns on the shared session; add thread_id to give it a fresh session",
+                                        nodeId = nodeId,
+                                        fix = $"Add thread_id attribute to node '{nodeId}'"))
+                                for edge in graph.OutgoingEdges(nodeId) do
+                                    queue.Enqueue(edge.ToNode, cumulative)
+                    diags |> Seq.toList }
+
+    /// Rule: Warn when coding_agent/tab nodes have very low max_turns
+    let lowMaxTurnsRule: ILintRule =
+        let minRecommended = 15
+        { new ILintRule with
+            member _.Name = "low_max_turns"
+            member _.Apply(graph) =
+                let agentTypes = set [ "coding_agent" ]
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    let handlerType = ShapeMapping.resolveHandlerType node
+                    if agentTypes.Contains(handlerType) then
+                        match node.GetAttr("max_turns") |> Option.bind (fun v -> v.AsInt()) with
+                        | Some turns when turns < minRecommended ->
+                            Some(Diagnostic.Warning("low_max_turns",
+                                $"Node '{node.Id}' has max_turns={turns} which is likely too low for a coding agent; agents typically need 20-50 turns for diagnosis and fixing",
+                                nodeId = node.Id,
+                                fix = $"Set max_turns to at least {minRecommended} (recommended: 30-50)"))
+                        | _ -> None
+                    else None) }
+
+    /// Rule: Warn when parallelogram (tool) nodes have conditional edges for only one outcome
+    let parallelogramOutcomeRoutingRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "parallelogram_outcome_routing"
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    if ShapeMapping.resolveHandlerType node = "tool" then
+                        let outgoing = graph.OutgoingEdges(node.Id)
+                        let conditionEdges = outgoing |> List.filter (fun e -> e.Condition <> "")
+                        if conditionEdges.IsEmpty then
+                            None // fire-and-forget, no condition-based routing
+                        else
+                            let hasSuccess =
+                                conditionEdges |> List.exists (fun e ->
+                                    e.Condition.Contains("outcome=success") || e.Condition.Contains("outcome!=fail"))
+                            let hasFail =
+                                conditionEdges |> List.exists (fun e ->
+                                    e.Condition.Contains("outcome=fail") || e.Condition.Contains("outcome!=success"))
+                            if hasSuccess && hasFail then
+                                None
+                            elif hasSuccess then
+                                Some(Diagnostic.Warning("parallelogram_outcome_routing",
+                                    $"Tool node '{node.Id}' routes on outcome=success but has no edge for outcome=fail; non-zero exit codes will have no route",
+                                    nodeId = node.Id,
+                                    fix = "Add an edge with condition=\"outcome=fail\" for the failure path"))
+                            elif hasFail then
+                                Some(Diagnostic.Warning("parallelogram_outcome_routing",
+                                    $"Tool node '{node.Id}' routes on outcome=fail but has no edge for outcome=success; zero exit codes will have no route",
+                                    nodeId = node.Id,
+                                    fix = "Add an edge with condition=\"outcome=success\" for the success path"))
+                            else
+                                None // has conditions but not outcome-based; other rules handle this
+                    else None) }
+
     /// All built-in lint rules
     let builtInRules: ILintRule list =
         [ startNodeRule
@@ -700,7 +811,10 @@ module Validation =
           retryTargetCycleRule
           promptOnLlmNodesRule
           maxVisitsRule
-          attributeKnownRule ]
+          attributeKnownRule
+          cumulativeTurnsRule
+          lowMaxTurnsRule
+          parallelogramOutcomeRoutingRule ]
 
     /// Run validation on a graph with optional extra rules
     let validate (graph: Graph) (extraRules: ILintRule list option) : Diagnostic list =

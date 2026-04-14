@@ -515,7 +515,14 @@ module Handlers =
                                 | None -> outcomeBase
                             writeStatus stageDir rootDir outcome
                             outcome
-                        with ex ->
+                        with
+                        | :? UnifiedLlm.ProviderError as pe when pe.Retryable ->
+                            // Let retryable provider errors propagate to Engine's retry loop
+                            reraise ()
+                        | :? System.Net.Http.HttpRequestException ->
+                            // Network-level failures are retryable
+                            reraise ()
+                        | ex ->
                             let outcome = Outcome.Fail($"Coding agent failed: {ex.Message}")
                             writeStatus stageDir rootDir outcome
                             outcome

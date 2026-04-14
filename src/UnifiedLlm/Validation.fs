@@ -11,6 +11,7 @@ type ValidationIssue =
     | EmptyMessages
     | PromptAndMessagesBothPresent
     | PreviousResponseMismatch of string
+    | ThinkingBudgetExceedsMaxTokens of modelId: string * maxTokens: int * budgetTokens: int
 
 type ValidationResult = Result<Request, ValidationIssue list>
 
@@ -35,6 +36,8 @@ module ValidationIssue =
             "Prompt and messages cannot both be present"
         | ValidationIssue.PreviousResponseMismatch message ->
             $"Previous response mismatch: {message}"
+        | ValidationIssue.ThinkingBudgetExceedsMaxTokens(modelId, maxTokens, budgetTokens) ->
+            $"Model '{modelId}' has max_tokens={maxTokens} but thinking budget requires {budgetTokens}; increase max_tokens above the thinking budget"
 
 module RequestValidator =
 
@@ -91,6 +94,19 @@ module RequestValidator =
 
                     if request.ReasoningEffort.IsSome && not model.SupportsReasoning then
                         issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "reasoning"))
+
+                    match request.ReasoningEffort, request.MaxTokens with
+                    | Some effort, Some maxTokens ->
+                        let budgetTokens =
+                            match effort with
+                            | "low" -> 2048
+                            | "medium" -> 8192
+                            | "high" -> 32768
+                            | "xhigh" -> 65536
+                            | _ -> 0
+                        if budgetTokens > 0 && maxTokens <= budgetTokens then
+                            issues.Add(ValidationIssue.ThinkingBudgetExceedsMaxTokens(model.Id, maxTokens, budgetTokens))
+                    | _ -> ()
 
                     match request.Temperature with
                     | Some value when value < 0.0 || value > 2.0 ->

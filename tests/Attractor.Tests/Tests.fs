@@ -4704,3 +4704,441 @@ module Sprint013AttributeValidationTests =
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))
+
+module CumulativeTurnsValidationTests =
+
+    [<Fact>]
+    let ``cumulative_turns warns when tab nodes share default thread and exceed threshold`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=tab, prompt="Plan", max_turns=40]
+            Implement [shape=tab, prompt="Implement", max_turns=40]
+            Review [shape=tab, prompt="Review", max_turns=40]
+            start -> Plan -> Implement -> Review -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "cumulative_turns" && d.Severity = Severity.Warning && d.NodeId = "Review"),
+            "expected cumulative_turns warning on Review node")
+
+    [<Fact>]
+    let ``cumulative_turns does not warn when late nodes have their own thread_id`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=tab, prompt="Plan", max_turns=40]
+            Implement [shape=tab, prompt="Implement", max_turns=40]
+            Review [shape=tab, prompt="Review", max_turns=40, thread_id="review"]
+            start -> Plan -> Implement -> Review -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "Review"),
+            "should not warn on Review node with its own thread_id")
+
+    [<Fact>]
+    let ``cumulative_turns does not warn when total is below threshold`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=tab, prompt="A", max_turns=20]
+            B [shape=tab, prompt="B", max_turns=20]
+            start -> A -> B -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "cumulative_turns"),
+            "should not warn when cumulative turns are below threshold")
+
+    [<Fact>]
+    let ``cumulative_turns uses default max_turns of 20 when not specified`` () =
+        // 4 nodes * 20 default = 80 cumulative, 4th node starts at 60
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=tab, prompt="A"]
+            B [shape=tab, prompt="B"]
+            C [shape=tab, prompt="C"]
+            D [shape=tab, prompt="D"]
+            start -> A -> B -> C -> D -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "D"),
+            "expected cumulative_turns warning on D with default max_turns")
+
+    [<Fact>]
+    let ``cumulative_turns resets accumulation when thread_id changes mid-chain`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=tab, prompt="A", max_turns=40]
+            B [shape=tab, prompt="B", max_turns=40, thread_id="fresh"]
+            C [shape=tab, prompt="C", max_turns=40]
+            start -> A -> B -> C -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        // B has its own thread_id so it resets; C starts fresh from B's thread
+        // B(40) + C(40) = 80 cumulative on B's thread, C starts at 40 < 60
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "C"),
+            "C should not warn because B reset the accumulation")
+
+module LowMaxTurnsValidationTests =
+
+    [<Fact>]
+    let ``low_max_turns warns when coding_agent node has very low max_turns`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Build [shape=tab, prompt="Build and test", max_turns=5]
+            start -> Build -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "low_max_turns" && d.Severity = Severity.Warning && d.NodeId = "Build"),
+            "expected low_max_turns warning on Build node")
+
+    [<Fact>]
+    let ``low_max_turns does not warn when max_turns is adequate`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Build [shape=tab, prompt="Build and test", max_turns=30]
+            start -> Build -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "low_max_turns" && d.NodeId = "Build"),
+            "should not warn when max_turns is adequate")
+
+    [<Fact>]
+    let ``low_max_turns does not warn on non-agent node shapes`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            LLM [shape=box, prompt="Just think", max_turns=5]
+            start -> LLM -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "low_max_turns"),
+            "should not warn on codergen (box) nodes")
+
+module ParallelogramOutcomeRoutingTests =
+
+    [<Fact>]
+    let ``parallelogram_outcome_routing warns when only success edge exists`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Check [shape=parallelogram, tool_command="grep -q pattern file.txt"]
+            Next [shape=box, prompt="Continue"]
+            start -> Check
+            Check -> Next [condition="outcome=success"]
+            Next -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "parallelogram_outcome_routing" && d.Severity = Severity.Warning && d.NodeId = "Check"),
+            "expected warning when parallelogram has only success edge")
+
+    [<Fact>]
+    let ``parallelogram_outcome_routing warns when only fail edge exists`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Check [shape=parallelogram, tool_command="test -f file.txt"]
+            start -> Check
+            Check -> exit [condition="outcome=fail"]
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.True(
+            diags |> List.exists (fun d ->
+                d.Rule = "parallelogram_outcome_routing" && d.NodeId = "Check"),
+            "expected warning when parallelogram has only fail edge")
+
+    [<Fact>]
+    let ``parallelogram_outcome_routing does not warn when both outcomes are wired`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Check [shape=parallelogram, tool_command="grep -q pattern file.txt"]
+            Next [shape=box, prompt="Continue"]
+            start -> Check
+            Check -> Next [condition="outcome=success"]
+            Check -> exit [condition="outcome=fail"]
+            Next -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
+            "should not warn when both outcomes are routed")
+
+    [<Fact>]
+    let ``parallelogram_outcome_routing does not warn when no condition edges exist`` () =
+        // A single unconditional edge means the tool result is ignored (fire-and-forget)
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Run [shape=parallelogram, tool_command="echo hello"]
+            start -> Run -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
+            "should not warn on fire-and-forget tool nodes")
+
+module ToolGateEventTests =
+
+    let private createTempDir () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    [<Fact>]
+    let ``tool gate check emits StageCompleted not StageFailed when conditional edges exist`` () =
+        // Simulates a gate check like: grep -q BLOCKED file → exit 1 means "not blocked"
+        // Must use shape=parallelogram so handlerType resolves to "tool"
+        let failHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    Outcome.Fail("Tool failed with exit code 1") }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                Check [shape=parallelogram]
+                Next [shape=box, prompt="Continue"]
+                start -> Check
+                Check -> Next [condition="outcome=fail", label="ready"]
+                Check -> exit [condition="outcome=success", label="blocked"]
+                Next -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("tool", failHandler)
+        let emitter = EventEmitter()
+        let collector = EventCollector()
+        emitter.AddObserver(collector :> IEventObserver)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry
+                EventEmitter = emitter }
+
+        let result = Engine.run graph config
+
+        // Pipeline should succeed — the fail outcome routes via condition edge
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        // Should NOT emit StageFailed for the gate check node
+        Assert.False(
+            collector.Events
+            |> List.exists (function
+                | PipelineEvent.StageFailed("Check", _, _, _) -> true
+                | _ -> false),
+            "gate check should not emit StageFailed when conditional edges handle the outcome")
+        // Should emit StageCompleted instead
+        Assert.True(
+            collector.Events
+            |> List.exists (function
+                | PipelineEvent.StageCompleted("Check", _, _) -> true
+                | _ -> false),
+            "gate check should emit StageCompleted")
+
+    [<Fact>]
+    let ``tool node without conditional edges still emits StageFailed on failure`` () =
+        // Use shape=parallelogram so handlerType resolves to "tool"
+        let failHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    Outcome.Fail("Tool failed with exit code 1") }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                Run [shape=parallelogram]
+                start -> Run -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("tool", failHandler)
+        let emitter = EventEmitter()
+        let collector = EventCollector()
+        emitter.AddObserver(collector :> IEventObserver)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry
+                EventEmitter = emitter }
+
+        let _result = Engine.run graph config
+
+        // Should still emit StageFailed since there are no conditional edges
+        Assert.True(
+            collector.Events
+            |> List.exists (function
+                | PipelineEvent.StageFailed("Run", _, _, _) -> true
+                | _ -> false),
+            "non-gate tool node should emit StageFailed on failure")
+
+module CodingAgentRetryTests =
+
+    let private createTempDir () =
+        let dir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(dir) |> ignore
+        dir
+
+    [<Fact>]
+    let ``coding agent retries on retryable ProviderError`` () =
+        let mutable callCount = 0
+        let retryableHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    if callCount = 1 then
+                        raise (UnifiedLlm.ServerError("server error", 503))
+                    else
+                        Outcome.Success(notes = "recovered") }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                Agent [type="retryable_agent", max_retries=2]
+                start -> Agent -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("retryable_agent", retryableHandler)
+        let emitter = EventEmitter()
+        let collector = EventCollector()
+        emitter.AddObserver(collector :> IEventObserver)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry
+                EventEmitter = emitter }
+
+        let result = Engine.run graph config
+
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        Assert.Equal(2, callCount)
+        Assert.True(
+            collector.Events
+            |> List.exists (function
+                | PipelineEvent.StageRetrying("Agent", _, 1, _) -> true
+                | _ -> false),
+            "should emit StageRetrying for the retried attempt")
+
+    [<Fact>]
+    let ``coding agent retries on HttpRequestException`` () =
+        let mutable callCount = 0
+        let networkFailHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    if callCount = 1 then
+                        raise (System.Net.Http.HttpRequestException("An error occurred while sending the request."))
+                    else
+                        Outcome.Success(notes = "recovered") }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                Agent [type="http_fail_agent", max_retries=2]
+                start -> Agent -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("http_fail_agent", networkFailHandler)
+        let emitter = EventEmitter()
+        let collector = EventCollector()
+        emitter.AddObserver(collector :> IEventObserver)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry
+                EventEmitter = emitter }
+
+        let result = Engine.run graph config
+
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        Assert.Equal(2, callCount)
+
+    [<Fact>]
+    let ``coding agent does not retry on non-retryable ProviderError`` () =
+        let mutable callCount = 0
+        let nonRetryableHandler =
+            { new IHandler with
+                member _.Execute(_, _, _, _) =
+                    callCount <- callCount + 1
+                    raise (UnifiedLlm.AuthenticationError("invalid api key")) }
+
+        let graph =
+            DotParser.parseOrRaise """
+            digraph Test {
+                start [shape=Mdiamond]
+                exit [shape=Msquare]
+                Agent [type="auth_fail_agent", max_retries=3]
+                start -> Agent -> exit
+            }
+            """
+        let logsRoot = createTempDir()
+        let registry = HandlerRegistry.CreateDefault()
+        registry.Register("auth_fail_agent", nonRetryableHandler)
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
+        let result = Engine.run graph config
+
+        Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
+        Assert.Equal(1, callCount)
