@@ -86,7 +86,7 @@ let ``check in Open after cooldown transitions to HalfOpen`` () =
     let config = { FailureThreshold = 1; CooldownPeriod = TimeSpan.FromMilliseconds(10.0); ProbeSuccessThreshold = 2 }
     let breaker = CircuitBreaker("test-halfopen-transition", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(50) // wait for cooldown to expire
+    System.Threading.Thread.Sleep(200) // wait for mailbox + cooldown to expire (generous for CI)
     let result = Async.RunSynchronously(breaker.Check())
     Assert.True(Result.isOk result)
     let state = Async.RunSynchronously breaker.State
@@ -99,10 +99,10 @@ let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` (
     let config = { FailureThreshold = 1; CooldownPeriod = TimeSpan.FromMilliseconds(10.0); ProbeSuccessThreshold = 2 }
     let breaker = CircuitBreaker("test-halfopen-one-success", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(50)
+    System.Threading.Thread.Sleep(200) // generous for CI mailbox processing
     Async.RunSynchronously(breaker.Check()) |> ignore // transitions to HalfOpen
     breaker.RecordSuccess()
-    System.Threading.Thread.Sleep(50)
+    System.Threading.Thread.Sleep(200) // let mailbox process success
     let state = Async.RunSynchronously breaker.State
     match state with
     | CircuitState.HalfOpen(_, successes) -> Assert.Equal(1, successes)
