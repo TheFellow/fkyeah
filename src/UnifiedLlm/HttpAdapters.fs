@@ -679,7 +679,11 @@ type AnthropicAdapter(apiKey: string) =
             | _ -> None
 
         match thinkingBudget with
-        | Some budget -> bodyDict["thinking"] <- {| ``type`` = "enabled"; budget_tokens = budget |}
+        | Some budget ->
+            bodyDict["thinking"] <- {| ``type`` = "enabled"; budget_tokens = budget |}
+            // max_tokens must be greater than thinking.budget_tokens per Anthropic API
+            if maxTokens <= budget then
+                bodyDict["max_tokens"] <- budget + 4096
         | None -> ()
 
         let structuredToolName, structuredToolDef =

@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.8.2"
+let cliVersion = "0.8.3"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
