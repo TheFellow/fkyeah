@@ -461,6 +461,7 @@ module Engine =
         let maxLoopRestarts = 10
         let mutable lastEdge: Edge option = None
         let goalGateRetryVisited = System.Collections.Generic.HashSet<string>()
+        context.Set("internal.loop_restart_count", string restartCount)
 
         while running do
             // Check for user cancellation (Ctrl-C)
@@ -714,6 +715,7 @@ module Engine =
                     // Step 7: Handle loop_restart
                     if edge.LoopRestart then
                         restartCount <- restartCount + 1
+                        context.Set("internal.loop_restart_count", string restartCount)
                         if restartCount > maxLoopRestarts then
                             lastOutcome <- Outcome.Fail($"Max loop restarts ({maxLoopRestarts}) exceeded")
                             running <- false
@@ -739,6 +741,7 @@ module Engine =
                             for kv in graphAttrs do
                                 freshContext.Set(kv.Key, kv.Value)
                             applyInitialContext config freshContext false
+                            freshContext.Set("internal.loop_restart_count", string restartCount)
                             context <- freshContext
                             // Clear tracking state
                             completedNodes.Clear()
@@ -1038,4 +1041,3 @@ module Engine =
         if not errors.IsEmpty then
             failwithf "Validation errors: %s" (errors |> List.map (fun d -> d.Message) |> String.concat "; ")
         run graph config
-

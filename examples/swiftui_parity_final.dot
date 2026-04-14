@@ -1,0 +1,175 @@
+digraph SwiftUIParityFinal {
+  graph [
+    goal="Implement EVERY remaining SwiftUI feature gap — zero WONTFIX allowed. Fix all Codex dissent items. Get Batch 4 (Layout) from 17% to 100%. Wire PreferenceKey lifecycle. Make TextEditor truly multi-line. Fix AttributedString color. Fix Text concatenation styling. Implement .searchable(), .refreshable(), .badge() properly, .task(id:) cancellation, ScenePhase, .blur() as dim, .rotationEffect() as transpose, .anchorPreference(), .interactiveDismissDisabled(). Validate everything in Ghostty.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Audit Everything",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Complete audit of ALL remaining SwiftUI parity gaps. Zero WONTFIX tolerance.\n\n1. Read Tests/tui/output/ghostty-lab/parity/design_postmortem.md for the known gaps.\n2. Read the source files to verify current state of each feature.\n3. Launch Ghostty lab and KitchenSink, take screenshots.\n\nHere is the COMPLETE list of features that must be implemented (no exceptions):\n\n## PREVIOUSLY WONTFIX (now must-fix)\n1. .anchorPreference() — implement simplified version: collect anchor rects during draw, deliver via callback after render pass\n2. .rotationEffect() — terminal approximation: 90° rotation transposes width/height and rotates text; other angles apply bold+italic as visual hint\n3. .blur(radius:) — terminal approximation: replace characters with ░ block at radius>2, dim foreground at radius<=2\n4. .textCase() — must apply at render time, not just build time. Transform text in the render tree\n5. .truncationMode() — must truncate with ... at head/middle/tail in the renderer when text exceeds width\n6. .badge() — implement for List rows (trailing count badge) and TabView tabs (superscript dot/count)\n7. .task(id:) — implement cancellation: when id changes, cancel previous Task and launch new one\n8. .interactiveDismissDisabled() — when true, prevent Escape key from dismissing sheets/alerts\n9. ScenePhase — track .active (foreground, receiving input), .background (app suspended). Fire onChange.\n\n## CODEX DISSENT ITEMS (must-fix)\n10. PreferenceKey lifecycle — wire into render loop: collect during draw(), fire onPreferenceChange callbacks after draw() completes, before next frame\n11. .alignmentGuide() offset — stack layout must consume the offset when positioning children\n12. TextEditor — make truly multi-line: support newlines, cursor up/down, multi-line display buffer\n13. AttributedString — preserve foreground color per run when rendering\n14. Text concatenation — preserve per-segment bold/italic/color when rendering Text+Text\n\n## BATCH 4 LAYOUT (17% → 100%)\n15. .fixedSize() — verify it actually prevents compression in flex allocation (not just compile)\n16. .layoutPriority() — verify band allocation actually works in practice\n17. .alignmentGuide() — verify offset is consumed\n18. .aspectRatio() — verify shapes respect it\n19. ViewThatFits — verify it picks the right child\n20. GeometryReader — verify it reports correct size\n\n## BATCH 5 DATA FLOW (40% → 100%)\n21. @AppStorage — implement with file-backed UserDefaults equivalent (JSON file in .ai/)\n22. Custom EnvironmentKey — verify define + inject + read works end-to-end\n\n## BATCH 2 FOCUS (75% → 100%)\n23. Tab order control — .focusable() with priority, custom traversal order\n\n## BATCH 6 COLLECTIONS (71% → 100%)\n24. .searchable() — search bar above List that filters content\n25. .refreshable() — pull-to-refresh indicator (in terminal: [Refreshing...] banner + callback)\n\nWrite audit to Tests/tui/output/ghostty-lab/parity/final_audit.md.\nFor each feature: what exists today, what's broken/missing, exact fix needed."
+  ];
+
+  Plan [
+    shape=box,
+    label="Plan All Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/final_audit.md.\n\nCreate implementation plan for ALL 25 features. No deferrals. No WONTFIX.\n\nFor each feature specify:\n- Exact file(s) and function(s) to modify\n- The terminal approximation (for features like blur, rotation)\n- How to verify it works\n- Dependencies on other features in this list\n\nOrder by dependency graph — implement foundations first (PreferenceKey lifecycle, intrinsic measurement) before features that depend on them.\n\nWrite to Tests/tui/output/ghostty-lab/parity/final_plan.md."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques"];
+
+  CritiqueClaude [
+    shape=box,
+    label="Claude Critique",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/final_plan.md. Are the terminal approximations reasonable? Will the PreferenceKey lifecycle work? Is TextEditor multi-line feasible with ncreader? Write to Tests/tui/output/ghostty-lab/parity/final_critique_claude.md."
+  ];
+
+  CritiqueCodex [
+    shape=box,
+    label="Codex Critique",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/final_plan.md. Focus on the 9 dissent items you previously flagged — are the proposed fixes adequate? Will .alignmentGuide offsets actually be consumed? Will AttributedString preserve colors? Write to Tests/tui/output/ghostty-lab/parity/final_critique_codex.md."
+  ];
+
+  CritiqueGemini [
+    shape=box,
+    label="Gemini Critique",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/final_plan.md. Are there simpler terminal approximations for blur/rotation? Is @AppStorage with JSON file the right approach? Write to Tests/tui/output/ghostty-lab/parity/final_critique_gemini.md."
+  ];
+
+  CritiquesJoin [shape=tripleoctagon, label="Join"];
+
+  Consolidate [
+    shape=box,
+    label="Consolidate",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read all critiques and plan. Synthesize final action plan. ZERO WONTFIX — every feature must have a concrete implementation, even if it's an approximation. Write to Tests/tui/output/ghostty-lab/parity/final_consolidated.md."
+  ];
+
+  Implement [
+    shape=box,
+    label="Implement Everything",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/final_consolidated.md.\n\nImplement ALL 25 features. No shortcuts. No stubs.\n\nKey files:\n- Sources/OmniUICore/Primitives.swift\n- Sources/OmniUICore/Modifiers.swift\n- Sources/OmniUICore/RenderTree.swift\n- Sources/OmniUICore/DebugLayout.swift\n- Sources/OmniUICore/Nodes.swift\n- Sources/OmniUICore/Runtime.swift\n- Sources/OmniUICore/Environment.swift\n- Sources/OmniUICore/State.swift\n- Sources/OmniUICore/FocusState.swift\n- Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift\n- Sources/SwiftUI/Animation.swift\n\nDo NOT modify Sources/KitchenSink/main.swift.\n\nRun `swift build --product KitchenSink` — fix ALL errors.\nRun `swift test --skip-build` — fix ALL failures.\n\nSummarize every change."
+  ];
+
+  Validate [
+    shape=box,
+    label="Validate in Ghostty",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild in Ghostty Docker lab and validate.\n\n1. Stop runtime, rebuild, launch, wait for render\n2. Screenshot home + scroll through ALL sections with mouse wheel\n3. Check stderr for notcurses errors\n4. Record GIF\n5. For each of the 25 features, verify it either renders visually or behaves correctly when tested\n\nReport per-feature: PASS/FAIL with evidence."
+  ];
+
+  JudgesParallel [shape=component, label="Judges"];
+
+  JudgeClaude [
+    shape=box,
+    label="Claude Judge",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Grade all 25 features from validation screenshots. PASS or FAIL only — no WONTFIX allowed. Write to Tests/tui/output/ghostty-lab/parity/final_judge_claude.md."
+  ];
+
+  JudgeCodex [
+    shape=box,
+    label="Codex Judge",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Grade all 25 features. Pay special attention to your 9 previous dissent items — are they ACTUALLY fixed this time? PASS or FAIL only. Write to Tests/tui/output/ghostty-lab/parity/final_judge_codex.md."
+  ];
+
+  JudgeGemini [
+    shape=box,
+    label="Gemini Judge",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Grade all 25 features. PASS or FAIL only. Write to Tests/tui/output/ghostty-lab/parity/final_judge_gemini.md."
+  ];
+
+  JudgesJoin [shape=tripleoctagon, label="Join"];
+
+  Verdict [
+    shape=box,
+    label="Verdict",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    goal_gate=true,
+    retry_target="Plan",
+    prompt="Read all 3 judge reports. Majority vote. PASS or FAIL only — no WONTFIX.\nReturn outcome=success ONLY if ALL 25 features PASS by majority.\nReturn outcome=retry if ANY feature fails.\nIf success: commit and push all changes.\nWrite to Tests/tui/output/ghostty-lab/parity/final_verdict.md."
+  ];
+
+  FinalDemo [
+    shape=box,
+    label="Final Demo + Commit",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="1. Record final 30s GIF with scrolling through all sections\n2. Commit all source changes with detailed summary\n3. Push to remote\n4. Update docs/swiftui-non-renderer-parity.md with final coverage numbers"
+  ];
+
+  Postmortem [
+    shape=box,
+    label="Postmortem",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Write final postmortem:\n1. All 25 features with PASS grade\n2. Terminal approximations used (blur→dim, rotation→transpose, etc)\n3. Final API coverage percentage\n4. Total attractor iterations across all runs today\n5. What's genuinely left (if anything)"
+  ];
+
+  /* Edges */
+  Start -> Audit;
+  Audit -> Plan;
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude;
+  CritiquesParallel -> CritiqueCodex;
+  CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin;
+  CritiqueCodex  -> CritiquesJoin;
+  CritiqueGemini -> CritiquesJoin;
+  CritiquesJoin -> Consolidate;
+  Consolidate -> Implement;
+  Implement -> Validate;
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude;
+  JudgesParallel -> JudgeCodex;
+  JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin;
+  JudgeCodex  -> JudgesJoin;
+  JudgeGemini -> JudgesJoin;
+  JudgesJoin -> Verdict;
+  Verdict -> FinalDemo   [condition="outcome=success", label="all 25 pass"];
+  Verdict -> Plan        [condition="outcome=retry",   label="fix failures"];
+  Verdict -> Postmortem  [condition="outcome=fail",    label="blocked"];
+  FinalDemo -> Postmortem;
+  Postmortem -> Exit;
+}

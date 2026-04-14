@@ -1,0 +1,80 @@
+digraph FixSheets {
+  graph [
+    goal="Fix .sheet() modal overlay rendering in OmniUI's notcurses TUI renderer so that sheets actually appear as visible overlays when isPresented is true. Then re-validate iGopherTUI settings and bookmarks sheets work.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Audit Sheet Rendering",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Diagnose why .sheet(isPresented:) modals don't render as visible overlays in the notcurses TUI renderer.\n\n1. Read Sources/OmniUICore/Modifiers.swift — find the .sheet modifier implementation. How does it create the VNode?\n2. Read Sources/OmniUICore/Primitives.swift — check for any sheet/modal presentation logic\n3. Read Sources/OmniUICore/RenderTree.swift — how does the sheet VNode get drawn? Is there a .sheet case? Does it render the overlay content?\n4. Read Sources/OmniUICore/DebugLayout.swift — same check\n5. Read Sources/OmniUICore/Nodes.swift — what VNode case represents a sheet?\n6. Read Sources/OmniUICore/Runtime.swift — how does sheet presentation state work? Is isPresented tracked?\n7. Read Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift — any sheet-specific rendering?\n8. Read Sources/iGopherTUI/BrowserView.swift and SettingsView.swift — how are sheets used?\n\nTrace the full path: .sheet modifier → VNode creation → draw/render → screen output.\nIdentify where it breaks — the sheet content probably isn't being drawn at all, or it's drawn behind the main content, or the isPresented binding isn't triggering a re-render.\n\nThe fix should make sheets render as a box overlay on top of the current content, with a border and the sheet's content inside. Like a modal dialog in a TUI.\n\nWrite findings to Tests/tui/output/ghostty-lab/parity/sheets_audit.md."
+  ];
+
+  Plan [
+    shape=box,
+    label="Plan Fix",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/sheets_audit.md.\n\nDesign the fix for sheet rendering. The sheet should:\n1. Render as a bordered box overlay centered on screen (or at bottom for .presentationDetents(.medium))\n2. Have a title bar with dismiss button [X]\n3. Show the sheet content inside the box\n4. Block interaction with content behind the sheet\n5. Dismiss on Escape key\n\nWrite exact code changes needed in each file.\nWrite to Tests/tui/output/ghostty-lab/parity/sheets_plan.md."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques"];
+  CritiqueClaude [shape=box, label="Claude Critique", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/sheets_plan.md. Write to Tests/tui/output/ghostty-lab/parity/sheets_critique_claude.md."];
+  CritiqueCodex [shape=box, label="Codex Critique", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/sheets_plan.md. Write to Tests/tui/output/ghostty-lab/parity/sheets_critique_codex.md."];
+  CritiqueGemini [shape=box, label="Gemini Critique", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/sheets_plan.md. Write to Tests/tui/output/ghostty-lab/parity/sheets_critique_gemini.md."];
+  CritiquesJoin [shape=tripleoctagon, label="Join"];
+
+  Consolidate [shape=box, label="Consolidate", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Synthesize all critiques + plan. Write to Tests/tui/output/ghostty-lab/parity/sheets_consolidated.md."];
+
+  Implement [
+    shape=box,
+    label="Implement Sheet Fix",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/sheets_consolidated.md.\n\nImplement the sheet rendering fix. This likely requires:\n1. The .sheet modifier to create a VNode that conditionally renders the sheet content as an overlay\n2. The RenderTree draw() to render sheet content ON TOP of the main content with a higher z-index\n3. A bordered box around the sheet content\n4. The notcurses renderer may need a separate plane for the sheet overlay\n\nDo NOT modify KitchenSink/main.swift or references/iGopherBrowser/.\nRun swift build --product iGopherTUI && swift build --product KitchenSink. Fix all errors.\nCommit and push."
+  ];
+
+  Validate [
+    shape=box,
+    label="Validate Sheets in Ghostty",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild and validate sheet rendering in Ghostty.\n\n1. Restart Ghostty lab fresh\n2. Rebuild Docker image: docker build -t swift-omnikit-kitchensink-runtime -f Dockerfile.kitchensink-runtime .\n3. Launch iGopherTUI with 120s timeout\n4. Screenshot home state\n5. Tab to settings gear button, press Enter — screenshot (should show settings sheet overlay)\n6. Press Escape to dismiss\n7. Tab to bookmarks button, press Enter — screenshot (should show bookmarks sheet)\n8. Record GIF showing sheet open/close\n\nAlso test KitchenSink sheets if any exist.\nReport PASS/FAIL for: settings sheet visible, bookmarks sheet visible, dismiss works."
+  ];
+
+  JudgesParallel [shape=component, label="Judges"];
+  JudgeClaude [shape=box, label="Claude Judge", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Grade sheet rendering. PASS/FAIL: settings sheet opens as visible overlay, bookmarks sheet opens, dismiss works, content is readable. Write to Tests/tui/output/ghostty-lab/parity/sheets_judge_claude.md."];
+  JudgeCodex [shape=box, label="Codex Judge", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Grade sheet rendering. PASS/FAIL. Write to Tests/tui/output/ghostty-lab/parity/sheets_judge_codex.md."];
+  JudgeGemini [shape=box, label="Gemini Judge", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Grade sheet rendering. PASS/FAIL. Write to Tests/tui/output/ghostty-lab/parity/sheets_judge_gemini.md."];
+  JudgesJoin [shape=tripleoctagon, label="Join"];
+
+  Verdict [shape=box, label="Verdict", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", goal_gate=true, retry_target="Plan", prompt="Majority vote. All sheet features must PASS. Commit+push if success. Write to Tests/tui/output/ghostty-lab/parity/sheets_verdict.md."];
+  FinalDemo [shape=box, label="Record Showcase", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Record final iGopherTUI showcase GIF showing sheets opening and closing. Commit. Push."];
+  Postmortem [shape=box, label="Postmortem", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Write postmortem on sheet fix."];
+
+  Start -> Audit; Audit -> Plan;
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude; CritiquesParallel -> CritiqueCodex; CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin; CritiqueCodex -> CritiquesJoin; CritiqueGemini -> CritiquesJoin;
+  CritiquesJoin -> Consolidate; Consolidate -> Implement; Implement -> Validate;
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude; JudgesParallel -> JudgeCodex; JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin; JudgeCodex -> JudgesJoin; JudgeGemini -> JudgesJoin;
+  JudgesJoin -> Verdict;
+  Verdict -> FinalDemo [condition="outcome=success", label="sheets work"];
+  Verdict -> Plan [condition="outcome=retry", label="fix issues"];
+  Verdict -> Postmortem [condition="outcome=fail", label="blocked"];
+  FinalDemo -> Postmortem; Postmortem -> Exit;
+}

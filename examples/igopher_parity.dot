@@ -1,0 +1,116 @@
+digraph iGopherParity {
+  graph [
+    goal="Implement all SwiftUI features needed to run iGopherBrowser on OmniUI's notcurses TUI renderer. Every stub must become real behavior. Every partial must become complete. Every missing feature must be added. Validate in Ghostty.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Audit iGopher Gaps",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Audit all SwiftUI features iGopherBrowser uses that OmniUI doesn't fully support.\n\nRead references/iGopherBrowser source files to see actual usage patterns.\nRead OmniUI source files to check current state.\n\nHere are the 23 features that need work:\n\n## STUBS → REAL BEHAVIOR\n1. .listStyle(.plain/.sidebar) — plain: no row insets, no section headers; sidebar: indented with disclosure\n2. .listRowSeparator(.hidden) — when hidden, don't render the ─── separator line between rows\n3. .listRowBackground() — render background color behind the row content\n4. .buttonStyle(.bordered/.borderedProminent) — bordered: [ text ] with border chars; borderedProminent: [■text■] with filled background\n5. .toggleStyle(.switch) — render as [○━━] off / [━━●] on instead of [x]/[ ]\n6. .pickerStyle(.segmented) — render as [ A | B | C ] with highlighted segment; .menu: dropdown\n7. .controlSize(.large) — larger controls: add padding, bold text\n8. .scrollContentBackground(.hidden) — suppress default List/ScrollView background\n9. .contentShape(Rectangle()) — set the hit-testable area shape (respect for click/tap dispatch)\n10. @Namespace + matchedGeometryEffect — for now: just make @Namespace create valid IDs, matchedGeometryEffect is a no-op\n11. LazyVStack — at minimum: defer building offscreen children until scrolled into view\n\n## PARTIAL → COMPLETE\n12. ColorPicker — add HSL slider approximation: [H:▓▓▓░░] [S:▓▓░░░] [L:▓▓▓▓░] with RGB preview\n13. ContentUnavailableView — add .search factory, custom label/description/actions closures\n14. LabeledContent — make generic (accept any View for label and value)\n15. .safeAreaInset — add alignment and spacing parameters\n16. .presentationDetents — support .medium (half height), .large (full), .fraction(), .height()\n17. .quickLookPreview — show file name, size, type; render text files inline\n18. .onOpenURL — register URL scheme handler in the runtime\n\n## MISSING → ADD\n19. LinearGradient — terminal approximation: dithered color bands across cells\n20. RadialGradient — terminal approximation: concentric color rings from center\n21. Canvas — accept drawing commands, render via BrailleRaster or character art\n22. Custom ButtonStyle bodies — execute makeBody(configuration:) and render the result\n23. .shadow() rendering — dim border around view (1-cell gray border)\n\nFor each: check current code, determine exact files to modify, estimate effort.\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_audit.md."
+  ];
+
+  Plan [
+    shape=box,
+    label="Plan Implementation",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/igopher_audit.md.\nPlan implementation for all 23 features. Dependency-ordered.\nFor each: exact file, function, terminal approximation, verification.\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_plan.md."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques"];
+  CritiqueClaude [
+    shape=box, label="Claude Critique", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_critique_claude.md."
+  ];
+  CritiqueCodex [
+    shape=box, label="Codex Critique", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_critique_codex.md."
+  ];
+  CritiqueGemini [
+    shape=box, label="Gemini Critique", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high",
+    prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_critique_gemini.md."
+  ];
+  CritiquesJoin [shape=tripleoctagon, label="Join"];
+
+  Consolidate [
+    shape=box, label="Consolidate", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Read all critiques + plan. Zero WONTFIX. Synthesize final plan.\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_consolidated.md."
+  ];
+
+  Implement [
+    shape=box, label="Implement All", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/igopher_consolidated.md.\nImplement ALL 23 features. No stubs. No shortcuts.\nDo NOT modify KitchenSink/main.swift or references/iGopherBrowser.\nRun swift build --product KitchenSink. Fix all errors.\nRun swift test --skip-build. Fix all failures.\nSummarize changes."
+  ];
+
+  Validate [
+    shape=box, label="Validate in Ghostty", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Rebuild in Ghostty Docker lab. Screenshot all KitchenSink sections.\nCheck stderr for errors. Record GIF.\nReport per-feature: PASS/FAIL."
+  ];
+
+  JudgesParallel [shape=component, label="Judges"];
+  JudgeClaude [
+    shape=box, label="Claude Judge", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Grade all 23 features. PASS or FAIL only. Write to Tests/tui/output/ghostty-lab/parity/igopher_judge_claude.md."
+  ];
+  JudgeCodex [
+    shape=box, label="Codex Judge", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high",
+    prompt="Grade all 23 features. PASS or FAIL only. Write to Tests/tui/output/ghostty-lab/parity/igopher_judge_codex.md."
+  ];
+  JudgeGemini [
+    shape=box, label="Gemini Judge", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high",
+    prompt="Grade all 23 features. PASS or FAIL only. Write to Tests/tui/output/ghostty-lab/parity/igopher_judge_gemini.md."
+  ];
+  JudgesJoin [shape=tripleoctagon, label="Join"];
+
+  Verdict [
+    shape=box, label="Verdict", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    goal_gate=true, retry_target="Plan",
+    prompt="Majority vote. ALL 23 must PASS. Commit and push if success.\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_verdict.md."
+  ];
+
+  FinalDemo [
+    shape=box, label="Final Demo", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Record GIF, commit all changes, push, update parity docs."
+  ];
+
+  Postmortem [
+    shape=box, label="Postmortem", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high",
+    prompt="Write postmortem: all 23 features graded, terminal approximations, final coverage."
+  ];
+
+  Start -> Audit;
+  Audit -> Plan;
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude;
+  CritiquesParallel -> CritiqueCodex;
+  CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin;
+  CritiqueCodex  -> CritiquesJoin;
+  CritiqueGemini -> CritiquesJoin;
+  CritiquesJoin -> Consolidate;
+  Consolidate -> Implement;
+  Implement -> Validate;
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude;
+  JudgesParallel -> JudgeCodex;
+  JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin;
+  JudgeCodex  -> JudgesJoin;
+  JudgeGemini -> JudgesJoin;
+  JudgesJoin -> Verdict;
+  Verdict -> FinalDemo   [condition="outcome=success", label="all 23 pass"];
+  Verdict -> Plan        [condition="outcome=retry",   label="fix failures"];
+  Verdict -> Postmortem  [condition="outcome=fail",    label="blocked"];
+  FinalDemo -> Postmortem;
+  Postmortem -> Exit;
+}

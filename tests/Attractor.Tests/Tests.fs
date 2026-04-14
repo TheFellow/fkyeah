@@ -2658,6 +2658,45 @@ module EdgeCaseTests =
         Assert.Contains("hello", output)
 
     [<Fact>]
+    let ``Tool handler sets tool_stdout alias on success`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            tool_node [shape=parallelogram, tool_command="echo hello"]
+            start -> tool_node -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let config = RunConfig.Default(logsRoot)
+        let result = Engine.run graph config
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        let toolStdout = result.Context.Get("tool_stdout")
+        Assert.Contains("hello", toolStdout)
+        Assert.Equal("0", result.Context.Get("tool_exit_code"))
+
+    [<Fact>]
+    let ``Tool handler sets tool_stdout and tool_exit_code on failure`` () =
+        let dot = """
+        digraph Test {
+            graph [default_max_retry="0"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            tool_node [shape=parallelogram, tool_command="echo fail_output && exit 1"]
+            start -> tool_node -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir()
+        let config = RunConfig.Default(logsRoot)
+        let result = Engine.run graph config
+        // Tool failed, but context should still have the output aliases
+        let toolStdout = result.Context.Get("tool_stdout")
+        Assert.Contains("fail_output", toolStdout)
+        Assert.Equal("1", result.Context.Get("tool_exit_code"))
+
+    [<Fact>]
     let ``Tool handler honors graph cwd and sets ATTRACTOR_CWD`` () =
         let workDir = createTempDir()
         let dot = $"""
@@ -5026,6 +5065,93 @@ module ParallelogramOutcomeRoutingTests =
         let diags = Validation.validate graph None
         let diag = diags |> List.find (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Bad")
         Assert.Contains("acp_preset=\"gemini\"", diag.Fix)
+
+module CodergenAutoPromotionTests =
+
+    [<Fact>]
+    let ``box node with max_turns is promoted to coding_agent`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=box, max_turns="30", prompt="Plan"]
+            start -> Plan -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let plan = graph.Nodes |> Map.find "Plan"
+        Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType plan)
+
+    [<Fact>]
+    let ``box node with cwd is promoted to coding_agent`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Impl [shape=box, cwd=".", prompt="Implement"]
+            start -> Impl -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let impl = graph.Nodes |> Map.find "Impl"
+        Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType impl)
+
+    [<Fact>]
+    let ``box node with thread_id is promoted to coding_agent`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Review [shape=box, thread_id="review", prompt="Review"]
+            start -> Review -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let review = graph.Nodes |> Map.find "Review"
+        Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType review)
+
+    [<Fact>]
+    let ``plain box node stays codergen`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Summarize [shape=box, prompt="Summarize the results"]
+            start -> Summarize -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let summarize = graph.Nodes |> Map.find "Summarize"
+        Assert.Equal("codergen", ShapeMapping.resolveHandlerType summarize)
+
+    [<Fact>]
+    let ``tab node is not affected by auto-promotion`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Agent [shape=tab, max_turns="50", prompt="Do work"]
+            start -> Agent -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let agent = graph.Nodes |> Map.find "Agent"
+        Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType agent)
+
+    [<Fact>]
+    let ``box node with explicit type attribute is not overridden`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Custom [shape=box, type="codergen", max_turns="30", prompt="Stay codergen"]
+            start -> Custom -> exit
+        }
+        """
+        let (graph, _) = Transforms.preparePipeline dot None
+        let custom = graph.Nodes |> Map.find "Custom"
+        // Node already has explicit type="codergen", auto-promotion skips it
+        Assert.Equal("codergen", ShapeMapping.resolveHandlerType custom)
 
 module ToolGateEventTests =
 

@@ -1,0 +1,74 @@
+digraph StubsCleanup {
+  graph [
+    goal="Fix all remaining stubs and partial implementations in OmniUI. Every modifier that stores a value but never reads it must be wired up. Every animation no-op must become real. Every approximation that's too crude must be improved.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Verify Stubs",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Verify the 18 stub/partial issues in OmniUI and plan fixes.\n\nHere are ALL the issues to fix:\n\n1. .animation(_:value:) is a no-op (_Passthrough) — wire to runtime animation like withAnimation does\n2. phaseAnimator renders only first phase — cycle through all phases on tick\n3. Horizontal ScrollView is no-op — apply horizontal scroll offset, register scroll regions\n4. LazyVStack has no virtualization — only build/render children in scroll viewport\n5. ViewThatFits measure() only checks first child — iterate and return first that fits\n6. scaleEffect is crude (bold only) — dim for <1, bold+uppercase for >1.5, hide for <0.5\n7. Gauge ignores gaugeStyleKind — add accessoryLinear/accessoryCircular variants\n8. contentShape ignores shape — store shape for hit-test geometry\n9. _NavigationTransitionModifier ignores transition — store it, don't apply random tint\n10. _ContentTransitionModifier ignores transition — store it, don't apply random italic\n11. _GlassEffectModifier ignores style — vary opacity/highlight by style\n12. TimelineView ignores schedule — respect .periodic(every:), .animation, .everyMinute\n13. task(priority:) ignores priority — pass to Task(priority:)\n14. popover ignores attachmentAnchor/arrowEdge — use for overlay positioning\n15. toolbarBackground ignores placement — apply to specific toolbar\n16. clipShape ignores FillStyle — acceptable, document as terminal limitation\n17. blur ignores opaque flag — acceptable, document\n18. LazyVGrid ignores alignment — respect .center/.trailing in grid cells\n\nRead the source files to verify each issue. Write audit to Tests/tui/output/ghostty-lab/parity/stubs_audit.md."
+  ];
+
+  Plan [
+    shape=box,
+    label="Plan Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/stubs_audit.md.\nPlan fixes for all issues. Items #16 and #17 can be documented as acceptable terminal limitations.\nAll others must be fixed with real behavior.\nWrite to Tests/tui/output/ghostty-lab/parity/stubs_plan.md."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques"];
+  CritiqueClaude [shape=box, label="Claude Critique", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/stubs_plan.md. Write to Tests/tui/output/ghostty-lab/parity/stubs_critique_claude.md."];
+  CritiqueCodex [shape=box, label="Codex Critique", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/stubs_plan.md. Write to Tests/tui/output/ghostty-lab/parity/stubs_critique_codex.md."];
+  CritiqueGemini [shape=box, label="Gemini Critique", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/stubs_plan.md. Write to Tests/tui/output/ghostty-lab/parity/stubs_critique_gemini.md."];
+  CritiquesJoin [shape=tripleoctagon, label="Join"];
+
+  Consolidate [shape=box, label="Consolidate", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Read all critiques + plan. Synthesize. Write to Tests/tui/output/ghostty-lab/parity/stubs_consolidated.md."];
+
+  Implement [
+    shape=box,
+    label="Implement All",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/stubs_consolidated.md.\nImplement ALL fixes. Build clean. Tests pass. Do NOT modify KitchenSink/main.swift.\nCommit and push when done."
+  ];
+
+  Validate [shape=box, label="Validate", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Rebuild in Ghostty. Screenshot. Check stderr. Record GIF. Report per-fix PASS/FAIL."];
+
+  JudgesParallel [shape=component, label="Judges"];
+  JudgeClaude [shape=box, label="Claude Judge", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Grade all 18 fixes. PASS/FAIL. Write to Tests/tui/output/ghostty-lab/parity/stubs_judge_claude.md."];
+  JudgeCodex [shape=box, label="Codex Judge", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Grade all 18 fixes. PASS/FAIL. Write to Tests/tui/output/ghostty-lab/parity/stubs_judge_codex.md."];
+  JudgeGemini [shape=box, label="Gemini Judge", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Grade all 18 fixes. PASS/FAIL. Write to Tests/tui/output/ghostty-lab/parity/stubs_judge_gemini.md."];
+  JudgesJoin [shape=tripleoctagon, label="Join"];
+
+  Verdict [shape=box, label="Verdict", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", goal_gate=true, retry_target="Plan", prompt="Majority vote. All must PASS (except #16/#17 documented). Commit+push if success. Write to Tests/tui/output/ghostty-lab/parity/stubs_verdict.md."];
+
+  FinalDemo [shape=box, label="Final Demo", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Record GIF. Commit. Push."];
+  Postmortem [shape=box, label="Postmortem", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Write postmortem with all 18 items graded."];
+
+  Start -> Audit; Audit -> Plan;
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude; CritiquesParallel -> CritiqueCodex; CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin; CritiqueCodex -> CritiquesJoin; CritiqueGemini -> CritiquesJoin;
+  CritiquesJoin -> Consolidate; Consolidate -> Implement; Implement -> Validate;
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude; JudgesParallel -> JudgeCodex; JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin; JudgeCodex -> JudgesJoin; JudgeGemini -> JudgesJoin;
+  JudgesJoin -> Verdict;
+  Verdict -> FinalDemo [condition="outcome=success", label="all fixed"];
+  Verdict -> Plan [condition="outcome=retry", label="fix failures"];
+  Verdict -> Postmortem [condition="outcome=fail", label="blocked"];
+  FinalDemo -> Postmortem; Postmortem -> Exit;
+}

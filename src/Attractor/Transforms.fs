@@ -22,6 +22,34 @@ module Transforms =
                             node)
                 { graph with Nodes = updatedNodes } }
 
+    /// Agent-attribute keys whose presence on a box (codergen) node signals that the
+    /// pipeline author intended a full coding agent session, not a single-turn LLM call.
+    let private agentPromotionAttributes =
+        Set.ofList [ "max_turns"; "max_tool_rounds"; "thread_id"; "cwd"; "command_timeout"; "system_prompt" ]
+
+    /// Auto-promotion transform: box nodes with agent-specific attributes are promoted
+    /// to coding_agent handler type. This bridges compatibility with pipelines authored
+    /// for backends where box nodes have full agent capabilities (e.g. Swift OmniKit).
+    let codergenAutoPromotion: ITransform =
+        { new ITransform with
+            member _.Apply(graph) =
+                let updatedNodes =
+                    graph.Nodes
+                    |> Map.map (fun _ node ->
+                        let handlerType = ShapeMapping.resolveHandlerType node
+                        if handlerType = "codergen" && node.NodeType = "" then
+                            let hasAgentAttr =
+                                node.Attributes
+                                |> Map.exists (fun k _ -> agentPromotionAttributes.Contains(k))
+                            if hasAgentAttr then
+                                { node with
+                                    Attributes = node.Attributes |> Map.add "type" (AttrValue.String "coding_agent") }
+                            else
+                                node
+                        else
+                            node)
+                { graph with Nodes = updatedNodes } }
+
     /// Stylesheet application transform
     let stylesheetApplication: ITransform =
         { new ITransform with
@@ -36,6 +64,7 @@ module Transforms =
     /// Built-in transforms in application order
     let builtInTransforms: ITransform list =
         [ variableExpansion
+          codergenAutoPromotion
           stylesheetApplication ]
 
     /// Apply all transforms to a graph

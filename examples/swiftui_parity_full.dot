@@ -1,0 +1,220 @@
+digraph SwiftUIParityFull {
+  graph [
+    goal="Implement all feasible SwiftUI features in OmniUI's notcurses TUI renderer. Work through the feature list in priority order. After each batch, rebuild in Ghostty Docker lab, screenshot all KitchenSink sections, and judge visually. Loop until the judge is satisfied.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  /* ──────────────────────────────────────────────
+     Phase 1: Audit current state
+     ────────────────────────────────────────────── */
+
+  Audit [
+    shape=box,
+    label="Audit Current State",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="You are auditing OmniUI's SwiftUI parity in the KitchenSink TUI demo.\n\n1. Ensure Ghostty lab is running (`scripts/ghostty-lab.sh status` or `scripts/ghostty-lab.sh up && scripts/ghostty-lab.sh wait-ready 120`)\n2. Stop any existing runtime (`docker ps --filter ancestor=swift-omnikit-kitchensink-runtime -q | xargs -r docker stop`)\n3. Rebuild and launch (`scripts/ghostty-lab.sh run-kitchensink`), wait for Docker build + render (~10min)\n4. Screenshot home + scroll through all sections with mouse wheel (`scripts/ghostty-lab.sh click 700 450 5` to scroll down)\n5. Check stderr log for notcurses errors\n\nRead Sources/KitchenSink/main.swift to know what should render.\n\nHere is the full SwiftUI feature list to implement (in priority order):\n\n## BATCH 1: Core Interactions & Modals\n- Alert (.alert modifier) — modal overlay with title, message, buttons\n- Sheet (.sheet modifier) — bottom sheet overlay, already partial\n- ConfirmationDialog — action sheet with destructive options\n- Menu — context menu on button press\n- DisclosureGroup — expandable section (separate from List children)\n- Stepper — [- value +] control\n- TextEditor — multi-line text input\n- Slider — [====o-----] horizontal value control\n\n## BATCH 2: Focus & Keyboard\n- @FocusState value-based focus (not just Bool)\n- .focused() binding for programmatic focus\n- Arrow key navigation within Lists, Grids\n- .onSubmit() firing on Enter in TextFields\n- .keyboardShortcut() with modifier keys (Cmd+S etc mapped to Ctrl+S)\n- Tab order control\n\n## BATCH 3: Text & Styling\n- .lineLimit() with proper truncation\n- .truncationMode(.head/.middle/.tail)\n- .multilineTextAlignment(.center/.trailing)\n- Text concatenation (Text('a') + Text('b'))\n- AttributedString rendering\n- .textCase(.uppercase/.lowercase)\n- .monospacedDigit() — already monospace in terminal but API should work\n\n## BATCH 4: Layout & Geometry\n- GeometryReader — report container size to children\n- .aspectRatio() — meaningful for shapes (adjust cell ratio)\n- ViewThatFits — pick first child that fits available space\n- .fixedSize() — prevent compression below intrinsic size\n- .layoutPriority() — influence flex allocation priority\n- .alignmentGuide() — custom alignment in stacks\n\n## BATCH 5: Data Flow & Preferences\n- PreferenceKey system — bottom-up data propagation\n- .onPreferenceChange() handler\n- .anchorPreference() for geometry-linked preferences\n- @AppStorage — UserDefaults-backed state (use file-backed store)\n- Custom EnvironmentKey support (define + inject + read)\n\n## BATCH 6: Advanced Collections\n- .swipeActions() — swipe-to-reveal action buttons on List rows\n- .refreshable() — pull-to-refresh on Lists\n- .searchable() — search bar above List\n- .badge() on List rows and TabView tabs\n- Section headers/footers in List (beyond Form grouped)\n- .listRowBackground() / .listRowSeparator()\n\n## BATCH 7: Presentation Polish\n- .alert(item:) variant\n- .sheet(item:) variant  \n- .popover positioning (attachment anchor)\n- .presentationDetents (half/medium/large sheet sizes)\n- .interactiveDismissDisabled()\n- .toolbar(.hidden) / .toolbarBackground()\n\n## BATCH 8: Drawing & Visual\n- LinearGradient rendering (dithered terminal gradient)\n- RadialGradient approximation\n- .shadow() with visible terminal effect (dim border)\n- .blur() approximation (dim + desaturate)\n- .opacity() with actual alpha blending\n- .rotationEffect() — no-op but API should accept\n- .mask() — clip content to mask shape\n\n## BATCH 9: Color & Theming\n- .preferredColorScheme(.dark/.light)\n- @Environment(\\.colorScheme) switching\n- Color.accentColor / .tint() propagation\n- Material backgrounds (.ultraThinMaterial etc)\n- .foregroundStyle(.tertiary) hierarchy\n\n## BATCH 10: App Lifecycle\n- .onAppear / .onDisappear reliable firing\n- .task(id:) cancellation on id change\n- .onChange(of:) with old/new values\n- ScenePhase environment (.active/.inactive/.background)\n- .defaultFocus() for initial focus target\n\nWrite your audit findings to Tests/tui/output/ghostty-lab/parity/full_audit.md.\nFor each batch, note which features already work, which are partially done, and which are completely missing.\nInclude screenshots as evidence."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 2: Plan implementation
+     ────────────────────────────────────────────── */
+
+  Plan [
+    shape=box,
+    label="Plan Implementation",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read the audit at Tests/tui/output/ghostty-lab/parity/full_audit.md.\n\nCreate an implementation plan for the NEXT batch of features that need work (start with Batch 1, then 2, etc. — skip batches where everything already works).\n\nFor each feature in the batch:\n- Exact file(s) to modify\n- What the implementation looks like in terminal terms\n- Any KitchenSink main.swift sections that exercise it (don't modify main.swift)\n- How to visually verify it works\n\nWrite to Tests/tui/output/ghostty-lab/parity/implementation_plan.md.\n\nBe concrete — name functions, line numbers, data structures."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 3: Three-model critique
+     ────────────────────────────────────────────── */
+
+  CritiquesParallel [shape=component, label="Critiques (Parallel)"];
+
+  CritiqueClaude [
+    shape=box,
+    label="Claude Critique",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/implementation_plan.md.\nCritique: correct file paths? Right layer? Missing features? Risk of regressions?\nWrite to Tests/tui/output/ghostty-lab/parity/critique_claude.md."
+  ];
+
+  CritiqueCodex [
+    shape=box,
+    label="Codex Critique",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/implementation_plan.md.\nCritique: correct file paths? Right layer? Missing features? Simpler approaches?\nWrite to Tests/tui/output/ghostty-lab/parity/critique_codex.md."
+  ];
+
+  CritiqueGemini [
+    shape=box,
+    label="Gemini Critique",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/implementation_plan.md.\nCritique: correct file paths? Right layer? Terminal rendering constraints ignored?\nWrite to Tests/tui/output/ghostty-lab/parity/critique_gemini.md."
+  ];
+
+  CritiquesJoin [shape=tripleoctagon, label="Critiques Join"];
+
+  /* ──────────────────────────────────────────────
+     Phase 4: Consolidate
+     ────────────────────────────────────────────── */
+
+  Consolidate [
+    shape=box,
+    label="Consolidate Critiques",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read all three critiques and the original plan:\n- Tests/tui/output/ghostty-lab/parity/critique_claude.md\n- Tests/tui/output/ghostty-lab/parity/critique_codex.md\n- Tests/tui/output/ghostty-lab/parity/critique_gemini.md\n- Tests/tui/output/ghostty-lab/parity/implementation_plan.md\n\nSynthesize into a final action plan. Accept/reject each critique point with reasoning.\nWrite to Tests/tui/output/ghostty-lab/parity/consolidated_plan.md."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 5: Implement
+     ────────────────────────────────────────────── */
+
+  Implement [
+    shape=box,
+    label="Implement Batch",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/consolidated_plan.md.\n\nImplement every feature in the current batch. Key files:\n- Sources/OmniUICore/Primitives.swift\n- Sources/OmniUICore/Modifiers.swift\n- Sources/OmniUICore/RenderTree.swift\n- Sources/OmniUICore/Runtime.swift\n- Sources/OmniUICore/Environment.swift\n- Sources/OmniUICore/FocusState.swift\n- Sources/OmniUICore/State.swift\n- Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift\n- Sources/OmniUICore/DebugLayout.swift\n\nDo NOT modify Sources/KitchenSink/main.swift.\n\nRun `swift build --product KitchenSink` after changes. Fix errors until clean.\nRun `swift test --skip-build` to check for regressions.\n\nSummarize all changes."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 6: Validate visually
+     ────────────────────────────────────────────── */
+
+  Validate [
+    shape=box,
+    label="Validate in Ghostty",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild and validate in the Ghostty Docker lab.\n\n1. Stop existing runtime: `docker ps --filter ancestor=swift-omnikit-kitchensink-runtime -q | xargs -r docker stop`\n2. Rebuild: `scripts/ghostty-lab.sh run-kitchensink` — wait for build + render\n3. Screenshot home page + scroll through all sections using mouse wheel (`scripts/ghostty-lab.sh click 700 450 5`)\n4. Save screenshots to Tests/tui/output/ghostty-lab/parity/validation/\n5. Check stderr for notcurses errors\n6. Record GIF: `scripts/ghostty-lab.sh record-gif 20 Tests/tui/output/ghostty-lab/parity/validation/batch_demo.gif 4`\n\nCompare before/after. Report which features improved, unchanged, or regressed."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 7: Three-model judge
+     ────────────────────────────────────────────── */
+
+  JudgesParallel [shape=component, label="Judges (Parallel)"];
+
+  JudgeClaude [
+    shape=box,
+    label="Claude Judge",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/.\nRead Sources/KitchenSink/main.swift for expected behavior.\nGrade each feature in the current batch: PASS/PARTIAL/FAIL.\nReturn outcome=success if all batch features pass, outcome=retry if any fail.\nWrite to Tests/tui/output/ghostty-lab/parity/judge_claude.md."
+  ];
+
+  JudgeCodex [
+    shape=box,
+    label="Codex Judge",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/.\nRead Sources/KitchenSink/main.swift for expected behavior.\nGrade each feature in the current batch: PASS/PARTIAL/FAIL.\nReturn outcome=success if all batch features pass, outcome=retry if any fail.\nWrite to Tests/tui/output/ghostty-lab/parity/judge_codex.md."
+  ];
+
+  JudgeGemini [
+    shape=box,
+    label="Gemini Judge",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/.\nRead Sources/KitchenSink/main.swift for expected behavior.\nGrade each feature in the current batch: PASS/PARTIAL/FAIL.\nReturn outcome=success if all batch features pass, outcome=retry if any fail.\nWrite to Tests/tui/output/ghostty-lab/parity/judge_gemini.md."
+  ];
+
+  JudgesJoin [shape=tripleoctagon, label="Judges Join"];
+
+  /* ──────────────────────────────────────────────
+     Phase 8: Verdict
+     ────────────────────────────────────────────── */
+
+  Verdict [
+    shape=box,
+    label="Consolidate Verdict",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    goal_gate=true,
+    retry_target="Plan",
+    prompt="Read all three judge reports:\n- Tests/tui/output/ghostty-lab/parity/judge_claude.md\n- Tests/tui/output/ghostty-lab/parity/judge_codex.md\n- Tests/tui/output/ghostty-lab/parity/judge_gemini.md\n\nMajority vote per feature. Return outcome=success if the current batch is done (all features PASS or documented WONTFIX). Return outcome=retry to fix remaining issues in this batch. Return outcome=fail if fundamentally blocked.\n\nIf success: increment the batch counter in context so the next Plan iteration picks up the next batch.\n\nWrite verdict to Tests/tui/output/ghostty-lab/parity/verdict.md."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 9: Completion
+     ────────────────────────────────────────────── */
+
+  FinalDemo [
+    shape=box,
+    label="Record Final Demo",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Record the final demo of KitchenSink with all SwiftUI parity improvements.\n1. `scripts/ghostty-lab.sh record-gif 30 Tests/tui/output/ghostty-lab/swiftui-parity-final.gif 4`\n2. Screenshot every section\n3. Commit all changes with a summary of what was implemented\n4. Push to remote"
+  ];
+
+  Postmortem [
+    shape=box,
+    label="Postmortem",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Write postmortem to Tests/tui/output/ghostty-lab/parity/postmortem.md:\n1. Which batches were completed\n2. Which features reached PASS vs PARTIAL vs WONTFIX\n3. Total attractor iterations\n4. What worked well in the process\n5. Remaining gaps for future work"
+  ];
+
+  /* ──────────────────────────────────────────────
+     Edges
+     ────────────────────────────────────────────── */
+
+  Start -> Audit;
+  Audit -> Plan;
+
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude;
+  CritiquesParallel -> CritiqueCodex;
+  CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin;
+  CritiqueCodex  -> CritiquesJoin;
+  CritiqueGemini -> CritiquesJoin;
+
+  CritiquesJoin -> Consolidate;
+  Consolidate -> Implement;
+  Implement -> Validate;
+
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude;
+  JudgesParallel -> JudgeCodex;
+  JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin;
+  JudgeCodex  -> JudgesJoin;
+  JudgeGemini -> JudgesJoin;
+
+  JudgesJoin -> Verdict;
+
+  Verdict -> FinalDemo   [condition="outcome=success", label="batch done"];
+  Verdict -> Plan        [condition="outcome=retry",   label="fix issues"];
+  Verdict -> Postmortem  [condition="outcome=fail",    label="blocked"];
+
+  FinalDemo -> Postmortem;
+  Postmortem -> Exit;
+}

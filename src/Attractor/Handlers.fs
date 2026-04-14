@@ -961,14 +961,21 @@ module Handlers =
                                     eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
                                 | Result.Ok _ -> ()
 
+                                let updates =
+                                    Map.ofList
+                                        [ "tool.output", truncatedOutput
+                                          "tool.stderr", stderr
+                                          "tool_stdout", truncatedOutput
+                                          "tool_stderr", stderr
+                                          "tool_exit_code", string exitCode ]
+
                                 if exitCode = 0 then
-                                    let updates =
-                                        Map.ofList [ "tool.output", truncatedOutput; "tool.stderr", stderr ]
                                     Outcome.Success(
                                         notes = $"Tool completed: {command}",
                                         contextUpdates = updates)
                                 else
-                                    Outcome.Fail($"Tool failed with exit code {exitCode}")
+                                    { Outcome.Fail($"Tool failed with exit code {exitCode}") with
+                                        ContextUpdates = updates }
                     with ex ->
                         Outcome.Fail(ex.Message)
 

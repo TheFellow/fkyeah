@@ -1,0 +1,237 @@
+digraph CedarSpecPort {
+  graph [
+    label="Cedar Spec Port (single-directory Attractor run)",
+    goal="Implement a new Swift package in the current working directory by porting core Cedar semantics from the reference repository.",
+    source_ref="REPLACE_WITH_REFERENCE_PATH",
+    planning_dir=".ai/cedar-spec-port",
+    target_package="CedarSpecSwift",
+    target_source_dir="Sources/CedarSpecSwift",
+    target_source_file="Sources/CedarSpecSwift/CedarSpecSwift.swift",
+    target_test_dir="Tests/CedarSpecSwiftTests",
+    target_test_file="Tests/CedarSpecSwiftTests/CedarSpecSwiftTests.swift",
+    rankdir=LR,
+    default_max_retry=12,
+    model_stylesheet="* { llm_provider: openai; llm_model: gpt-5.4; reasoning_effort: high; }"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit [shape=Msquare, label="Exit"];
+
+  EnsureWorkspace [
+    shape=parallelogram,
+    label="Ensure workspace",
+    tool_command="set -eu\nmkdir -p \"$planning_dir\" \"$target_source_dir\" \"$target_test_dir\"\nif [ ! -f Package.swift ]; then\n  cat > Package.swift <<'EOF'\n// swift-tools-version: 6.0\nimport PackageDescription\n\nlet package = Package(\n    name: \"$target_package\",\n    products: [\n        .library(name: \"$target_package\", targets: [\"$target_package\"]),\n    ],\n    targets: [\n        .target(name: \"$target_package\"),\n        .testTarget(name: \"${target_package}Tests\", dependencies: [\"$target_package\"]),\n    ]\n)\nEOF\nfi\nif [ ! -f \"$target_source_file\" ]; then\n  cat > \"$target_source_file\" <<'EOF'\npublic enum CedarSpecSwift {}\nEOF\nfi\nif [ ! -f \"$target_test_file\" ]; then\n  cat > \"$target_test_file\" <<'EOF'\nimport XCTest\n@testable import CedarSpecSwift\n\nfinal class CedarSpecSwiftTests: XCTestCase {\n    func testPlaceholder() {\n        XCTAssertNotNil(CedarSpecSwift.self)\n    }\n}\nEOF\nfi\nif [ ! -f .gitignore ]; then\n  cat > .gitignore <<'EOF'\n.build/\n.swiftpm/\n.DS_Store\nEOF\nfi\nif [ ! -f \"$planning_dir/reference-inventory.md\" ]; then\n  cat > \"$planning_dir/reference-inventory.md\" <<'EOF'\n# Cedar Reference Inventory\n\n- Pending initial inventory.\nEOF\nfi\nif [ ! -f \"$planning_dir/implementation-spec.md\" ]; then\n  cat > \"$planning_dir/implementation-spec.md\" <<'EOF'\n# Cedar Spec Port Plan\n\n## Goal\n- Port core Cedar semantics into this Swift package using the reference repo as read-only input.\n\n## Constraints\n- Work only in the current package directory.\n- Treat the reference repository as read-only.\n- Keep Package.swift buildable after each implementation slice.\n\n## Checklist\n- [ ] Inventory the reference repo and map major subsystems.\n- [ ] Define the initial Swift domain model and public API shape.\n- [ ] Implement the first meaningful Cedar semantic slice.\n- [ ] Add tests covering the implemented slice.\n\n## Next Slice\n- Pending planner update.\n\n## Notes\n- none yet\nEOF\nfi\nif [ ! -f \"$planning_dir/validation-feedback.md\" ]; then\n  cat > \"$planning_dir/validation-feedback.md\" <<'EOF'\n# Validation Feedback\n\n- none yet\nEOF\nfi\nprintf 'workspace-ready'"
+  ];
+
+  InventoryReference [
+    shape=box,
+    label="Inventory reference",
+    auto_status=true,
+    prompt="Use tools to inspect $source_ref, especially the top-level README plus the cedar-lean, cedar-drt, cedar-lean-cli, cedar-lean-ffi, and cedar-policy-generators directories. Update $planning_dir/reference-inventory.md in place with: repository structure, build/runtime dependencies, likely porting order, and the first two Swift implementation slices worth tackling. Keep it concise and concrete."
+  ];
+
+  PlanImplementation [
+    shape=box,
+    label="Plan implementation",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Read $planning_dir/reference-inventory.md and $planning_dir/validation-feedback.md, then update $planning_dir/implementation-spec.md in place. Preserve truthful completed [x] items, add/refine unchecked [ ] items, and set 'Next Slice' to exactly one implementation slice. The plan should drive work inside the current Swift package only."
+  ];
+
+  PlanCritiqueParallel [shape=component, label="Critique plan (parallel)"];
+
+  CritiquePlanClaude [
+    shape=box,
+    label="Critique plan (Claude)",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/implementation-spec.md for scope mistakes, bad slice ordering, missing package structure decisions, and weak semantic mapping back to $source_ref. Write the result to $planning_dir/plan-critique-claude.md with concise findings and concrete fixes."
+  ];
+
+  CritiquePlanGPT [
+    shape=box,
+    label="Critique plan (GPT-5.4)",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/implementation-spec.md for weak verification criteria, missing tests, unclear public API choices, and any checklist items that cannot actually be proved by swift build/swift test. Write the result to $planning_dir/plan-critique-gpt.md with concise findings and concrete fixes."
+  ];
+
+  CritiquePlanGemini [
+    shape=box,
+    label="Critique plan (Gemini)",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/implementation-spec.md for missing semantic slices, poor port ordering, weak risk handling, and anything likely to break later Cedar coverage. Write the result to $planning_dir/plan-critique-gemini.md with concise findings and concrete fixes."
+  ];
+
+  PlanCritiqueJoin [shape=tripleoctagon, label="Plan critique join"];
+
+  MergePlanReviews [
+    shape=box,
+    label="Merge plan reviews",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    retry_target="Postmortem",
+    auto_status=true,
+    prompt="Merge $planning_dir/implementation-spec.md, $planning_dir/plan-critique-claude.md, $planning_dir/plan-critique-gpt.md, and $planning_dir/plan-critique-gemini.md into one corrected $planning_dir/implementation-spec.md. Keep completed [x] items only if still true, sharpen unchecked [ ] items, and set 'Next Slice' to exactly one implementation slice for the next implementation pass."
+  ];
+
+  ImplementSlice [
+    shape=box,
+    label="Implement next slice",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    auto_status=true,
+    allow_partial=true,
+    prompt="Read $planning_dir/implementation-spec.md and implement the current 'Next Slice' in this package. Use $source_ref as the read-only semantic reference. Make concrete code changes in $target_source_dir and related test/support files, add or update tests, and mark only truly completed checklist items as [x]. Keep the package buildable. Update the Notes section in $planning_dir/implementation-spec.md with a short summary of what changed."
+  ];
+
+  BuildAndTest [
+    shape=parallelogram,
+    label="Build and test",
+    tool_command="set -eu\nswift build >/tmp/cedar-spec-port-build.log 2>&1 || {\n  printf 'BUILD_FAIL\\n'\n  tail -n 120 /tmp/cedar-spec-port-build.log || true\n  exit 1\n}\nswift test >/tmp/cedar-spec-port-test.log 2>&1 || {\n  printf 'TEST_FAIL\\n'\n  tail -n 120 /tmp/cedar-spec-port-test.log || true\n  exit 1\n}\nprintf 'BUILD_AND_TEST_PASS'"
+  ];
+
+  ReviewParallel [shape=component, label="Review slice (parallel)"];
+
+  ReviewCorrectness [
+    shape=box,
+    label="Review (Claude)",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Review the current package for semantic correctness against $planning_dir/implementation-spec.md, $planning_dir/reference-inventory.md, and $source_ref. Write findings to $planning_dir/review-claude.md with concrete wrong behaviors, missing semantics, and any false [x] checklist claims."
+  ];
+
+  ReviewVerification [
+    shape=box,
+    label="Review (GPT-5.4)",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Review the current package specifically for verification quality, test coverage, assertion quality, build/test sufficiency, and any unvalidated claims in $planning_dir/implementation-spec.md. Write findings to $planning_dir/review-gpt.md."
+  ];
+
+  ReviewDesign [
+    shape=box,
+    label="Review (Gemini)",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Review the current package for API shape, decomposition, extensibility, semantic coverage gaps, and whether the current slice is a good stepping stone for the next Cedar semantic slices. Write findings to $planning_dir/review-gemini.md."
+  ];
+
+  ReviewJoin [shape=tripleoctagon, label="Review join"];
+
+  CritiqueReviewsParallel [shape=component, label="Critique reviews (parallel)"];
+
+  CritiqueCorrectnessReview [
+    shape=box,
+    label="Critique reviews (Claude)",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/review-gpt.md and $planning_dir/review-gemini.md for overreach, weak evidence, contradictory guidance, or missed high-risk issues. Write the result to $planning_dir/review-critique-claude.md."
+  ];
+
+  CritiqueVerificationReview [
+    shape=box,
+    label="Critique reviews (GPT-5.4)",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/review-claude.md and $planning_dir/review-gemini.md for overreach, weak evidence, contradictory guidance, or missed high-risk issues. Write the result to $planning_dir/review-critique-gpt.md."
+  ];
+
+  CritiqueDesignReview [
+    shape=box,
+    label="Critique reviews (Gemini)",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Critique $planning_dir/review-claude.md and $planning_dir/review-gpt.md for overreach, weak evidence, contradictory guidance, or missed high-risk issues. Write the result to $planning_dir/review-critique-gemini.md."
+  ];
+
+  ReviewCritiqueJoin [shape=tripleoctagon, label="Review critique join"];
+
+  MergeReviewVerdict [
+    shape=box,
+    label="Merge review verdict",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    goal_gate=true,
+    retry_target="Postmortem",
+    prompt="Merge $planning_dir/review-claude.md, $planning_dir/review-gpt.md, $planning_dir/review-gemini.md, $planning_dir/review-critique-claude.md, $planning_dir/review-critique-gpt.md, and $planning_dir/review-critique-gemini.md into one final verdict. Update $planning_dir/validation-feedback.md in place with the best consolidated next actions, and update $planning_dir/implementation-spec.md in place so all [x] items remain truthful. Return success only if the current slice is solid and either the checklist is fully complete or the package is ready to advance cleanly. Return retry if more implementation work is needed. Return fail if blocked on something fundamental."
+  ];
+
+  CheckCompletion [
+    shape=parallelogram,
+    label="Check completion",
+    tool_command="set -eu\nif rg -n '^- \\[ \\]' \"$planning_dir/implementation-spec.md\" >/dev/null 2>&1; then\n  printf 'INCOMPLETE'\n  exit 1\nfi\nprintf 'COMPLETE'"
+  ];
+
+  Postmortem [
+    shape=box,
+    label="Retry postmortem",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    auto_status=true,
+    prompt="Write a concise retry postmortem into $planning_dir/postmortem.md covering what is implemented, why the last loop did not pass, and the best next recovery step before the next retry."
+  ];
+
+  Start -> EnsureWorkspace;
+  EnsureWorkspace -> InventoryReference;
+  InventoryReference -> PlanImplementation;
+  PlanImplementation -> PlanCritiqueParallel;
+  PlanCritiqueParallel -> CritiquePlanClaude;
+  PlanCritiqueParallel -> CritiquePlanGPT;
+  PlanCritiqueParallel -> CritiquePlanGemini;
+  CritiquePlanClaude -> PlanCritiqueJoin;
+  CritiquePlanGPT -> PlanCritiqueJoin;
+  CritiquePlanGemini -> PlanCritiqueJoin;
+  PlanCritiqueJoin -> MergePlanReviews;
+  MergePlanReviews -> ImplementSlice;
+  ImplementSlice -> BuildAndTest;
+  BuildAndTest -> ReviewParallel [condition="outcome=success", label="green"];
+  BuildAndTest -> Postmortem [condition="outcome=fail", label="fix-build", loop_restart=true];
+  ReviewParallel -> ReviewCorrectness;
+  ReviewParallel -> ReviewVerification;
+  ReviewParallel -> ReviewDesign;
+  ReviewCorrectness -> ReviewJoin;
+  ReviewVerification -> ReviewJoin;
+  ReviewDesign -> ReviewJoin;
+  ReviewJoin -> CritiqueReviewsParallel;
+  CritiqueReviewsParallel -> CritiqueCorrectnessReview;
+  CritiqueReviewsParallel -> CritiqueVerificationReview;
+  CritiqueReviewsParallel -> CritiqueDesignReview;
+  CritiqueCorrectnessReview -> ReviewCritiqueJoin;
+  CritiqueVerificationReview -> ReviewCritiqueJoin;
+  CritiqueDesignReview -> ReviewCritiqueJoin;
+  ReviewCritiqueJoin -> MergeReviewVerdict;
+  MergePlanReviews -> Postmortem [condition="outcome=retry", label="retry-plan"];
+  MergePlanReviews -> Exit [condition="outcome=fail", label="plan-blocked"];
+  MergeReviewVerdict -> CheckCompletion [condition="outcome=success", label="review-pass"];
+  MergeReviewVerdict -> Postmortem [condition="outcome=retry", label="retry"];
+  MergeReviewVerdict -> Exit [condition="outcome=fail", label="blocked"];
+  CheckCompletion -> Exit [condition="outcome=success", label="done"];
+  CheckCompletion -> PlanImplementation [condition="outcome=fail", label="next-slice", loop_restart=true];
+  Postmortem -> PlanImplementation [loop_restart=true, label="retry"];
+}

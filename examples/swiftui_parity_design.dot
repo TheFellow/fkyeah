@@ -1,0 +1,181 @@
+digraph SwiftUIParityDesign {
+  graph [
+    goal="Implement the remaining deferred SwiftUI features that require design work: TextEditor, PreferenceKey system, GeometryReader, ViewThatFits, layout modifiers, AttributedString, and swipeActions. These were explicitly deferred from the first parity run as needing deeper design. Validate each batch visually in Ghostty.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Audit Remaining Gaps",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Audit the remaining SwiftUI parity gaps in OmniUI.\n\n1. Read Tests/tui/output/ghostty-lab/parity/full_audit.md and Tests/tui/output/ghostty-lab/parity/postmortem.md for context on what was deferred.\n2. Read Sources/OmniUICore/Primitives.swift, Modifiers.swift, RenderTree.swift, Runtime.swift, Environment.swift to check current state.\n3. Read Sources/KitchenSink/main.swift to see what the demo exercises.\n\nThe features to implement (grouped by design complexity):\n\n## GROUP A: Layout Engine Extensions\nThese require changes to the VStack/HStack flex allocation in RenderTree.swift and DebugLayout.swift:\n- GeometryReader: wrap child in a container that injects its size as GeometryProxy\n- ViewThatFits: measure each child, pick first that fits proposed size\n- .fixedSize(): prevent flex allocation from compressing below intrinsic size\n- .layoutPriority(): weight flex allocation by priority (higher priority gets space first)\n- .alignmentGuide(): custom alignment offset in stacks\n- .aspectRatio(): constrain width/height ratio (for shapes, use cell aspect ~2:1)\n\n## GROUP B: Data Flow Infrastructure\nThese require a new subsystem in the render/runtime:\n- PreferenceKey protocol: define typed keys for bottom-up data propagation\n- .preference(key:value:): set a preference value on a view\n- .onPreferenceChange(): observe preference changes from children\n- .anchorPreference(): geometry-linked preferences\n- Custom EnvironmentKey: define + inject + read custom environment values\n\n## GROUP C: Rich Text & Editing\n- TextEditor: multi-line text input view (use ncreader with multi-line mode or custom text buffer)\n- AttributedString: styled text segments with per-run foreground/font/bold\n- Text concatenation improvements: ensure Text('a').bold() + Text('b').italic() renders correctly\n\n## GROUP D: List Interactions\n- .swipeActions(): swipe-to-reveal action buttons on list rows (in terminal: show on focus + key)\n- Tab order control: .focusable() priority, custom tab order\n- .rotationEffect(): no-op with API acceptance (document as terminal limitation)\n\nWrite findings to Tests/tui/output/ghostty-lab/parity/design_audit.md.\nFor each feature, assess: what exists today, what infrastructure is needed, estimated lines of code."
+  ];
+
+  Plan [
+    shape=box,
+    label="Design & Plan",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/design_audit.md.\n\nDesign and plan the implementation for ALL remaining features. This is the design phase — make concrete architectural decisions:\n\n## For GeometryReader:\n- How does GeometryProxy get the container size? (answer: from the proposed maxSize in draw())\n- What does the _VNode look like? (answer: .geometryReader(content: (_Size) -> _VNode)? or environment injection?)\n\n## For PreferenceKey:\n- Where is preference data stored? (on the _BuildContext? on _UIRuntime?)\n- How does bottom-up propagation work in a single-pass top-down render?\n- Simplest approach: collect preferences during draw(), fire callbacks after draw() completes\n\n## For TextEditor:\n- Can ncreader do multi-line? Or do we need a custom text buffer?\n- How does the binding update on each keystroke?\n\n## For ViewThatFits:\n- Measure each child, pick first whose measured size <= proposed size\n- Return that child's draw result\n\n## For .fixedSize():\n- In flex allocation, mark fixed-size children as non-compressible\n- Their allocation = max(measured, equalShare) instead of min(measured, equalShare)\n\n## For .layoutPriority():\n- Sort flexible children by priority before allocating leftover space\n- Higher priority children get their measured size first, remainder split among lower priority\n\nWrite the full design + implementation plan to Tests/tui/output/ghostty-lab/parity/design_plan.md.\nInclude exact _VNode cases, function signatures, and file locations."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques (Parallel)"];
+
+  CritiqueClaude [
+    shape=box,
+    label="Claude Critique",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/design_plan.md.\nCritique the design decisions. Are there simpler approaches? Will the PreferenceKey design work with the single-pass renderer? Is the GeometryReader approach correct?\nWrite to Tests/tui/output/ghostty-lab/parity/design_critique_claude.md."
+  ];
+
+  CritiqueCodex [
+    shape=box,
+    label="Codex Critique",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/design_plan.md.\nCritique: will ViewThatFits work with the current measure() function? Is the TextEditor approach feasible with ncreader? Are there edge cases in layoutPriority that break the two-pass flex allocation?\nWrite to Tests/tui/output/ghostty-lab/parity/design_critique_codex.md."
+  ];
+
+  CritiqueGemini [
+    shape=box,
+    label="Gemini Critique",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/design_plan.md.\nCritique: are the terminal approximations reasonable? Will the preference system add too much complexity for too little benefit? Should any features be WONTFIX?\nWrite to Tests/tui/output/ghostty-lab/parity/design_critique_gemini.md."
+  ];
+
+  CritiquesJoin [shape=tripleoctagon, label="Critiques Join"];
+
+  Consolidate [
+    shape=box,
+    label="Consolidate Design",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read all critiques and the design plan:\n- Tests/tui/output/ghostty-lab/parity/design_critique_claude.md\n- Tests/tui/output/ghostty-lab/parity/design_critique_codex.md\n- Tests/tui/output/ghostty-lab/parity/design_critique_gemini.md\n- Tests/tui/output/ghostty-lab/parity/design_plan.md\n\nProduce the final consolidated design. Accept/reject critique points. Mark any features as WONTFIX if all 3 critics agree.\nWrite to Tests/tui/output/ghostty-lab/parity/consolidated_design.md."
+  ];
+
+  Implement [
+    shape=box,
+    label="Implement All Features",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/consolidated_design.md.\n\nImplement ALL features from the consolidated design. Key files:\n- Sources/OmniUICore/Primitives.swift — new view types (TextEditor, GeometryReader, ViewThatFits)\n- Sources/OmniUICore/Modifiers.swift — layout modifiers (fixedSize, layoutPriority, alignmentGuide, aspectRatio, swipeActions, rotationEffect)\n- Sources/OmniUICore/RenderTree.swift — new _VNode cases, draw/measure for new nodes, preference collection\n- Sources/OmniUICore/DebugLayout.swift — mirror RenderTree changes\n- Sources/OmniUICore/Nodes.swift — new _VNode enum cases\n- Sources/OmniUICore/Runtime.swift — preference storage, TextEditor state\n- Sources/OmniUICore/Environment.swift — custom EnvironmentKey support\n- Sources/OmniUICore/State.swift — preference key protocol\n- Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift — TextEditor rendering\n\nDo NOT modify Sources/KitchenSink/main.swift.\n\nRun `swift build --product KitchenSink` after changes. Fix ALL errors.\nRun `swift test --skip-build` to verify no regressions.\n\nSummarize everything you changed."
+  ];
+
+  Validate [
+    shape=box,
+    label="Validate in Ghostty",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild and validate in Ghostty Docker lab.\n\n1. Stop runtime: `docker ps --filter ancestor=swift-omnikit-kitchensink-runtime -q | xargs -r docker stop`\n2. Rebuild: `scripts/ghostty-lab.sh run-kitchensink` — wait for build + render\n3. Screenshot home + scroll through ALL sections with mouse wheel\n4. Save to Tests/tui/output/ghostty-lab/parity/validation/\n5. Check stderr for notcurses errors\n6. Record GIF: `scripts/ghostty-lab.sh record-gif 20 Tests/tui/output/ghostty-lab/parity/validation/design_demo.gif 4`\n\nReport improvements, regressions, and any sections that still need work."
+  ];
+
+  JudgesParallel [shape=component, label="Judges (Parallel)"];
+
+  JudgeClaude [
+    shape=box,
+    label="Claude Judge",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots. Grade each new feature: PASS/PARTIAL/FAIL/WONTFIX.\nReturn outcome=success if all features pass or are documented WONTFIX.\nWrite to Tests/tui/output/ghostty-lab/parity/design_judge_claude.md."
+  ];
+
+  JudgeCodex [
+    shape=box,
+    label="Codex Judge",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots. Grade each new feature: PASS/PARTIAL/FAIL/WONTFIX.\nReturn outcome=success if all features pass or are documented WONTFIX.\nWrite to Tests/tui/output/ghostty-lab/parity/design_judge_codex.md."
+  ];
+
+  JudgeGemini [
+    shape=box,
+    label="Gemini Judge",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Look at validation screenshots. Grade each new feature: PASS/PARTIAL/FAIL/WONTFIX.\nReturn outcome=success if all features pass or are documented WONTFIX.\nWrite to Tests/tui/output/ghostty-lab/parity/design_judge_gemini.md."
+  ];
+
+  JudgesJoin [shape=tripleoctagon, label="Judges Join"];
+
+  Verdict [
+    shape=box,
+    label="Verdict",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    goal_gate=true,
+    retry_target="Plan",
+    prompt="Read all judge reports. Majority vote per feature.\nReturn outcome=success if all features PASS or WONTFIX.\nReturn outcome=retry if any features FAIL.\nCommit and push all changes if successful.\nWrite to Tests/tui/output/ghostty-lab/parity/design_verdict.md."
+  ];
+
+  FinalDemo [
+    shape=box,
+    label="Final Demo",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Record final demo GIF and commit.\n1. `scripts/ghostty-lab.sh record-gif 30 Tests/tui/output/ghostty-lab/swiftui-design-final.gif 4`\n2. Commit all source changes\n3. Push to remote\n4. Write summary of all features implemented"
+  ];
+
+  Postmortem [
+    shape=box,
+    label="Postmortem",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Write postmortem to Tests/tui/output/ghostty-lab/parity/design_postmortem.md:\n1. Features implemented with final grade\n2. Features marked WONTFIX and why\n3. Design decisions that worked vs didn't\n4. Total parity percentage after this run\n5. What remains for future work"
+  ];
+
+  /* Edges */
+  Start -> Audit;
+  Audit -> Plan;
+
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude;
+  CritiquesParallel -> CritiqueCodex;
+  CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin;
+  CritiqueCodex  -> CritiquesJoin;
+  CritiqueGemini -> CritiquesJoin;
+
+  CritiquesJoin -> Consolidate;
+  Consolidate -> Implement;
+  Implement -> Validate;
+
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude;
+  JudgesParallel -> JudgeCodex;
+  JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin;
+  JudgeCodex  -> JudgesJoin;
+  JudgeGemini -> JudgesJoin;
+
+  JudgesJoin -> Verdict;
+
+  Verdict -> FinalDemo   [condition="outcome=success", label="all done"];
+  Verdict -> Plan        [condition="outcome=retry",   label="fix issues"];
+  Verdict -> Postmortem  [condition="outcome=fail",    label="blocked"];
+
+  FinalDemo -> Postmortem;
+  Postmortem -> Exit;
+}

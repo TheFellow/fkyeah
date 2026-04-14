@@ -1,0 +1,227 @@
+digraph KitchenSinkParity {
+  graph [
+    goal="Achieve full SwiftUI visual parity in the KitchenSink notcurses demo. Every section must render meaningfully — no blank, invisible, or stub output. Iterate until Ghostty screenshots confirm all features work.",
+    rankdir=TB,
+    default_max_retry=3,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  /* ──────────────────────────────────────────────
+     Phase 1: Setup + Audit
+     An agent launches the Ghostty lab, builds and
+     runs KitchenSink with notcurses, scrolls through
+     every section, and captures screenshots + GIF.
+     ────────────────────────────────────────────── */
+
+  Audit [
+    shape=box,
+    label="Setup & Audit",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="You are auditing the KitchenSink TUI demo running in the Ghostty Docker lab.\n\n1. Ensure the Ghostty lab is running: run `scripts/ghostty-lab.sh status` — if it fails, run `scripts/ghostty-lab.sh up` then `scripts/ghostty-lab.sh wait-ready 120`.\n2. Stop any existing KitchenSink runtime: `docker ps --filter ancestor=swift-omnikit-kitchensink-runtime -q | xargs -r docker stop`\n3. Rebuild and launch KitchenSink: `scripts/ghostty-lab.sh run-kitchensink` — wait for it to complete, then wait 15 seconds for rendering.\n4. Take a screenshot of the home page: `scripts/ghostty-lab.sh screenshot Tests/tui/output/ghostty-lab/parity/home.png`\n5. Scroll down through every section — use wheel scroll or Tab navigation — and screenshot each page: `scripts/ghostty-lab.sh screenshot Tests/tui/output/ghostty-lab/parity/page_N.png`\n6. Check the stderr log at Tests/tui/output/ghostty-lab/kitchensink.stderr.log — report if notcurses initialized or fell back to debug renderer.\n7. Record a GIF: `scripts/ghostty-lab.sh record-gif 15 Tests/tui/output/ghostty-lab/parity/audit.gif 4`\n\nRead Sources/KitchenSink/main.swift to understand what SHOULD render.\n\nFor each KitchenSink section, assess whether it renders visibly and meaningfully in the screenshots:\n- Header, State/Binding, Picker, Shapes, Clipped, ZStack, List/ForEach, Table, Observable/Bindable, NavigationLink, ScrollView, ScrollViewReader, Hierarchical List, EditButton/onDelete, ProgressView, TextField/SecureField, List(selection:), LazyVGrid, TabView, NavigationSplitView, SwiftData, Form(.grouped), onDisappear\n\nWrite your findings to Tests/tui/output/ghostty-lab/parity/audit.md with PASS/PARTIAL/FAIL per section and what is wrong for non-PASS items."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 2: Plan
+     ────────────────────────────────────────────── */
+
+  Plan [
+    shape=box,
+    label="Plan Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read the audit at Tests/tui/output/ghostty-lab/parity/audit.md and the screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nFor every PARTIAL or FAIL section, write a concrete fix plan. Focus on:\n- The notcurses renderer (Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift)\n- The render tree (Sources/OmniUICore/RenderTree.swift)\n- Primitives/Modifiers only when the issue is in node generation, not rendering\n\nFor each fix, specify:\n- The exact file and function\n- What the current behavior is\n- What it should be\n- The implementation approach\n\nPrioritize by visual impact. Write the plan to Tests/tui/output/ghostty-lab/parity/fix_plan.md."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 3: Critique (parallel, 3 models)
+     ────────────────────────────────────────────── */
+
+  CritiquesParallel [shape=component, label="Critiques (Parallel)"];
+
+  CritiqueClaude [
+    shape=box,
+    label="Claude Critique",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read the fix plan at Tests/tui/output/ghostty-lab/parity/fix_plan.md. Also read the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nCritique the Codex and Gemini critiques (if they exist yet from prior iterations) or critique the plan directly:\n1. Are file paths correct? Do the referenced functions exist?\n2. Are fixes targeting the right layer (renderer vs primitives vs render tree)?\n3. Missing sections?\n4. Risk of breaking working features?\n5. Priority order correct?\n\nWrite to Tests/tui/output/ghostty-lab/parity/critique_claude.md."
+  ];
+
+  CritiqueCodex [
+    shape=box,
+    label="Codex Critique",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Read the fix plan at Tests/tui/output/ghostty-lab/parity/fix_plan.md. Also look at the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nCritique the plan:\n1. Are file paths correct? Do the referenced functions exist?\n2. Are fixes targeting the right layer (renderer vs primitives vs render tree)?\n3. Missing sections?\n4. Risk of breaking working features?\n5. Priority order correct?\n6. Are there simpler approaches the plan missed?\n\nWrite to Tests/tui/output/ghostty-lab/parity/critique_codex.md."
+  ];
+
+  CritiqueGemini [
+    shape=box,
+    label="Gemini Critique",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Read the fix plan at Tests/tui/output/ghostty-lab/parity/fix_plan.md. Also look at the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nCritique the plan:\n1. Are file paths correct? Do the referenced functions exist?\n2. Are fixes targeting the right layer (renderer vs primitives vs render tree)?\n3. Missing sections?\n4. Risk of breaking working features?\n5. Priority order correct?\n6. Are there terminal rendering constraints the plan ignores?\n\nWrite to Tests/tui/output/ghostty-lab/parity/critique_gemini.md."
+  ];
+
+  CritiquesJoin [shape=tripleoctagon, label="Critiques Join"];
+
+  /* ──────────────────────────────────────────────
+     Phase 4: Consolidate critiques into final plan
+     ────────────────────────────────────────────── */
+
+  Consolidate [
+    shape=box,
+    label="Consolidate Critiques",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read all three critiques:\n- Tests/tui/output/ghostty-lab/parity/critique_claude.md\n- Tests/tui/output/ghostty-lab/parity/critique_codex.md\n- Tests/tui/output/ghostty-lab/parity/critique_gemini.md\n\nAnd the original fix plan:\n- Tests/tui/output/ghostty-lab/parity/fix_plan.md\n\nSynthesize into a consolidated action plan. For each critique point, decide: accept (modify plan) or reject (with reasoning). Write the final consolidated plan to Tests/tui/output/ghostty-lab/parity/consolidated_plan.md.\n\nThe consolidated plan must be concrete enough that an implementation agent can execute it without further design decisions."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 5: Implement
+     ────────────────────────────────────────────── */
+
+  Implement [
+    shape=box,
+    label="Implement Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read the consolidated plan at Tests/tui/output/ghostty-lab/parity/consolidated_plan.md.\n\nImplement every fix listed. Key files:\n- Sources/OmniUINotcursesRenderer/NotcursesRenderer.swift (renderer)\n- Sources/OmniUICore/RenderTree.swift (render tree)\n- Sources/OmniUICore/Primitives.swift (node generation)\n- Sources/OmniUICore/Modifiers.swift (modifier behavior)\n- Sources/OmniUICore/Shapes.swift (shape definitions)\n\nDo NOT modify Sources/KitchenSink/main.swift.\n\nAfter implementing, run `swift build --product KitchenSink`. If it fails, fix errors and rebuild until clean.\n\nSummarize all changes."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 6: Validate — rebuild in Docker, capture
+     screenshots, compare
+     ────────────────────────────────────────────── */
+
+  Validate [
+    shape=box,
+    label="Validate in Ghostty",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild and validate the KitchenSink in the Ghostty Docker lab.\n\n1. Stop any existing runtime: `docker ps --filter ancestor=swift-omnikit-kitchensink-runtime -q | xargs -r docker stop`\n2. Rebuild and launch: `scripts/ghostty-lab.sh run-kitchensink` — wait for completion, then wait 15 seconds.\n3. Screenshot home: `scripts/ghostty-lab.sh screenshot Tests/tui/output/ghostty-lab/parity/validation/home.png`\n4. Scroll through all sections and screenshot each page into Tests/tui/output/ghostty-lab/parity/validation/page_N.png\n5. Check stderr log — confirm notcurses initialized (not debug renderer fallback).\n6. Record a GIF: `scripts/ghostty-lab.sh record-gif 15 Tests/tui/output/ghostty-lab/parity/validation/demo.gif 4`\n\nCompare the validation screenshots against the originals in Tests/tui/output/ghostty-lab/parity/. Report which sections improved, which are unchanged, and which regressed."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 7: Judge (parallel, 3 models)
+     ────────────────────────────────────────────── */
+
+  JudgesParallel [shape=component, label="Judges (Parallel)"];
+
+  JudgeClaude [
+    shape=box,
+    label="Claude Judge",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Look at the validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/ and compare to the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nRead Sources/KitchenSink/main.swift to know what SHOULD appear.\n\nGrade each KitchenSink section: PASS / PARTIAL / FAIL.\n\nReturn your verdict:\n- outcome=success if zero FAIL and ≤3 PARTIAL\n- outcome=retry if FAIL sections remain\n- outcome=fail if notcurses won't initialize or KitchenSink crashes\n\nList the specific FAIL/PARTIAL sections and what's wrong.\n\nWrite to Tests/tui/output/ghostty-lab/parity/judge_claude.md."
+  ];
+
+  JudgeCodex [
+    shape=box,
+    label="Codex Judge",
+    llm_provider="openai",
+    llm_model="gpt-5.4",
+    reasoning_effort="high",
+    prompt="Look at the validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/ and compare to the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nRead Sources/KitchenSink/main.swift to know what SHOULD appear.\n\nGrade each KitchenSink section: PASS / PARTIAL / FAIL.\n\nReturn your verdict:\n- outcome=success if zero FAIL and ≤3 PARTIAL\n- outcome=retry if FAIL sections remain\n- outcome=fail if notcurses won't initialize or KitchenSink crashes\n\nList the specific FAIL/PARTIAL sections and what's wrong.\n\nWrite to Tests/tui/output/ghostty-lab/parity/judge_codex.md."
+  ];
+
+  JudgeGemini [
+    shape=box,
+    label="Gemini Judge",
+    llm_provider="gemini",
+    llm_model="gemini-3.1-pro-preview-customtools",
+    reasoning_effort="high",
+    prompt="Look at the validation screenshots in Tests/tui/output/ghostty-lab/parity/validation/ and compare to the audit screenshots in Tests/tui/output/ghostty-lab/parity/.\n\nRead Sources/KitchenSink/main.swift to know what SHOULD appear.\n\nGrade each KitchenSink section: PASS / PARTIAL / FAIL.\n\nReturn your verdict:\n- outcome=success if zero FAIL and ≤3 PARTIAL\n- outcome=retry if FAIL sections remain\n- outcome=fail if notcurses won't initialize or KitchenSink crashes\n\nList the specific FAIL/PARTIAL sections and what's wrong.\n\nWrite to Tests/tui/output/ghostty-lab/parity/judge_gemini.md."
+  ];
+
+  JudgesJoin [shape=tripleoctagon, label="Judges Join"];
+
+  /* ──────────────────────────────────────────────
+     Phase 8: Verdict — consolidate judgments, decide
+     ────────────────────────────────────────────── */
+
+  Verdict [
+    shape=box,
+    label="Consolidate Verdict",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    goal_gate=true,
+    retry_target="Plan",
+    prompt="Read all three judge reports:\n- Tests/tui/output/ghostty-lab/parity/judge_claude.md\n- Tests/tui/output/ghostty-lab/parity/judge_codex.md\n- Tests/tui/output/ghostty-lab/parity/judge_gemini.md\n\nConsolidate into a single verdict. Use majority vote per section — if 2 of 3 judges say PASS, it's PASS.\n\nReturn outcome=success if:\n- Zero FAIL sections by majority vote\n- No more than 3 PARTIAL sections\n- stderr log is clean (notcurses initialized, not debug fallback)\n\nReturn outcome=retry if FAIL sections remain. List exactly which sections failed so the next Plan iteration targets them.\n\nReturn outcome=fail only if KitchenSink won't launch or notcurses is fundamentally broken.\n\nWrite the consolidated verdict to Tests/tui/output/ghostty-lab/parity/verdict.md."
+  ];
+
+  /* ──────────────────────────────────────────────
+     Phase 9: Completion
+     ────────────────────────────────────────────── */
+
+  FinalDemo [
+    shape=box,
+    label="Record Final Demo",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Record the final demo of KitchenSink running in Ghostty with notcurses.\n\n1. Record a 20-second GIF: `scripts/ghostty-lab.sh record-gif 20 Tests/tui/output/ghostty-lab/kitchensink-parity-final.gif 4`\n2. Take a final home screenshot: `scripts/ghostty-lab.sh screenshot Tests/tui/output/ghostty-lab/kitchensink-parity-final.png`\n3. Scroll through and take final screenshots of every section.\n\nConfirm all artifacts were captured."
+  ];
+
+  Postmortem [
+    shape=box,
+    label="Postmortem",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Write a postmortem to Tests/tui/output/ghostty-lab/parity/postmortem.md summarizing:\n1. Final grade per KitchenSink section (from consolidated verdict)\n2. Total attractor iterations needed\n3. Key fixes that had the most visual impact\n4. Lessons about the notcurses renderer vs debug renderer\n5. Remaining work for future iterations\n6. What the attractor loop did well and what it missed"
+  ];
+
+  /* ──────────────────────────────────────────────
+     Edges
+     ────────────────────────────────────────────── */
+
+  Start -> Audit;
+  Audit -> Plan;
+
+  Plan -> CritiquesParallel;
+
+  CritiquesParallel -> CritiqueClaude;
+  CritiquesParallel -> CritiqueCodex;
+  CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin;
+  CritiqueCodex  -> CritiquesJoin;
+  CritiqueGemini -> CritiquesJoin;
+
+  CritiquesJoin -> Consolidate;
+  Consolidate -> Implement;
+
+  Implement -> Validate;
+
+  Validate -> JudgesParallel;
+
+  JudgesParallel -> JudgeClaude;
+  JudgesParallel -> JudgeCodex;
+  JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin;
+  JudgeCodex  -> JudgesJoin;
+  JudgeGemini -> JudgesJoin;
+
+  JudgesJoin -> Verdict;
+
+  Verdict -> FinalDemo   [condition="outcome=success", label="parity achieved"];
+  Verdict -> Plan        [condition="outcome=retry",   label="more fixes needed"];
+  Verdict -> Postmortem  [condition="outcome=fail",    label="fundamentally broken"];
+
+  FinalDemo -> Postmortem;
+  Postmortem -> Exit;
+}

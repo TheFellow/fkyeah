@@ -1,0 +1,81 @@
+digraph iGopherShowcase {
+  graph [
+    goal="Make iGopherTUI look and behave like the real iGopherBrowser SwiftUI app. Toolbar buttons must show SF Symbol icons and labels. Navigation must work. Sheets must open. The URL field must accept input. The app must be interactive and visually match the iOS/macOS version as closely as terminal allows. Record a showcase GIF demonstrating all interactions.",
+    rankdir=TB,
+    default_max_retry=5,
+    default_fidelity="summary:high"
+  ];
+
+  Start [shape=Mdiamond, label="Start"];
+  Exit  [shape=Msquare,  label="Exit"];
+
+  Audit [
+    shape=box,
+    label="Audit iGopherTUI vs Real App",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Compare iGopherTUI running in the terminal against the real iGopherBrowser SwiftUI app.\n\n1. Read references/iGopherBrowser/iGopherBrowser/ContentView.swift, BrowserView.swift, SettingsView.swift, BookmarksView.swift to understand the REAL app's UI.\n2. Read Sources/iGopherTUI/ — all files — to see what the port actually does.\n3. Launch iGopherTUI in Ghostty:\n   - Ensure Ghostty lab: `scripts/ghostty-lab.sh status || (scripts/ghostty-lab.sh up && scripts/ghostty-lab.sh wait-ready 120)`\n   - Restart fresh: `scripts/ghostty-lab.sh down && scripts/ghostty-lab.sh up && scripts/ghostty-lab.sh wait-ready 60`\n   - Launch: type into Ghostty: `docker run --rm -it -e TERM=xterm-256color -e OMNIUI_SMOKE_SECONDS=120 swift-omnikit-kitchensink-runtime -lc '/app/.build/aarch64-unknown-linux-gnu/debug/iGopherTUI --notcurses'`\n   - Screenshot after 8 seconds\n4. Compare screenshot against what the real app shows:\n\nThe REAL iGopherBrowser has:\n- NavigationSplitView with sidebar (bookmarks list) and detail (browser)\n- Toolbar with LABELED buttons: back arrow, forward arrow, home icon, bookmarks icon, settings gear, Go button\n- Each button uses Label('text', systemImage: 'sf.symbol.name') — the SF Symbol should render as Unicode via SFSymbolMap\n- URL TextField with placeholder text and rounded border\n- When you type a URL and press Go, it fetches a gopher page and shows items in a List\n- Settings sheet with Form containing Sections, Toggles, ColorPicker, Picker\n- Bookmarks sheet with List of saved bookmarks, EditButton, swipe-to-delete\n- What's New sheet on first launch\n- CRT effect toggle (scanlines, vignette, phosphor color)\n- Find-in-page bar (Cmd+F equivalent)\n\nIdentify EVERY discrepancy:\n- Missing button labels/icons\n- Missing navigation structure\n- Missing sheets/modals\n- Missing interactivity\n- Layout issues\n\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_showcase_audit.md."
+  ];
+
+  Plan [
+    shape=box,
+    label="Plan Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/igopher_showcase_audit.md.\n\nPlan fixes for EVERY discrepancy. The iGopherTUI source files are in Sources/iGopherTUI/ — you CAN modify these (but NOT references/iGopherBrowser/).\n\nKey fixes likely needed:\n1. Toolbar buttons need Label('Back', systemImage: 'arrow.left') etc — check if the port stripped the labels\n2. SF Symbol icons should render via SFSymbolMap (← → ⌂ ★ ⚙ etc)\n3. NavigationSplitView sidebar should show bookmarks/history\n4. URL TextField needs .textFieldStyle(.roundedBorder) and proper placeholder\n5. Settings sheet needs to open on gear button press — wire .sheet(isPresented:)\n6. Bookmarks sheet needs to open on bookmark button press\n7. The Go button should trigger URL loading (even if networking is stubbed, show a loading state then sample content)\n8. Stub gopher content: when Go is pressed, populate the List with sample gopher menu items\n9. Navigation back/forward should work with the stack\n10. Find-in-page bar should appear on keyboard shortcut\n\nAlso fix OmniUI issues if the toolbar/sheet/label rendering is broken at the framework level.\n\nWrite to Tests/tui/output/ghostty-lab/parity/igopher_showcase_plan.md."
+  ];
+
+  CritiquesParallel [shape=component, label="Critiques"];
+  CritiqueClaude [shape=box, label="Claude Critique", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_showcase_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_critique_claude.md."];
+  CritiqueCodex [shape=box, label="Codex Critique", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_showcase_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_critique_codex.md."];
+  CritiqueGemini [shape=box, label="Gemini Critique", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Critique Tests/tui/output/ghostty-lab/parity/igopher_showcase_plan.md. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_critique_gemini.md."];
+  CritiquesJoin [shape=tripleoctagon, label="Join"];
+
+  Consolidate [shape=box, label="Consolidate", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Read all critiques + plan. Synthesize. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_consolidated.md."];
+
+  Implement [
+    shape=box,
+    label="Implement All Fixes",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    fidelity="summary:high",
+    prompt="Read Tests/tui/output/ghostty-lab/parity/igopher_showcase_consolidated.md.\n\nImplement ALL fixes. You may modify:\n- Sources/iGopherTUI/*.swift (the port — fix labels, wire sheets, add stub content)\n- Sources/OmniUICore/*.swift (if OmniUI has bugs preventing proper rendering)\n- Sources/OmniUINotcursesRenderer/*.swift (if renderer bugs)\n\nDo NOT modify references/iGopherBrowser/.\n\nThe goal: when iGopherTUI launches, it should show:\n1. Toolbar with ← → ⌂ ★ ⚙ icons and [ Go ] button\n2. URL input field with placeholder\n3. When Go is pressed (or default URL loads), show sample gopher content in a List\n4. Settings gear opens a Form sheet with toggles and sections\n5. Bookmarks star opens a List sheet\n6. Back/forward navigation works\n\nRun swift build --product iGopherTUI. Fix all errors.\nRun swift build --product KitchenSink to ensure no regressions.\nCommit and push."
+  ];
+
+  Validate [
+    shape=box,
+    label="Validate + Record Showcase",
+    llm_provider="anthropic",
+    llm_model="claude-opus-4-6",
+    reasoning_effort="high",
+    prompt="Rebuild iGopherTUI in Docker and record a full interactive showcase in Ghostty.\n\n1. Rebuild Docker image: `docker build -t swift-omnikit-kitchensink-runtime -f Dockerfile.kitchensink-runtime .` (from repo root)\n2. Restart Ghostty lab fresh: `scripts/ghostty-lab.sh down && scripts/ghostty-lab.sh up && scripts/ghostty-lab.sh wait-ready 60`\n3. Launch iGopherTUI: type `docker run --rm -it -e TERM=xterm-256color -e OMNIUI_SMOKE_SECONDS=120 swift-omnikit-kitchensink-runtime -lc '/app/.build/aarch64-unknown-linux-gnu/debug/iGopherTUI --notcurses'` into Ghostty\n4. Wait 8 seconds for render\n5. Screenshot home state\n6. Interact:\n   - Tab to URL field, type a URL\n   - Tab to Go button, press Enter\n   - Tab to settings button, press Enter (should open sheet)\n   - Tab to bookmarks button, press Enter (should open sheet)\n   - Navigate back/forward\n7. Screenshot each interaction state\n8. Record a 25-second GIF with scrolling/interaction: `scripts/ghostty-lab.sh record-gif 25 Tests/tui/output/ghostty-lab/igopher-showcase.gif 3`\n9. Save all screenshots to Tests/tui/output/ghostty-lab/parity/igopher_showcase/\n\nReport what works and what doesn't."
+  ];
+
+  JudgesParallel [shape=component, label="Judges"];
+  JudgeClaude [shape=box, label="Claude Judge", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Grade the iGopherTUI showcase. Compare screenshots against real iGopherBrowser behavior. PASS/FAIL per feature: toolbar icons, URL input, Go action, settings sheet, bookmarks sheet, navigation, content display. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_judge_claude.md."];
+  JudgeCodex [shape=box, label="Codex Judge", llm_provider="openai", llm_model="gpt-5.4", reasoning_effort="high", prompt="Grade the iGopherTUI showcase. PASS/FAIL per feature. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_judge_codex.md."];
+  JudgeGemini [shape=box, label="Gemini Judge", llm_provider="gemini", llm_model="gemini-3.1-pro-preview-customtools", reasoning_effort="high", prompt="Grade the iGopherTUI showcase. PASS/FAIL per feature. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_judge_gemini.md."];
+  JudgesJoin [shape=tripleoctagon, label="Join"];
+
+  Verdict [shape=box, label="Verdict", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", goal_gate=true, retry_target="Plan", prompt="Majority vote. All features must PASS: toolbar icons visible, URL input works, Go shows content, settings sheet opens, bookmarks sheet opens, navigation works. Commit+push if success. Write to Tests/tui/output/ghostty-lab/parity/igopher_showcase_verdict.md."];
+
+  FinalDemo [shape=box, label="Final Showcase", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Record the definitive iGopherTUI showcase GIF showing all interactions. Commit everything. Push."];
+  Postmortem [shape=box, label="Postmortem", llm_provider="anthropic", llm_model="claude-opus-4-6", reasoning_effort="high", prompt="Write postmortem comparing final iGopherTUI against real iGopherBrowser. What matches, what's approximated, what's missing."];
+
+  Start -> Audit; Audit -> Plan;
+  Plan -> CritiquesParallel;
+  CritiquesParallel -> CritiqueClaude; CritiquesParallel -> CritiqueCodex; CritiquesParallel -> CritiqueGemini;
+  CritiqueClaude -> CritiquesJoin; CritiqueCodex -> CritiquesJoin; CritiqueGemini -> CritiquesJoin;
+  CritiquesJoin -> Consolidate; Consolidate -> Implement; Implement -> Validate;
+  Validate -> JudgesParallel;
+  JudgesParallel -> JudgeClaude; JudgesParallel -> JudgeCodex; JudgesParallel -> JudgeGemini;
+  JudgeClaude -> JudgesJoin; JudgeCodex -> JudgesJoin; JudgeGemini -> JudgesJoin;
+  JudgesJoin -> Verdict;
+  Verdict -> FinalDemo [condition="outcome=success", label="showcase ready"];
+  Verdict -> Plan [condition="outcome=retry", label="fix issues"];
+  Verdict -> Postmortem [condition="outcome=fail", label="blocked"];
+  FinalDemo -> Postmortem; Postmortem -> Exit;
+}
