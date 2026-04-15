@@ -11,7 +11,7 @@ Built from three [NLSpecs](https://github.com/strongdm/attractor#terminology):
 - [Coding Agent Loop Specification](https://github.com/strongdm/attractor/blob/main/coding-agent-loop-spec.md) — agentic loop with tool execution
 - [Unified LLM Client Specification](https://github.com/strongdm/attractor/blob/main/unified-llm-spec.md) — multi-provider LLM client
 
-**512 tests (384 unit + 128 conformance). Zero warnings. One binary.**
+**946 tests (779 unit + 167 conformance). Zero warnings. One binary.**
 
 ## Quick Start
 
@@ -79,7 +79,8 @@ Run `attractor schema` for the complete attribute reference.
 |-------|------|-------------|
 | `Mdiamond` | start | Entry point (exactly one required) |
 | `Msquare` | exit | Terminal node (exactly one required) |
-| `box` | codergen | LLM call — sends `prompt` to the model, writes response to logs |
+| `box` | codergen | Single-turn LLM call — sends `prompt` to the model, writes response to logs. Auto-promoted to coding agent when agent attributes are present (`max_turns`, `cwd`, `thread_id`) |
+| `tab` | coding_agent | Multi-turn LLM agent with tool execution (file I/O, shell, grep). Use for any node that needs to read/write files or run commands |
 | `parallelogram` | tool | Runs `tool_command` in a shell, captures stdout/stderr |
 | `hexagon` | wait.human | Pauses for human input, shows options from outgoing edge labels |
 | `diamond` | conditional | Pass-through — engine evaluates edge conditions to pick next node |
@@ -90,19 +91,31 @@ Run `attractor schema` for the complete attribute reference.
 ### Key Attributes
 
 ```
-graph [goal="...", model_stylesheet="* { llm_model: claude-sonnet-4-5-20250929; }"]
+graph [goal="...", model_stylesheet="* { llm_model: claude-sonnet-4-6; }",
+       default_fidelity="compact", default_max_retry=2]
 node  [prompt="...", goal_gate=true, retry_target="node_id", timeout="30s", auto_status=true]
 edge  [condition="outcome=success", label="[A] Approve", weight=10, loop_restart=true]
 ```
 
+Coding agent nodes (`tab`, or `box` with auto-promotion) additionally support:
+
+```
+node [max_turns=40, max_tool_rounds=25, cwd=".", thread_id="review", system_prompt="...",
+      acp_preset="codex", command_timeout=120000]
+```
+
+`thread_id` is a session partition key — nodes sharing the same `thread_id` share a persistent session (conversation history, tool state). Nodes with different `thread_id` values get independent sessions. Give late-pipeline nodes their own `thread_id` to avoid cumulative turn exhaustion.
+
 ### Edge Conditions
 
 ```
-condition="outcome=success"                          // status check
+condition="outcome=success"                                          // status check
 condition="outcome=fail"
-condition="outcome=partial_success"                  // partial success
-condition="outcome=success && context.tests=passed"  // compound
-condition="context.ready=true"                       // context variable
+condition="outcome=partial_success"                                  // partial success
+condition="outcome=success && context.tests=passed"                  // compound
+condition="context.ready=true"                                       // context variable
+condition="internal.loop_restart_count=3"                            // bail after 3 restarts
+condition="tool_exit_code=0"                                         // tool output alias
 ```
 
 ### Context Reset with `loop_restart`
@@ -118,9 +131,9 @@ Tool nodes with `auto_status=true` automatically synthesize a Success outcome if
 Assign different LLM models per node using CSS-like selectors:
 
 ```
-model_stylesheet="* { llm_model: claude-sonnet-4-5-20250929; }
+model_stylesheet="* { llm_model: claude-sonnet-4-6; }
                   .critical { llm_model: claude-opus-4-6; }
-                  #review { llm_model: gemini-2.5-pro-preview-03-25; }"
+                  #review { llm_model: gemini-3.1-pro-preview-customtools; }"
 ```
 
 Specificity: `*` < shape < `.class` < `#id`. Node attributes override stylesheet.
@@ -139,9 +152,9 @@ digraph my_pipeline {
     graph [
         goal="Implement the billing API",
         label="Billing Sprint",
-        model_stylesheet="* { llm_model: claude-sonnet-4-5-20250929; }
+        model_stylesheet="* { llm_model: claude-sonnet-4-6; }
                           .critical { llm_model: claude-opus-4-6; }
-                          #final_review { llm_model: gemini-2.5-pro-preview-03-25; }",
+                          #final_review { llm_model: gemini-3.1-pro-preview-customtools; }",
         default_fidelity="truncate",
         default_max_retry=2
     ]
@@ -171,7 +184,7 @@ Use `//` comments to separate phases visually. Name nodes by what they do, not w
     critique [shape=box, class="critical", prompt="..."]
 
     // Phase 3: Execution
-    implement [shape=parallelogram, tool_command="claude --auto ...", timeout="600s"]
+    implement [shape=tab, class="deep", cwd=".", max_turns="60", prompt="Implement the plan"]
     run_tests [shape=parallelogram, tool_command="dotnet test ...", timeout="120s"]
 ```
 
@@ -214,10 +227,10 @@ Don't scatter `llm_model` across every node. Use `model_stylesheet` to assign mo
     // BAD — model repeated on every node
     plan [shape=box, llm_model="claude-opus-4-6", prompt="..."]
     implement [shape=box, llm_model="claude-opus-4-6", prompt="..."]
-    review [shape=box, llm_model="claude-sonnet-4-5-20250929", prompt="..."]
+    review [shape=box, llm_model="claude-sonnet-4-6", prompt="..."]
 
     // GOOD — one stylesheet, nodes just declare their class
-    graph [model_stylesheet=".deep { llm_model: claude-opus-4-6; } * { llm_model: claude-sonnet-4-5-20250929; }"]
+    graph [model_stylesheet=".deep { llm_model: claude-opus-4-6; } * { llm_model: claude-sonnet-4-6; }"]
     plan [shape=box, class="deep", prompt="..."]
     implement [shape=box, class="deep", prompt="..."]
     review [shape=box, prompt="..."]
@@ -255,22 +268,28 @@ Synopsis:
 
 The validator checks structure (reachability, dead ends, terminal paths), syntax (conditions, stylesheet), and classifies the pipeline:
 
-- **EXECUTION** — invokes coding agents (`claude --auto`, `codex exec`) to produce code
+- **EXECUTION** — invokes coding agents (`tab` nodes or ACP presets) to produce code
 - **PLANNING** — LLM-only, generates docs/plans but no code changes
 - **HYBRID** — runs tool commands but no coding agent detected
-- **ANALYSIS** — LLM-only, no tools
 
-## Example Pipeline
+## Examples
 
-The repo includes `example.dot` — a minimal plan/implement/review pipeline. Copy it and change the `goal`:
+The `examples/` directory contains 17 reference pipelines imported from [Swift OmniKit](https://github.com/navanchauhan/swift-omnikit), ranging from a zero-LLM vulnerability scanner to a 52-node megaplan with 6-branch cross-model critique:
+
+| Start with | What it shows |
+|------------|---------------|
+| `vulnerability_analyzer.dot` | Pure tool pipeline, no LLM. Best "hello world" |
+| `consensus_task.dot` | Multi-model planning with goal gate and retry |
+| `fix_sheets.dot` | Simplest instance of the 9-phase execution template |
+| `cedar_spec_port.dot` | Advanced: model stylesheet, nested critique, complex retry |
+| `megaplan_quality.dot` | Advanced: human gates, 6-branch fan-out, quality gates |
+
+Also available:
 
 ```bash
-cp example.dot my-pipeline.dot
-# edit graph [goal="..."] in my-pipeline.dot
-attractor my-pipeline.dot
+attractor example       # print a template pipeline to stdout
+attractor schema        # print the complete DOT attribute reference
 ```
-
-Use `attractor example` to print a more complete template to stdout (with tool nodes, conditionals, and human gates).
 
 ## Artifacts
 
@@ -288,25 +307,27 @@ checkpoint.json                // crash recovery (resume with --resume)
 
 ## Architecture
 
-Three F# libraries targeting .NET 10.0:
+Six F# libraries targeting .NET 10.0:
 
 ```
-src/Attractor/          11 modules — pipeline engine, DOT parser, handlers, validation
-src/UnifiedLlm/         10 modules — multi-provider LLM client (Anthropic, OpenAI, Gemini)
-src/CodingAgent/         9 modules — agentic loop, tool execution, provider profiles
+src/Attractor/          16 modules — pipeline engine, DOT parser, handlers, validation
+src/UnifiedLlm/         16 modules — multi-provider LLM client (Anthropic, OpenAI, Gemini)
+src/CodingAgent/        10 modules — agentic loop, tool execution, provider profiles
+src/AcpRuntime/          6 modules — Agent Client Protocol (stdio/WebSocket/HTTP+SSE)
+src/McpClient/           5 modules — Model Context Protocol client
+src/JsonRpc/             3 modules — JSON-RPC transport layer
 src/Attractor.Cli/       1 module  — CLI binary
-tests/                   384 tests across 3 test projects
-conformance/             128 tests — black-box CLI conformance suite
+tests/                   779 tests across 6 test projects
+conformance/             167 tests — black-box CLI conformance suite
+examples/                17 reference DOT pipelines
 ```
 
 ### Build from Source
 
 ```bash
 dotnet build Attractor.slnx          # build everything
-dotnet test Attractor.slnx           # run all 384 unit tests
-dotnet publish src/Attractor.Cli/Attractor.Cli.fsproj \
-  -c Release -r osx-arm64 --self-contained true \
-  -p:PublishSingleFile=true -o ./publish   # single binary
+dotnet test Attractor.slnx           # run all unit tests
+make install                          # publish + install to ~/bin/attractor
 ```
 
 ## For LLM Agents
