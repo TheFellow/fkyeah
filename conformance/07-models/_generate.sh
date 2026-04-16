@@ -19,6 +19,7 @@ MODELS=(
     "08|gemini-3-flash-preview|gemini_3_flash|GEMINI_API_KEY"
     "09|gpt-5.3-codex|gpt_5_3_codex|OPENAI_API_KEY"
     "10|gpt-5.4|gpt_5_4|OPENAI_API_KEY"
+    "11|claude-opus-4-7|claude_opus_4_7|ANTHROPIC_API_KEY"
 )
 
 # ── Scenarios ──────────────────────────────────────────────────────

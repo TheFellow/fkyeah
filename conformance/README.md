@@ -65,7 +65,7 @@ conformance/
   04-context/         # 6 tests — context propagation and edge conditions
   05-parallel/        # 2 tests — fan-out/fan-in
   06-artifacts/       # 5 tests — manifest, checkpoint, stage files, outcomes
-  07-models/          # 72 tests — model matrix using codergen + tool extract/run
+  07-models/          # 88 tests — model matrix using codergen + tool extract/run
   08-coding-agent/    # 6 tests — live coding-agent tests (real file I/O via shape=tab)
     extract-run.sh    # Shared code extractor for all model tests
     01-claude-opus-4-6/
@@ -86,6 +86,8 @@ conformance/
     07-gemini-3.1-pro-preview/
     08-gemini-3-flash-preview/
     09-gpt-5-3-codex/
+    10-gpt-5-4/
+    11-claude-opus-4-7/
 ```
 
 ## Test Matrix (07-models)
@@ -104,6 +106,7 @@ Every model proves it can generate working software in every language/scenario:
 | gemini-3-flash-preview | Gemini | `GEMINI_API_KEY` |
 | gpt-5.3-codex | OpenAI | `OPENAI_API_KEY` |
 | gpt-5.4 | OpenAI | `OPENAI_API_KEY` |
+| claude-opus-4-7 | Anthropic | `ANTHROPIC_API_KEY` |
 
 | Scenario | Language | Problem | Expected Output |
 |----------|----------|---------|-----------------|

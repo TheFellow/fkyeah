@@ -23,7 +23,7 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.Equal(280.0, gptPro.Value.OutputCostPerMillion)
 
     Assert.True(opus1m.IsSome)
-    Assert.Equal("claude-opus-4-6[1m]", opus1m.Value.Id)
+    Assert.Equal("claude-opus-4-7[1m]", opus1m.Value.Id)
 
     Assert.True(haiku.IsSome)
     Assert.True(geminiFlash.IsSome)

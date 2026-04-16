@@ -43,10 +43,16 @@ module ModelCatalog =
 
     let private models : ModelInfo list = [
         // Anthropic
+        { Id = "claude-opus-4-7"; Provider = "anthropic"; DisplayName = "Claude Opus 4.7"
+          ContextWindow = 200000; MaxOutput = 128000
+          InputCostPerMillion = 5.0; OutputCostPerMillion = 25.0
+          Aliases = [ "claude-opus"; "opus-4-7"; "latest-anthropic" ]
+          SupportsStreaming = true; SupportsTools = true
+          SupportsReasoning = true; SupportsVision = true }
         { Id = "claude-opus-4-6"; Provider = "anthropic"; DisplayName = "Claude Opus 4.6"
           ContextWindow = 200000; MaxOutput = 128000
           InputCostPerMillion = 5.0; OutputCostPerMillion = 25.0
-          Aliases = [ "claude-opus"; "opus-4-6"; "latest-anthropic" ]
+          Aliases = [ "opus-4-6" ]
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
         { Id = "claude-sonnet-4-6"; Provider = "anthropic"; DisplayName = "Claude Sonnet 4.6"
@@ -67,10 +73,16 @@ module ModelCatalog =
           Aliases = [ "claude-haiku"; "haiku-4-5" ]
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
-        { Id = "claude-opus-4-6[1m]"; Provider = "anthropic"; DisplayName = "Claude Opus 4.6 (1M Context)"
+        { Id = "claude-opus-4-7[1m]"; Provider = "anthropic"; DisplayName = "Claude Opus 4.7 (1M Context)"
           ContextWindow = 1000000; MaxOutput = 128000
           InputCostPerMillion = 5.0; OutputCostPerMillion = 25.0
           Aliases = [ "opus-1m"; "claude-opus-1m" ]
+          SupportsStreaming = true; SupportsTools = true
+          SupportsReasoning = true; SupportsVision = true }
+        { Id = "claude-opus-4-6[1m]"; Provider = "anthropic"; DisplayName = "Claude Opus 4.6 (1M Context)"
+          ContextWindow = 1000000; MaxOutput = 128000
+          InputCostPerMillion = 5.0; OutputCostPerMillion = 25.0
+          Aliases = [ "opus-4-6-1m" ]
           SupportsStreaming = true; SupportsTools = true
           SupportsReasoning = true; SupportsVision = true }
         { Id = "claude-sonnet-4-6[1m]"; Provider = "anthropic"; DisplayName = "Claude Sonnet 4.6 (1M Context)"
@@ -181,7 +193,7 @@ module ModelCatalog =
 
     let private latestByProvider =
         Map.ofList [
-            "anthropic", "claude-opus-4-6"
+            "anthropic", "claude-opus-4-7"
             "openai", "gpt-5.4"
             "gemini", "gemini-3.1-pro-preview"
         ]

@@ -116,7 +116,7 @@ module CoreInfrastructure =
     [<Fact>]
     let ``list_models_by_provider returns correct subset`` () =
         let anthropicModels = ModelCatalog.listModelsByProvider "anthropic"
-        Assert.Equal(6, anthropicModels.Length)
+        Assert.Equal(8, anthropicModels.Length)
         Assert.True(anthropicModels |> List.forall (fun m -> m.Provider = "anthropic"))
         let openaiModels = ModelCatalog.listModelsByProvider "openai"
         Assert.Equal(9, openaiModels.Length)
