@@ -690,9 +690,13 @@ type AnthropicAdapter(apiKey: string) =
             | _ -> None
 
         match thinkingBudget, adaptiveEffort with
-        | Some _, Some effort when isAdaptiveThinkingModel model ->
+        | Some budget, Some effort when isAdaptiveThinkingModel model ->
             bodyDict["thinking"] <- {| ``type`` = "adaptive" |}
             bodyDict["output_config"] <- {| effort = effort |}
+            // Thinking tokens still consume max_tokens on the adaptive path;
+            // keep parity with legacy so output isn't clamped to the default 4096.
+            if maxTokens <= budget then
+                bodyDict["max_tokens"] <- budget + 4096
         | Some budget, _ ->
             bodyDict["thinking"] <- {| ``type`` = "enabled"; budget_tokens = budget |}
             // max_tokens must be greater than thinking.budget_tokens per Anthropic API

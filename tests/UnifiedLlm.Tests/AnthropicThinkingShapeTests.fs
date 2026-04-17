@@ -34,8 +34,9 @@ let ``Anthropic buildBody emits adaptive thinking for opus-4-7`` () =
     let outputConfig = tryProp "output_config" doc |> Option.defaultWith (fun () -> Assert.Fail("output_config missing"); Unchecked.defaultof<_>)
     Assert.Equal("high", outputConfig.GetProperty("effort").GetString())
 
-    // Adaptive path must not bump max_tokens past the caller-specified value.
-    Assert.Equal(4096, doc.RootElement.GetProperty("max_tokens").GetInt32())
+    // Thinking tokens consume max_tokens on the adaptive path too, so the
+    // adapter must bump small max_tokens to budget + 4096 for parity with legacy.
+    Assert.Equal(32768 + 4096, doc.RootElement.GetProperty("max_tokens").GetInt32())
 
 [<Fact>]
 let ``Anthropic buildBody maps xhigh to high on adaptive models`` () =
@@ -72,6 +73,18 @@ let ``Anthropic buildBody omits thinking when reasoning_effort is not set`` () =
 
     Assert.False(doc.RootElement.TryGetProperty("thinking", ref Unchecked.defaultof<JsonElement>))
     Assert.False(doc.RootElement.TryGetProperty("output_config", ref Unchecked.defaultof<JsonElement>))
+
+[<Fact>]
+let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budget`` () =
+    let request =
+        { Request.Create("claude-opus-4-7", [ Message.user("plan") ]) with
+            ReasoningEffort = Some "high"
+            MaxTokens = Some 100000 }
+
+    use doc = buildAnthropicBody request
+
+    // Caller-specified max_tokens (> budget) must not be overridden.
+    Assert.Equal(100000, doc.RootElement.GetProperty("max_tokens").GetInt32())
 
 [<Fact>]
 let ``Anthropic buildBody adaptive path applies to sonnet-4-7 and haiku-4-7`` () =
