@@ -246,6 +246,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
     let subagentLock = obj()
     let mutable contextWarningEmitted = false
     let mutable awaitingInputRequested = false
+    let mutable sessionCostMicrodollars = 0L
     let toolCache =
         CacheStore.fileSystem
             { CacheConfig.Default with
@@ -828,6 +829,18 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
             |> Seq.map (fun pair -> pair.Key, pair.Value)
             |> Seq.toList)
 
+    /// Cumulative token usage across every assistant turn in this session.
+    member _.Usage =
+        history
+        |> Seq.fold (fun acc turn ->
+            match turn with
+            | AssistantTurn(_, _, _, usage, _) -> acc + usage
+            | _ -> acc) Usage.Zero
+
+    /// Cumulative microdollar cost, summed per-call so cache-hit semantics
+    /// apply at the individual call granularity.
+    member _.CostMicrodollars = sessionCostMicrodollars
+
     /// Set user instructions override
     member _.SetUserInstructions(instructions: string) =
         userInstructions <- Some instructions
@@ -987,6 +1000,15 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                     emit AssistantTextDelta (Map.ofList [ "delta", response.Text ])
 
                 history.Add(AssistantTurn(response.Text, toolCalls, response.Reasoning, response.Usage, DateTime.UtcNow))
+
+                // Accumulate per-call cost so cache-hit semantics apply per individual
+                // call. Summing usage and pricing once at the end would incorrectly zero
+                // output cost whenever any call in the session had a cache read.
+                let cacheHit = (response.Usage.CacheReadTokens |> Option.defaultValue 0) > 0
+                match Costing.tryCalculateCostById response.Model response.Usage cacheHit with
+                | Some cost -> sessionCostMicrodollars <- sessionCostMicrodollars + cost.TotalMicrodollars
+                | None -> ()
+
                 emit AssistantTextEnd (Map.ofList [ "text", response.Text ])
                 checkContextUsage()
 

@@ -1068,6 +1068,51 @@ module HandlerTests =
         Assert.Equal("Coding agent completed.", outcome.ContextUpdates["last_response"])
 
     [<Fact>]
+    let ``CodingAgent handler surfaces session cost into context`` () =
+        let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+        mock.SetCompleteHandler(fun req ->
+            { Id = "r1"
+              Model = req.Model
+              Provider = "test"
+              Message = UnifiedLlm.Message.assistant("Done.")
+              FinishReason = UnifiedLlm.FinishReason.Stop "stop"
+              Usage =
+                { InputTokens = 1_000_000
+                  OutputTokens = 200_000
+                  ReasoningTokens = None
+                  CacheReadTokens = None
+                  CacheWriteTokens = None }
+              ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+        let client = UnifiedLlm.Client()
+        client.RegisterAdapter(mock)
+
+        let handler = Handlers.CodingAgentHandler(client) :> IHandler
+        let node =
+            { Id = "planner"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "tab"
+                      "llm_model", AttrValue.String "claude-opus-4-6"
+                      "prompt", AttrValue.String "Plan the work." ] }
+        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let logsRoot = createTempDir()
+        let context = Context()
+
+        let outcome = handler.Execute(node, context, graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+
+        // The engine's cost-summary aggregator reads these context keys; they must
+        // be populated for tab/CodingAgent nodes, not just embedded llm nodes.
+        Assert.Equal("planner", outcome.ContextUpdates["llm.last_node"])
+        Assert.Equal("1000000", outcome.ContextUpdates["llm.input_tokens"])
+        Assert.Equal("200000", outcome.ContextUpdates["llm.output_tokens"])
+        Assert.Equal("claude-opus-4-6", outcome.ContextUpdates["llm.model"])
+
+        // claude-opus-4-6 rates: $5/M input, $25/M output.
+        // 1_000_000 * $5/M + 200_000 * $25/M = $5.00 + $5.00 = $10.00 = 10_000_000 microdollars.
+        Assert.Equal("10000000", outcome.ContextUpdates["llm.cost_microdollars"])
+
+    [<Fact>]
     let ``CodingAgent handler respects cwd attribute for file writes`` () =
         let workDir = createTempDir()
         let mutable callCount = 0

@@ -199,6 +199,80 @@ module CoreLoopTests =
         finally cleanupDir dir
 
     [<Fact>]
+    let ``Session.Usage aggregates tokens across tool-loop turns`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let client = Client()
+            client.RegisterAdapter(makeToolMock())
+            let session = Session(TestProfile("m"), env, client)
+            session.RegisterTool(
+                { Definition = SharedTools.readFile
+                  IsCacheable = false
+                  Execute = fun _ _ -> "file contents" })
+            session.ProcessInput("Read the file")
+
+            // makeToolMock returns usage 10/5 on the tool call turn and 20/10 on
+            // the final turn — cumulative = 30/15.
+            Assert.Equal(30, session.Usage.InputTokens)
+            Assert.Equal(15, session.Usage.OutputTokens)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``Session.Usage is zero before any LLM calls`` () =
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let client = Client()
+            client.RegisterAdapter(makeSimpleMock())
+            let session = Session(TestProfile("m"), env, client)
+            Assert.Equal(Usage.Zero, session.Usage)
+            Assert.Equal(0L, session.CostMicrodollars)
+        finally cleanupDir dir
+
+    [<Fact>]
+    let ``Session.CostMicrodollars accumulates per-call so cache hits only zero that call`` () =
+        // Two calls on claude-sonnet-4-6 ($3/M in, $15/M out):
+        //  Call 1: 1000 in / 200 out, no cache   -> 1000*3 + 200*15 = 6000 micros
+        //  Call 2: 500 in / 100 out, cache read  -> 0 (cache hit zeros this call)
+        // Aggregate-then-cost would see cache_read>0 and zero EVERYTHING.
+        // Per-call cost must preserve call 1's $0.006.
+        let dir = createTempDir()
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mock = ConfigurableMockAdapter("test")
+            let mutable callIdx = 0
+            mock.SetCompleteHandler(fun _ ->
+                callIdx <- callIdx + 1
+                if callIdx = 1 then
+                    let tc = { Id = "c1"; Name = "read_file"; Arguments = """{"file_path":"/tmp/x"}"""; Metadata = Map.empty }
+                    { Id = "r1"; Model = "claude-sonnet-4-6"; Provider = "test"
+                      Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                      FinishReason = ToolCalls "tool_calls"
+                      Usage = { InputTokens = 1000; OutputTokens = 200
+                                ReasoningTokens = None; CacheReadTokens = None; CacheWriteTokens = None }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                else
+                    { Id = "r2"; Model = "claude-sonnet-4-6"; Provider = "test"
+                      Message = Message.assistant("done")
+                      FinishReason = Stop "stop"
+                      Usage = { InputTokens = 500; OutputTokens = 100
+                                ReasoningTokens = None; CacheReadTokens = Some 400; CacheWriteTokens = None }
+                      ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+            let client = Client()
+            client.RegisterAdapter(mock)
+            let session = Session(TestProfile("claude-sonnet-4-6"), env, client)
+            session.RegisterTool(
+                { Definition = SharedTools.readFile
+                  IsCacheable = false
+                  Execute = fun _ _ -> "x" })
+            session.ProcessInput("go")
+
+            // Call 1 cost: 1000 * $3/M + 200 * $15/M = $0.003 + $0.003 = $0.006 -> 6000 micros.
+            Assert.Equal(6000L, session.CostMicrodollars)
+        finally cleanupDir dir
+
+    [<Fact>]
     let ``Loop detection triggers warning steering turn`` () =
         let dir = createTempDir()
         try

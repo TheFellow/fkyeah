@@ -502,6 +502,25 @@ module Handlers =
                                         evt.Kind = CodingAgent.EventKind.SessionEnd
                                         && (evt.Data |> Map.tryFind "reason" = Some "aborted")))
 
+                            // Surface session-level cost/usage so the engine's cost-summary
+                            // aggregator (which reads llm.* context keys) captures CodingAgent
+                            // nodes, not just the embedded `llm` handler.
+                            let usage = session.Usage
+                            if usage.InputTokens > 0 || usage.OutputTokens > 0 then
+                                let cacheHit = (usage.CacheReadTokens |> Option.defaultValue 0) > 0
+                                let costMicros = session.CostMicrodollars
+                                let costUsd = decimal costMicros / 1_000_000m
+                                context.Set("llm.input_tokens", string usage.InputTokens)
+                                context.Set("llm.output_tokens", string usage.OutputTokens)
+                                context.Set("llm.model", profile.Model)
+                                context.Set("llm.provider", profile.Id)
+                                context.Set("llm.last_node", node.Id)
+                                context.Set("llm.cost_microdollars", string costMicros)
+                                context.Set(
+                                    "llm.cost_usd",
+                                    costUsd.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                                context.Set("llm.cache_hit", string cacheHit)
+
                             let contextUpdates =
                                 appendKnownLlmContext context [ "last_stage", node.Id; "last_response", finalResponse ]
 
