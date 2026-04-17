@@ -678,13 +678,27 @@ type AnthropicAdapter(apiKey: string) =
             | Some "xhigh" -> Some 65536
             | _ -> None
 
-        match thinkingBudget with
-        | Some budget ->
+        let isAdaptiveThinkingModel (m: string) =
+            m.Contains("opus-4-7") || m.Contains("sonnet-4-7") || m.Contains("haiku-4-7")
+
+        let adaptiveEffort =
+            match request.ReasoningEffort with
+            | Some "low" -> Some "low"
+            | Some "medium" -> Some "medium"
+            | Some "high" -> Some "high"
+            | Some "xhigh" -> Some "high"
+            | _ -> None
+
+        match thinkingBudget, adaptiveEffort with
+        | Some _, Some effort when isAdaptiveThinkingModel model ->
+            bodyDict["thinking"] <- {| ``type`` = "adaptive" |}
+            bodyDict["output_config"] <- {| effort = effort |}
+        | Some budget, _ ->
             bodyDict["thinking"] <- {| ``type`` = "enabled"; budget_tokens = budget |}
             // max_tokens must be greater than thinking.budget_tokens per Anthropic API
             if maxTokens <= budget then
                 bodyDict["max_tokens"] <- budget + 4096
-        | None -> ()
+        | None, _ -> ()
 
         let structuredToolName, structuredToolDef =
             match request.ResponseFormat with
