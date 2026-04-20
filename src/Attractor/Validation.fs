@@ -198,6 +198,48 @@ module Validation =
                         [ Diagnostic.Error("stylesheet_syntax", $"Invalid model_stylesheet: {msg}") ]
                 else [] }
 
+    /// Rule: Model references (direct node llm_model and stylesheet declarations)
+    /// must resolve in the built-in ModelCatalog.
+    let modelKnownRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "model_known"
+            member _.Apply(graph) =
+                let diags = ResizeArray<Diagnostic>()
+
+                let classify (modelId: string) =
+                    if System.String.IsNullOrWhiteSpace(modelId) then None
+                    else UnifiedLlm.ModelCatalog.tryResolveModel modelId
+
+                // Per-node direct llm_model attribute
+                for kv in graph.Nodes do
+                    let node = kv.Value
+                    let model = node.LlmModel
+                    if model <> "" && (classify model).IsNone then
+                        diags.Add(Diagnostic.Warning(
+                            "model_known",
+                            sprintf "Node '%s' references unknown model '%s'; run 'attractor --models' for the known catalog"
+                                node.Id model,
+                            nodeId = node.Id,
+                            fix = "Check spelling, use a known alias, or update the ModelCatalog if the model is real"))
+
+                // Stylesheet llm_model declarations
+                if graph.ModelStylesheet <> "" then
+                    match Stylesheet.parse graph.ModelStylesheet with
+                    | Ok parsed ->
+                        for rule in parsed.Rules do
+                            for decl in rule.Declarations do
+                                if decl.Property = "llm_model" && (classify decl.Value).IsNone then
+                                    diags.Add(Diagnostic.Warning(
+                                        "model_known",
+                                        sprintf "Stylesheet references unknown model '%s' (selector matches nodes in this graph); run 'attractor --models' for the known catalog"
+                                            decl.Value,
+                                        fix = "Check spelling, use a known alias, or update the ModelCatalog if the model is real"))
+                    | Error _ ->
+                        // stylesheet_syntax rule reports this; nothing to add here
+                        ()
+
+                diags |> List.ofSeq }
+
     /// Rule: Node type values should be recognized
     let typeKnownRule: ILintRule =
         let knownTypes =
@@ -831,6 +873,7 @@ module Validation =
           exitNoOutgoingRule
           conditionSyntaxRule
           stylesheetSyntaxRule
+          modelKnownRule
           typeKnownRule
           managerLoopChildDotfileRule
           fidelityValidRule

@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.10.6"
+let cliVersion = "0.10.7"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
@@ -212,6 +212,7 @@ Usage:
   attractor serve [--port N]          Run HTTP server mode
   attractor schema                    Print the DOT schema reference
   attractor example                   Print an example pipeline
+  attractor models                    List known models and aliases for llm_model=
 
 Options:
   --logs <dir>       Output directory (default: ./attractor-logs/<timestamp>)
@@ -224,6 +225,7 @@ Options:
   --trace <path>     Write structured observability JSON Lines
   --verbose          Print verbose stats/logging (default)
   --quiet            Suppress verbose stats/logging (LLM calls, tokens, timing)
+  --models           List known models and aliases for llm_model=
   --version          Print version
   --help, -h         Show this help
 
@@ -471,6 +473,24 @@ digraph code_review {
     review -> plan            [label="[R] Revise"]
 }"""
 
+let printModels () =
+    let models = ModelCatalog.listModels ()
+    let byProvider = models |> List.groupBy (fun m -> m.Provider) |> List.sortBy fst
+    printfn "Known models for llm_model= (use either the canonical ID or any alias):"
+    printfn ""
+    for (provider, list) in byProvider do
+        printfn "# %s (llm_provider=%s)" (provider.ToUpperInvariant()) provider
+        for m in list |> List.sortBy (fun m -> m.Id) do
+            let aliases =
+                match m.Aliases with
+                | [] -> ""
+                | xs -> xs |> String.concat ", " |> sprintf " (aliases: %s)"
+            printfn "  %-38s %s%s" m.Id m.DisplayName aliases
+        printfn ""
+    printfn "Reference in DOT:"
+    printfn "  node_id [shape=box, llm_model=\"claude-sonnet-4-6\"]"
+    printfn "  model_stylesheet=\"* { llm_model: gpt-5.4; } .planner { llm_model: claude-opus-4-7; }\""
+
 // ============================================================================
 // Core CLI logic
 // ============================================================================
@@ -484,6 +504,7 @@ let parseArgs (args: string array) =
     let mutable showHelp = false
     let mutable showSchema = false
     let mutable showExample = false
+    let mutable showModels = false
     let mutable showVersion = false
     let mutable simulate = false
     let mutable quiet = false
@@ -541,6 +562,8 @@ let parseArgs (args: string array) =
             showSchema <- true
         | "example" | "--example" ->
             showExample <- true
+        | "models" | "--models" ->
+            showModels <- true
         | arg when not (arg.StartsWith("-")) && dotFile.IsNone ->
             dotFile <- Some arg
         | arg ->
@@ -548,7 +571,7 @@ let parseArgs (args: string array) =
             showHelp <- true
         i <- i + 1
 
-    (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort)
+    (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showModels, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort)
 
 let validate (source: string) =
     let graph = Pipeline.parseOrRaise source
@@ -1061,7 +1084,7 @@ let main args =
             UnifiedLlm.HttpCancellation.cancel()
     )
 
-    let (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort) = parseArgs args
+    let (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showModels, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort) = parseArgs args
 
     if quiet then
         verbose <- false
@@ -1077,6 +1100,9 @@ let main args =
         ExitSuccess
     elif showExample then
         printExample ()
+        ExitSuccess
+    elif showModels then
+        printModels ()
         ExitSuccess
     elif showVersion then
         printfn "%s" cliVersion

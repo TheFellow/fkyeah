@@ -430,6 +430,103 @@ module ValidationTests =
         Assert.Equal(Severity.Error, startDiag.Severity)
         Assert.False(String.IsNullOrEmpty(startDiag.Message))
 
+    [<Fact>]
+    let ``model_known passes for canonical model id on a node`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [shape=box, llm_model="claude-sonnet-4-6", prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
+
+    [<Fact>]
+    let ``model_known passes for known alias on a node`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [shape=box, llm_model="claude-opus", prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
+
+    [<Fact>]
+    let ``model_known warns on unknown model on a node`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [shape=box, llm_model="claude-sonnet-99", prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        let diag =
+            diags
+            |> List.tryFind (fun d -> d.Rule = "model_known" && d.NodeId = "plan")
+        Assert.True(diag.IsSome)
+        Assert.Equal(Severity.Warning, diag.Value.Severity)
+        Assert.Contains("claude-sonnet-99", diag.Value.Message)
+        Assert.Contains("attractor --models", diag.Value.Message)
+
+    [<Fact>]
+    let ``model_known warns on unknown model in stylesheet`` () =
+        let dot = """
+        digraph Test {
+            graph [model_stylesheet="* { llm_model: gpt-7-mythic; }"]
+            start [shape=Mdiamond]
+            plan [shape=box, prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        let diag =
+            diags
+            |> List.tryFind (fun d -> d.Rule = "model_known")
+        Assert.True(diag.IsSome)
+        Assert.Equal(Severity.Warning, diag.Value.Severity)
+        Assert.Contains("gpt-7-mythic", diag.Value.Message)
+
+    [<Fact>]
+    let ``model_known passes for known model in stylesheet`` () =
+        let dot = """
+        digraph Test {
+            graph [model_stylesheet="* { llm_model: gpt-5.4; } .planner { llm_model: claude-opus-4-7; }"]
+            start [shape=Mdiamond]
+            plan [shape=box, prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
+
+    [<Fact>]
+    let ``model_known does not warn on empty llm_model`` () =
+        let dot = """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [shape=box, prompt="p"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
+
 // ============================================================================
 // 11.3 Execution Engine
 // ============================================================================
