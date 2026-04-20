@@ -1517,13 +1517,15 @@ module Sprint001Coverage =
 
     [<Fact>]
     let ``Parallel tool execution completes in near single-tool time`` () =
-        // Five tools at 500ms each. Sequential would be ~2500ms; parallel is ~500ms
-        // plus thread-pool scheduling overhead. A 2000ms ceiling is comfortably below
-        // the serial floor (proves parallelism) while giving CI 4x headroom over
-        // the nominal 500ms parallel time.
+        // Two tools at 500ms each. Fits in even a 2-core CI runner's ThreadPool
+        // initial thread count, avoiding the thread-injection throttling that
+        // starves larger tool counts with Thread.Sleep-based work. Sequential
+        // would be 1000ms; parallel is ~500ms. A 900ms ceiling is below the
+        // serial floor — genuinely proves parallelism — with ~400ms of CI
+        // scheduling headroom above the nominal 500ms parallel wall time.
         let toolSleepMs = 500
-        let toolCount = 5
-        let ceilingMs = 2000L
+        let toolCount = 2
+        let ceilingMs = 900L
 
         let tool =
             { Definition =
@@ -1541,6 +1543,10 @@ module Sprint001Coverage =
                     Name = "slow"
                     Arguments = "{}"
                     Metadata = Map.empty } ]
+
+        // Warm the ThreadPool so the first Task.Run isn't bottlenecked by
+        // hill-climbing worker injection on a cold runner.
+        Task.Run(fun () -> ()).Wait()
 
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let results = Generation.executeAllTools [ tool ] calls
