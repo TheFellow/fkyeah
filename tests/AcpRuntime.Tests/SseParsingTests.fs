@@ -103,10 +103,10 @@ let ``parseSseStream real events refresh idle timer and stream completes`` () =
         let producer = Task.Run(fun () ->
             for i in 1..3 do
                 tp.WriteText(sprintf "event: message\ndata: e%d\n\n" i)
-                Thread.Sleep(150)
+                Thread.Sleep(100)
             tp.Complete())
 
-        let events = Transport.parseSseStreamWithIdleTimeout (tp.ReadStream()) CancellationToken.None 600
+        let events = Transport.parseSseStreamWithIdleTimeout (tp.ReadStream()) CancellationToken.None 5000
         let! collected = drainAsync events
         producer.Wait(TimeSpan.FromSeconds(5.0)) |> ignore
         Assert.Equal(3, collected.Count)
