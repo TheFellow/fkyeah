@@ -1516,47 +1516,51 @@ module Sprint001Coverage =
         Assert.Equal("end_turn", reason.Raw)
 
     [<Fact>]
-    let ``Parallel tool execution completes in near single-tool time`` () =
-        // Two tools at 500ms each. Fits in even a 2-core CI runner's ThreadPool
-        // initial thread count, avoiding the thread-injection throttling that
-        // starves larger tool counts with Thread.Sleep-based work. Sequential
-        // would be 1000ms; parallel is ~500ms. A 900ms ceiling is below the
-        // serial floor — genuinely proves parallelism — with ~400ms of CI
-        // scheduling headroom above the nominal 500ms parallel wall time.
-        let toolSleepMs = 500
-        let toolCount = 2
-        let ceilingMs = 900L
+    let ``executeAllTools runs tool invocations concurrently`` () =
+        // Prove parallel execution structurally, not by wall-clock: each tool
+        // increments an arrival counter and blocks on a gate. If executeAllTools
+        // is parallel, every tool reaches the gate before any completes; if it
+        // were serial, only one would ever be in-flight at a time. This is
+        // immune to ThreadPool contention from parallel xUnit test execution,
+        // which made the previous timing-based assertion flaky on CI.
+        let toolCount = 3
+        let arrivals = ref 0
+
+        use allArrived = new System.Threading.ManualResetEventSlim(false)
+        use release = new System.Threading.ManualResetEventSlim(false)
 
         let tool =
             { Definition =
-                { Name = "slow"
+                { Name = "gated"
                   Description = ""
                   Parameters = """{"type":"object"}""" }
               Execute =
                 Some(fun _ ->
-                    System.Threading.Thread.Sleep(toolSleepMs)
+                    if System.Threading.Interlocked.Increment(arrivals) = toolCount then
+                        allArrived.Set()
+
+                    release.Wait(5000) |> ignore
                     "ok") }
 
         let calls =
             [ for i in 1..toolCount ->
                   { Id = $"call_{i}"
-                    Name = "slow"
+                    Name = "gated"
                     Arguments = "{}"
                     Metadata = Map.empty } ]
 
-        // Warm the ThreadPool so the first Task.Run isn't bottlenecked by
-        // hill-climbing worker injection on a cold runner.
-        Task.Run(fun () -> ()).Wait()
+        let resultsTask = Task.Run(fun () -> Generation.executeAllTools [ tool ] calls)
 
-        let sw = System.Diagnostics.Stopwatch.StartNew()
-        let results = Generation.executeAllTools [ tool ] calls
-        sw.Stop()
-        Assert.Equal(toolCount, results.Length)
-
+        // If execution is parallel, all N tools reach the gate concurrently.
+        // Under serial execution the counter would never exceed 1.
         Assert.True(
-            sw.ElapsedMilliseconds < ceilingMs,
-            $"Expected parallel execution (< {ceilingMs}ms), got {sw.ElapsedMilliseconds}ms"
+            allArrived.Wait(5000),
+            $"Expected all {toolCount} tools to be in-flight simultaneously; only {arrivals.Value} arrived"
         )
+
+        release.Set()
+        let results = resultsTask.Result
+        Assert.Equal(toolCount, results.Length)
 
     [<Fact>]
     let ``Tool argument schema validation sends error result`` () =
