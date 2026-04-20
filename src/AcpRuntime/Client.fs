@@ -16,8 +16,17 @@ type private PendingRequest =
     | PendingCancel of sessionId: string * AsyncReplyChannel<Result<unit, AcpError>>
 
 type internal ClientMsg =
-    | Connect of endpoint: AcpEndpoint * delegateImpl: AcpDelegate * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<InitializeResult, AcpError>>
-    | Prompt of sessionId: string * content: ContentBlock list * metadata: PromptMetadata option * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<PromptResult, AcpError>>
+    | Connect of
+        endpoint: AcpEndpoint *
+        delegateImpl: AcpDelegate *
+        timeout: TimeSpan option *
+        reply: AsyncReplyChannel<Result<InitializeResult, AcpError>>
+    | Prompt of
+        sessionId: string *
+        content: ContentBlock list *
+        metadata: PromptMetadata option *
+        timeout: TimeSpan option *
+        reply: AsyncReplyChannel<Result<PromptResult, AcpError>>
     | Cancel of sessionId: string * timeout: TimeSpan option * reply: AsyncReplyChannel<Result<unit, AcpError>>
     | AddObserver of NotificationObserver
     | IncomingMessage of byte array
@@ -41,17 +50,17 @@ type AcpClient internal (agent: MailboxProcessor<ClientMsg>) =
     member _.Connect(endpoint: AcpEndpoint, delegateImpl: AcpDelegate, timeout: TimeSpan option) =
         agent.PostAndAsyncReply(fun reply -> Connect(endpoint, delegateImpl, timeout, reply))
 
-    member _.Prompt(sessionId: string, content: ContentBlock list, metadata: PromptMetadata option, timeout: TimeSpan option) =
+    member _.Prompt
+        (sessionId: string, content: ContentBlock list, metadata: PromptMetadata option, timeout: TimeSpan option)
+        =
         agent.PostAndAsyncReply(fun reply -> Prompt(sessionId, content, metadata, timeout, reply))
 
     member _.Cancel(sessionId: string, timeout: TimeSpan option) =
         agent.PostAndAsyncReply(fun reply -> Cancel(sessionId, timeout, reply))
 
-    member _.AddObserver(observer: NotificationObserver) =
-        agent.Post(AddObserver observer)
+    member _.AddObserver(observer: NotificationObserver) = agent.Post(AddObserver observer)
 
-    member _.Disconnect() =
-        agent.PostAndAsyncReply Disconnect
+    member _.Disconnect() = agent.PostAndAsyncReply Disconnect
 
 module Client =
 
@@ -60,23 +69,30 @@ module Client =
     let private serializeInitializeRequest () =
         Json.serializeToElement
             {| protocolVersion = "2026-03-23"
-               clientInfo = {| name = "fkyeah-attractor"; version = "1" |}
+               clientInfo =
+                {| name = "fkyeah-attractor"
+                   version = "1" |}
                capabilities = defaultCapabilities |}
 
-    let private serializePromptRequest (sessionId: string) (content: ContentBlock list) (metadata: PromptMetadata option) =
+    let private serializePromptRequest
+        (sessionId: string)
+        (content: ContentBlock list)
+        (metadata: PromptMetadata option)
+        =
         let baseRequest =
             {| sessionId = sessionId
                prompt = ContentBlock.toElement content |}
 
-        match metadata |> Option.bind (fun value -> value.McpServersJson |> Option.map (fun json -> value, json)) with
-        | Some (_, mcpServersJson) ->
+        match
+            metadata
+            |> Option.bind (fun value -> value.McpServersJson |> Option.map (fun json -> value, json))
+        with
+        | Some(_, mcpServersJson) ->
             Json.serializeToElement
                 {| sessionId = baseRequest.sessionId
                    prompt = baseRequest.prompt
-                   metadata =
-                    {| mcpServersJson = mcpServersJson |} |}
-        | None ->
-            Json.serializeToElement baseRequest
+                   metadata = {| mcpServersJson = mcpServersJson |} |}
+        | None -> Json.serializeToElement baseRequest
 
     let private serializeCancelRequest (sessionId: string) =
         Json.serializeToElement {| sessionId = sessionId |}
@@ -112,6 +128,7 @@ module Client =
                         None
                     else
                         Some info
+
                 Ok
                     { ProtocolVersion = protocolVersion
                       Capabilities = capabilities
@@ -175,7 +192,8 @@ module Client =
     let private invokeDelegate (delegateImpl: AcpDelegate) (request: JsonRpcRequest) =
         let bindResult parse invoke project =
             match request.Params with
-            | None -> async { return Error(AcpError.InvalidPayload $"Delegate method '{request.Method}' requires params") }
+            | None ->
+                async { return Error(AcpError.InvalidPayload $"Delegate method '{request.Method}' requires params") }
             | Some parameters ->
                 match parse parameters with
                 | Error error -> async { return Error(AcpError.InvalidPayload error) }
@@ -195,17 +213,23 @@ module Client =
         | "terminal/output" ->
             bindResult Json.deserialize<TerminalOutputRequest> delegateImpl.TerminalOutput Json.serializeToElement
         | "terminal/wait_for_exit" ->
-            bindResult Json.deserialize<TerminalWaitForExitRequest> delegateImpl.TerminalWaitForExit Json.serializeToElement
+            bindResult
+                Json.deserialize<TerminalWaitForExitRequest>
+                delegateImpl.TerminalWaitForExit
+                Json.serializeToElement
         | "terminal/kill" ->
             bindResult Json.deserialize<TerminalKillRequest> delegateImpl.TerminalKill Json.serializeToElement
         | "terminal/release" ->
             bindResult Json.deserialize<TerminalReleaseRequest> delegateImpl.TerminalRelease Json.serializeToElement
         | "permissions/request" ->
             bindResult Json.deserialize<PermissionRequest> delegateImpl.RequestPermission Json.serializeToElement
-        | unknown ->
-            async { return Error(AcpError.UnknownDelegateMethod unknown) }
+        | unknown -> async { return Error(AcpError.UnknownDelegateMethod unknown) }
 
-    let private startReceiveLoop (transport: AcpTransport) (ct: CancellationToken) (inbox: MailboxProcessor<ClientMsg>) =
+    let private startReceiveLoop
+        (transport: AcpTransport)
+        (ct: CancellationToken)
+        (inbox: MailboxProcessor<ClientMsg>)
+        =
         Async.Start(
             async {
                 let enumerator = transport.Receive ct |> fun stream -> stream.GetAsyncEnumerator(ct)
@@ -215,8 +239,10 @@ module Client =
 
                 try
                     let mutable keepReading = true
+
                     while keepReading && not ct.IsCancellationRequested do
                         let! hasNext = enumerator.MoveNextAsync().AsTask() |> Async.AwaitTask
+
                         if not hasNext then
                             keepReading <- false
                         else
@@ -236,8 +262,7 @@ module Client =
 
     let private scheduleTimeout (timeout: TimeSpan option) (requestId: JsonRpcId) (inbox: MailboxProcessor<ClientMsg>) =
         match timeout with
-        | Some value when value <= TimeSpan.Zero ->
-            inbox.Post(RequestTimedOut requestId)
+        | Some value when value <= TimeSpan.Zero -> inbox.Post(RequestTimedOut requestId)
         | Some value ->
             Async.Start(
                 async {
@@ -288,7 +313,10 @@ module Client =
 
                         match msg with
                         | AddObserver observer ->
-                            return! loop { state with Observers = observer :: state.Observers }
+                            return!
+                                loop
+                                    { state with
+                                        Observers = observer :: state.Observers }
 
                         | Connect(endpoint, delegateImpl, timeout, reply) ->
                             match state.ConnectionState with
@@ -303,21 +331,24 @@ module Client =
                                     return! loop state
                                 | Ok transport ->
                                     let! connectResult = transport.Connect()
+
                                     match connectResult with
                                     | Error error ->
                                         reply.Reply(Error error)
                                         return! loop state
-                                    | Ok () ->
+                                    | Ok() ->
                                         let receiveCancellation = new CancellationTokenSource()
                                         startReceiveLoop transport receiveCancellation.Token inbox
 
                                         let requestId = NumberId state.NextId
+
                                         let request =
                                             { Id = requestId
                                               Method = "initialize"
                                               Params = Some(serializeInitializeRequest ()) }
 
                                         let pending = state.Pending |> Map.add requestId (PendingInitialize reply)
+
                                         let nextState =
                                             { state with
                                                 ConnectionState = Initializing
@@ -330,25 +361,32 @@ module Client =
 
                                         scheduleTimeout timeout requestId inbox
                                         let! sendResult = transport.Send(Codec.encode request)
+
                                         match sendResult with
-                                        | Ok () -> return! loop nextState
+                                        | Ok() -> return! loop nextState
                                         | Error error ->
                                             failPending pending error
                                             do! transport.Disconnect()
                                             receiveCancellation.Cancel()
                                             receiveCancellation.Dispose()
-                                            return! loop { initialState with Observers = state.Observers }
+
+                                            return!
+                                                loop
+                                                    { initialState with
+                                                        Observers = state.Observers }
 
                         | Prompt(sessionId, content, metadata, timeout, reply) ->
                             match state.ConnectionState, state.Transport with
                             | Connected, Some transport ->
                                 let requestId = NumberId state.NextId
+
                                 let request =
                                     { Id = requestId
                                       Method = "session/prompt"
                                       Params = Some(serializePromptRequest sessionId content metadata) }
 
                                 let pending = state.Pending |> Map.add requestId (PendingPrompt(sessionId, reply))
+
                                 let nextState =
                                     { state with
                                         Pending = pending
@@ -356,11 +394,16 @@ module Client =
 
                                 scheduleTimeout timeout requestId inbox
                                 let! sendResult = transport.Send(Codec.encode request)
+
                                 match sendResult with
-                                | Ok () -> return! loop nextState
+                                | Ok() -> return! loop nextState
                                 | Error error ->
                                     reply.Reply(Error error)
-                                    return! loop { nextState with Pending = nextState.Pending |> Map.remove requestId }
+
+                                    return!
+                                        loop
+                                            { nextState with
+                                                Pending = nextState.Pending |> Map.remove requestId }
                             | _ ->
                                 reply.Reply(Error AcpError.NotConnected)
                                 return! loop state
@@ -372,12 +415,14 @@ module Client =
                                 return! loop state
                             | Connected, Some transport ->
                                 let requestId = NumberId state.NextId
+
                                 let request =
                                     { Id = requestId
                                       Method = "session/cancel"
                                       Params = Some(serializeCancelRequest sessionId) }
 
                                 let pending = state.Pending |> Map.add requestId (PendingCancel(sessionId, reply))
+
                                 let nextState =
                                     { state with
                                         Pending = pending
@@ -385,11 +430,16 @@ module Client =
 
                                 scheduleTimeout timeout requestId inbox
                                 let! sendResult = transport.Send(Codec.encode request)
+
                                 match sendResult with
-                                | Ok () -> return! loop nextState
+                                | Ok() -> return! loop nextState
                                 | Error error ->
                                     reply.Reply(Error error)
-                                    return! loop { nextState with Pending = nextState.Pending |> Map.remove requestId }
+
+                                    return!
+                                        loop
+                                            { nextState with
+                                                Pending = nextState.Pending |> Map.remove requestId }
                             | _ ->
                                 reply.Reply(Error AcpError.NotConnected)
                                 return! loop state
@@ -399,57 +449,97 @@ module Client =
                             | Error error ->
                                 let acpError = AcpError.InvalidPayload error
                                 failPending state.Pending acpError
-                                return! loop { initialState with Observers = state.Observers }
+
+                                return!
+                                    loop
+                                        { initialState with
+                                            Observers = state.Observers }
                             | Ok(Notification(methodName, parameters)) ->
                                 for observer in List.rev state.Observers do
                                     observer methodName parameters
+
                                 return! loop state
                             | Ok(Request request) ->
                                 let! result = invokeDelegate state.Delegate request
+
                                 match state.Transport with
                                 | Some transport ->
                                     let payload =
                                         match result with
                                         | Ok response -> Codec.encodeResponse request.Id response
                                         | Error error -> Codec.encodeError request.Id (mapDelegateError error)
+
                                     let! sendResult = transport.Send payload
+
                                     match sendResult with
-                                    | Ok () -> return! loop state
+                                    | Ok() -> return! loop state
                                     | Error error ->
                                         failPending state.Pending error
-                                        return! loop { initialState with Observers = state.Observers }
-                                | None ->
-                                    return! loop state
+
+                                        return!
+                                            loop
+                                                { initialState with
+                                                    Observers = state.Observers }
+                                | None -> return! loop state
                             | Ok(Response(id, result)) ->
                                 match state.Pending |> Map.tryFind id with
                                 | None -> return! loop state
                                 | Some pending ->
-                                    let nextState = { state with Pending = state.Pending |> Map.remove id }
+                                    let nextState =
+                                        { state with
+                                            Pending = state.Pending |> Map.remove id }
+
                                     match pending, result with
                                     | PendingInitialize reply, Ok payload ->
                                         match parseInitializeResult payload with
                                         | Error error ->
                                             reply.Reply(Error error)
-                                            return! loop { nextState with ConnectionState = Disconnected; Transport = None; Endpoint = None }
+
+                                            return!
+                                                loop
+                                                    { nextState with
+                                                        ConnectionState = Disconnected
+                                                        Transport = None
+                                                        Endpoint = None }
                                         | Ok initializeResult ->
                                             match nextState.Transport with
                                             | Some transport ->
                                                 let initializedPayload =
-                                                    Codec.encodeNotification "initialized" (Some(Json.serializeToElement {| |}))
+                                                    Codec.encodeNotification
+                                                        "initialized"
+                                                        (Some(Json.serializeToElement {| |}))
+
                                                 let! sendResult = transport.Send initializedPayload
+
                                                 match sendResult with
                                                 | Error error ->
                                                     reply.Reply(Error error)
-                                                    return! loop { nextState with ConnectionState = Disconnected; Transport = None; Endpoint = None }
-                                                | Ok () ->
+
+                                                    return!
+                                                        loop
+                                                            { nextState with
+                                                                ConnectionState = Disconnected
+                                                                Transport = None
+                                                                Endpoint = None }
+                                                | Ok() ->
                                                     reply.Reply(Ok initializeResult)
-                                                    return! loop { nextState with ConnectionState = Connected }
+
+                                                    return!
+                                                        loop
+                                                            { nextState with
+                                                                ConnectionState = Connected }
                                             | None ->
                                                 reply.Reply(Error AcpError.NotConnected)
                                                 return! loop nextState
                                     | PendingInitialize reply, Error error ->
                                         reply.Reply(Error(mapRpcError error))
-                                        return! loop { nextState with ConnectionState = Disconnected; Transport = None; Endpoint = None }
+
+                                        return!
+                                            loop
+                                                { nextState with
+                                                    ConnectionState = Disconnected
+                                                    Transport = None
+                                                    Endpoint = None }
                                     | PendingPrompt(sessionId, reply), Ok payload ->
                                         match parsePromptResult payload with
                                         | Error error ->
@@ -457,7 +547,11 @@ module Client =
                                             return! loop nextState
                                         | Ok promptResult ->
                                             reply.Reply(Ok promptResult)
-                                            return! loop { nextState with CompletedSessions = nextState.CompletedSessions.Add(sessionId) }
+
+                                            return!
+                                                loop
+                                                    { nextState with
+                                                        CompletedSessions = nextState.CompletedSessions.Add(sessionId) }
                                     | PendingPrompt(_, reply), Error error ->
                                         reply.Reply(Error(mapRpcError error))
                                         return! loop nextState
@@ -465,9 +559,18 @@ module Client =
                                         reply.Reply(Ok())
                                         return! loop nextState
                                     | PendingCancel(sessionId, reply), Error error ->
-                                        if error.Message.Contains("already completed", StringComparison.OrdinalIgnoreCase) then
+                                        if
+                                            error.Message.Contains(
+                                                "already completed",
+                                                StringComparison.OrdinalIgnoreCase
+                                            )
+                                        then
                                             reply.Reply(Ok())
-                                            return! loop { nextState with CompletedSessions = nextState.CompletedSessions.Add(sessionId) }
+
+                                            return!
+                                                loop
+                                                    { nextState with
+                                                        CompletedSessions = nextState.CompletedSessions.Add(sessionId) }
                                         else
                                             reply.Reply(Error(mapRpcError error))
                                             return! loop nextState
@@ -476,7 +579,10 @@ module Client =
                             match state.Pending |> Map.tryFind requestId with
                             | None -> return! loop state
                             | Some pending ->
-                                let nextState = { state with Pending = state.Pending |> Map.remove requestId }
+                                let nextState =
+                                    { state with
+                                        Pending = state.Pending |> Map.remove requestId }
+
                                 match pending with
                                 | PendingInitialize reply ->
                                     reply.Reply(Error(AcpError.TimedOut "initialize"))
@@ -484,35 +590,52 @@ module Client =
                                 | PendingPrompt(sessionId, reply) ->
                                     reply.Reply(Error(AcpError.TimedOut $"session '{sessionId}' timed out"))
                                     do! bestEffortCancel state.Transport state.NextId sessionId
-                                    return! loop { nextState with NextId = state.NextId + 1 }
+
+                                    return!
+                                        loop
+                                            { nextState with
+                                                NextId = state.NextId + 1 }
                                 | PendingCancel(sessionId, reply) ->
                                     reply.Reply(Error(AcpError.TimedOut $"cancel '{sessionId}' timed out"))
                                     return! loop nextState
 
                         | TransportClosed error ->
                             failPending state.Pending error
+
                             match state.ReceiveCancellation with
                             | Some cancellation ->
                                 cancellation.Cancel()
                                 cancellation.Dispose()
                             | None -> ()
+
                             match state.Transport with
                             | Some transport -> do! transport.Disconnect()
                             | None -> ()
-                            return! loop { initialState with Observers = state.Observers }
+
+                            return!
+                                loop
+                                    { initialState with
+                                        Observers = state.Observers }
 
                         | Disconnect reply ->
                             failPending state.Pending AcpError.ConnectionClosed
+
                             match state.ReceiveCancellation with
                             | Some cancellation ->
                                 cancellation.Cancel()
                                 cancellation.Dispose()
                             | None -> ()
+
                             match state.Transport with
                             | Some transport -> do! transport.Disconnect()
                             | None -> ()
+
                             reply.Reply()
-                            return! loop { initialState with Observers = state.Observers }
+
+                            return!
+                                loop
+                                    { initialState with
+                                        Observers = state.Observers }
                     }
 
                 loop initialState)

@@ -45,10 +45,12 @@ type CacheConfig =
     { MaxEntries: int
       TimeToLive: TimeSpan
       PersistencePath: string option }
+
     static member Default =
         { MaxEntries = 1000
           TimeToLive = TimeSpan.FromHours(1.0)
           PersistencePath = None }
+
     static member Disabled =
         { MaxEntries = 0
           TimeToLive = TimeSpan.Zero
@@ -84,25 +86,22 @@ module CacheKey =
 
     let private writeStringList (writer: Utf8JsonWriter) (name: string) (values: string list option) =
         match values with
-        | None ->
-            writer.WriteNull(name)
+        | None -> writer.WriteNull(name)
         | Some items ->
             writer.WriteStartArray(name)
+
             for item in items do
                 writer.WriteStringValue(item)
+
             writer.WriteEndArray()
 
     let private writeToolChoice (writer: Utf8JsonWriter) (toolChoice: ToolChoice option) =
         match toolChoice with
-        | Option.None ->
-            writer.WriteNull("toolChoice")
-        | Some ToolChoice.Auto ->
-            writer.WriteString("toolChoice", "auto")
-        | Some ToolChoice.None ->
-            writer.WriteString("toolChoice", "none")
-        | Some ToolChoice.Required ->
-            writer.WriteString("toolChoice", "required")
-        | Some (ToolChoice.Named name) ->
+        | Option.None -> writer.WriteNull("toolChoice")
+        | Some ToolChoice.Auto -> writer.WriteString("toolChoice", "auto")
+        | Some ToolChoice.None -> writer.WriteString("toolChoice", "none")
+        | Some ToolChoice.Required -> writer.WriteString("toolChoice", "required")
+        | Some(ToolChoice.Named name) ->
             writer.WriteStartObject("toolChoice")
             writer.WriteString("type", "named")
             writer.WriteString("name", name)
@@ -110,13 +109,10 @@ module CacheKey =
 
     let private writeResponseFormat (writer: Utf8JsonWriter) (responseFormat: ResponseFormat option) =
         match responseFormat with
-        | None ->
-            writer.WriteNull("responseFormat")
-        | Some ResponseFormat.Text ->
-            writer.WriteString("responseFormat", "text")
-        | Some ResponseFormat.JsonObject ->
-            writer.WriteString("responseFormat", "json_object")
-        | Some (ResponseFormat.JsonSchema(name, schema, strict)) ->
+        | None -> writer.WriteNull("responseFormat")
+        | Some ResponseFormat.Text -> writer.WriteString("responseFormat", "text")
+        | Some ResponseFormat.JsonObject -> writer.WriteString("responseFormat", "json_object")
+        | Some(ResponseFormat.JsonSchema(name, schema, strict)) ->
             writer.WriteStartObject("responseFormat")
             writer.WriteString("type", "json_schema")
             writer.WriteString("name", name)
@@ -126,20 +122,22 @@ module CacheKey =
 
     let private writeToolDefinitions (writer: Utf8JsonWriter) (tools: ToolDefinition list option) =
         match tools with
-        | None ->
-            writer.WriteNull("tools")
+        | None -> writer.WriteNull("tools")
         | Some definitions ->
             writer.WriteStartArray("tools")
+
             for definition in definitions do
                 writer.WriteStartObject()
                 writer.WriteString("description", definition.Description)
                 writer.WriteString("name", definition.Name)
                 writer.WriteString("parameters", definition.Parameters)
                 writer.WriteEndObject()
+
             writer.WriteEndArray()
 
     let private writeContentPart (writer: Utf8JsonWriter) (part: ContentPart) =
         writer.WriteStartObject()
+
         match part with
         | Text text ->
             writer.WriteString("kind", "text")
@@ -166,8 +164,10 @@ module CacheKey =
             writer.WriteString("arguments", toolCall.Arguments)
             writer.WriteString("id", toolCall.Id)
             writer.WriteStartObject("metadata")
+
             for pair in toolCall.Metadata |> Map.toSeq |> Seq.sortBy fst do
                 writer.WriteString(pair |> fst, pair |> snd)
+
             writer.WriteEndObject()
             writer.WriteString("name", toolCall.Name)
         | ToolResult toolResult ->
@@ -182,13 +182,16 @@ module CacheKey =
             writer.WriteBoolean("redacted", thinking.Redacted)
             writeString writer "signature" thinking.Signature
             writer.WriteString("text", thinking.Text)
+
         writer.WriteEndObject()
 
     let private writeMessages (writer: Utf8JsonWriter) (messages: Message list) =
         writer.WriteStartArray("messages")
+
         for message in messages do
             writer.WriteStartObject()
             writeString writer "name" message.Name
+
             writer.WriteString(
                 "role",
                 match message.Role with
@@ -196,13 +199,18 @@ module CacheKey =
                 | Role.User -> "user"
                 | Role.Assistant -> "assistant"
                 | Role.Tool -> "tool"
-                | Role.Developer -> "developer")
+                | Role.Developer -> "developer"
+            )
+
             writer.WriteStartArray("content")
+
             for part in message.Content do
                 writeContentPart writer part
+
             writer.WriteEndArray()
             writeString writer "toolCallId" message.ToolCallId
             writer.WriteEndObject()
+
         writer.WriteEndArray()
 
     let private requestBytes (request: Request) =
@@ -251,14 +259,18 @@ module CacheStore =
 
     let private writeStringMap (writer: Utf8JsonWriter) (name: string) (values: Map<string, string>) =
         writer.WriteStartObject(name)
+
         for pair in values |> Map.toSeq |> Seq.sortBy fst do
             writer.WriteString(pair |> fst, pair |> snd)
+
         writer.WriteEndObject()
 
     let private writeStringList (writer: Utf8JsonWriter) (name: string) (values: string list) =
         writer.WriteStartArray(name)
+
         for item in values do
             writer.WriteStringValue(item)
+
         writer.WriteEndArray()
 
     let private serializePersisted (entry: PersistedCacheEntry) =
@@ -270,6 +282,7 @@ module CacheStore =
         writer.WriteString("provider", entry.Provider)
         writer.WriteString("text", entry.Text)
         writer.WriteStartArray("toolCalls")
+
         for toolCall in entry.ToolCalls do
             writer.WriteStartObject()
             writer.WriteString("id", toolCall.Id)
@@ -277,6 +290,7 @@ module CacheStore =
             writer.WriteString("arguments", toolCall.Arguments)
             writeStringMap writer "metadata" toolCall.Metadata
             writer.WriteEndObject()
+
         writer.WriteEndArray()
         writer.WriteString("finishReasonTag", entry.FinishReasonTag)
         writer.WriteString("finishReasonRaw", entry.FinishReasonRaw)
@@ -297,7 +311,11 @@ module CacheStore =
 
     let private tryGetProperty (name: string) (root: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
-        if root.TryGetProperty(name, &value) then Some value else None
+
+        if root.TryGetProperty(name, &value) then
+            Some value
+        else
+            None
 
     let private getString (name: string) (root: JsonElement) =
         match tryGetProperty name root with
@@ -339,8 +357,10 @@ module CacheStore =
         | Some value when value.ValueKind = JsonValueKind.Array ->
             value.EnumerateArray()
             |> Seq.map (fun item ->
-                if item.ValueKind = JsonValueKind.String then item.GetString()
-                else failwith $"Expected '{name}' array entries to be strings")
+                if item.ValueKind = JsonValueKind.String then
+                    item.GetString()
+                else
+                    failwith $"Expected '{name}' array entries to be strings")
             |> Seq.toList
         | Some value -> failwith $"Expected '{name}' to be an array but was {value.ValueKind}"
         | None -> []
@@ -348,6 +368,7 @@ module CacheStore =
     let private deserializePersisted (bytes: byte array) =
         use doc = JsonDocument.Parse(bytes)
         let root = doc.RootElement
+
         let usageRoot =
             match tryGetProperty "usage" root with
             | Some value when value.ValueKind = JsonValueKind.Object -> value
@@ -439,7 +460,8 @@ module CacheStore =
                       Metadata = toolCall.Metadata })
 
         let content =
-            [ if entry.Text <> "" then yield Text entry.Text
+            [ if entry.Text <> "" then
+                  yield Text entry.Text
               yield! toolCalls ]
 
         { Response =
@@ -480,8 +502,10 @@ module CacheStore =
 
         let writeAtomically (path: string) (content: byte array) =
             let dir = Path.GetDirectoryName(path)
+
             if not (Directory.Exists(dir)) then
                 Directory.CreateDirectory(dir) |> ignore
+
             let tempPath = path + ".tmp." + Guid.NewGuid().ToString("N")
             File.WriteAllBytes(tempPath, content)
             File.Move(tempPath, path, true)
@@ -489,6 +513,7 @@ module CacheStore =
         let evictIfNeeded () =
             if isEnabled && llmCache.Count > config.MaxEntries then
                 let overflow = llmCache.Count - config.MaxEntries
+
                 let victims =
                     accessTimes
                     |> Seq.sortBy (fun pair -> pair.Value)
@@ -499,16 +524,15 @@ module CacheStore =
                 for victim in victims do
                     llmCache.TryRemove(victim) |> ignore
                     accessTimes.TryRemove(victim) |> ignore
+
                     match llmPath victim with
                     | Some path when File.Exists(path) -> File.Delete(path)
                     | _ -> ()
 
         let removeExpiredTool key =
             match toolCache.TryGetValue(key) with
-            | true, (storedAt, _) when not (isFresh storedAt) ->
-                toolCache.TryRemove(key) |> ignore
-            | _ ->
-                ()
+            | true, (storedAt, _) when not (isFresh storedAt) -> toolCache.TryRemove(key) |> ignore
+            | _ -> ()
 
         { TryGetLlm =
             fun key ->
@@ -520,14 +544,15 @@ module CacheStore =
                         accessTimes[rawKey] <- DateTimeOffset.UtcNow
 
                         match llmCache.TryGetValue(rawKey) with
-                        | true, entry when isFresh entry.StoredAt ->
-                            return Some entry
+                        | true, entry when isFresh entry.StoredAt -> return Some entry
                         | true, _ ->
                             llmCache.TryRemove(rawKey) |> ignore
                             accessTimes.TryRemove(rawKey) |> ignore
+
                             match llmPath rawKey with
                             | Some path when File.Exists(path) -> File.Delete(path)
                             | _ -> ()
+
                             return None
                         | false, _ ->
                             match llmPath rawKey with
@@ -535,6 +560,7 @@ module CacheStore =
                                 try
                                     let bytes = File.ReadAllBytes(path)
                                     let entry = deserializePersisted bytes |> ofPersisted
+
                                     if isFresh entry.StoredAt then
                                         llmCache[rawKey] <- entry
                                         return Some entry
@@ -542,10 +568,13 @@ module CacheStore =
                                         File.Delete(path)
                                         return None
                                 with _ ->
-                                    try File.Delete(path) with _ -> ()
+                                    try
+                                        File.Delete(path)
+                                    with _ ->
+                                        ()
+
                                     return None
-                            | _ ->
-                                return None
+                            | _ -> return None
                 }
           PutLlm =
             fun key entry ->
@@ -555,12 +584,12 @@ module CacheStore =
                         llmCache[rawKey] <- entry
                         accessTimes[rawKey] <- DateTimeOffset.UtcNow
                         evictIfNeeded ()
+
                         match llmPath rawKey with
                         | Some path ->
                             let bytes = entry |> toPersisted |> serializePersisted
                             writeAtomically path bytes
-                        | None ->
-                            ()
+                        | None -> ()
                 }
           TryGetTool =
             fun key ->
@@ -570,6 +599,7 @@ module CacheStore =
                     else
                         let rawKey = CacheKey.value key
                         removeExpiredTool rawKey
+
                         match toolCache.TryGetValue(rawKey) with
                         | true, (_, result) -> return Some result
                         | false, _ -> return None
@@ -587,6 +617,7 @@ module CacheStore =
                     llmCache.TryRemove(rawKey) |> ignore
                     toolCache.TryRemove(rawKey) |> ignore
                     accessTimes.TryRemove(rawKey) |> ignore
+
                     match llmPath rawKey with
                     | Some path when File.Exists(path) -> File.Delete(path)
                     | _ -> ()
@@ -597,24 +628,26 @@ module CacheStore =
                 llmCache.Clear()
                 toolCache.Clear()
                 accessTimes.Clear()
+
                 match config.PersistencePath with
-                | Some root when Directory.Exists(root) ->
-                    Directory.Delete(root, true)
-                | _ ->
-                    () }
+                | Some root when Directory.Exists(root) -> Directory.Delete(root, true)
+                | _ -> () }
 
 module Caching =
 
     let replayStreamFromCachedResponse (response: Response) : StreamEvent seq =
         seq {
             yield StreamStart
+
             if response.Text <> "" then
                 yield TextStart "cached-text"
                 yield TextDelta(Some "cached-text", response.Text)
                 yield TextEnd "cached-text"
+
             for toolCall in response.ToolCalls do
                 yield ToolCallStart toolCall
                 yield ToolCallEnd toolCall
+
             yield StepFinish(0, Some response)
             yield Finish(response.FinishReason, Some response.Usage, Some response)
         }

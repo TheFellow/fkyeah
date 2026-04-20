@@ -36,14 +36,23 @@ module ContextPrompt =
         let excluded = ResizeArray<string>()
         let sb = StringBuilder()
 
-        sb.AppendLine("You are a stage in an Attractor pipeline. Use the context below to inform your response.") |> ignore
-        sb.AppendLine("Do NOT hallucinate information. Only reference files, code, and data that appear in the context.") |> ignore
-        sb.AppendLine("If the context doesn't contain enough information, say so explicitly.") |> ignore
+        sb.AppendLine("You are a stage in an Attractor pipeline. Use the context below to inform your response.")
+        |> ignore
+
+        sb.AppendLine(
+            "Do NOT hallucinate information. Only reference files, code, and data that appear in the context."
+        )
+        |> ignore
+
+        sb.AppendLine("If the context doesn't contain enough information, say so explicitly.")
+        |> ignore
+
         sb.AppendLine() |> ignore
 
         if goal <> "" then
             sb.AppendLine($"## Pipeline Goal\n{goal}") |> ignore
             sb.AppendLine() |> ignore
+
             if snapshot |> Map.containsKey "graph.goal" then
                 included.Add("graph.goal")
 
@@ -51,8 +60,15 @@ module ContextPrompt =
             snapshot
             |> Map.toList
             |> List.choose (fun (key, value) ->
-                if key <> "graph.goal" && (key.StartsWith("graph.") || key = "current_node" || key = "outcome") then
-                    Some { Key = key; Label = key; Value = value; WrapInCodeFence = false }
+                if
+                    key <> "graph.goal"
+                    && (key.StartsWith("graph.") || key = "current_node" || key = "outcome")
+                then
+                    Some
+                        { Key = key
+                          Label = key
+                          Value = value
+                          WrapInCodeFence = false }
                 else
                     None)
 
@@ -64,27 +80,40 @@ module ContextPrompt =
                 usedChars + rendered.Length
             else
                 let remaining = charBudget - usedChars
+
                 if remaining <= 0 then
                     excluded.Add(entry.Key)
                     usedChars
                 else
                     let fullRendered = formatEntry entry entry.Value
+
                     if fullRendered.Length <= remaining then
                         sb.Append(fullRendered) |> ignore
                         included.Add(entry.Key)
                         usedChars + fullRendered.Length
                     else
                         let truncatedSuffix =
-                            if entry.WrapInCodeFence then "\n[truncated]" else " [truncated]"
-                        let fixedOverhead = (formatEntry entry "" |> fun rendered -> rendered.Length) + truncatedSuffix.Length
+                            if entry.WrapInCodeFence then
+                                "\n[truncated]"
+                            else
+                                " [truncated]"
+
+                        let fixedOverhead =
+                            (formatEntry entry "" |> fun rendered -> rendered.Length)
+                            + truncatedSuffix.Length
+
                         let roomForValue = max 0 (remaining - fixedOverhead)
+
                         if roomForValue = 0 then
                             excluded.Add(entry.Key)
                             usedChars
                         else
                             let clipped =
-                                if entry.Value.Length > roomForValue then entry.Value.Substring(0, roomForValue) + truncatedSuffix
-                                else entry.Value
+                                if entry.Value.Length > roomForValue then
+                                    entry.Value.Substring(0, roomForValue) + truncatedSuffix
+                                else
+                                    entry.Value
+
                             let rendered = formatEntry entry clipped
                             sb.Append(rendered) |> ignore
                             included.Add(entry.Key)
@@ -95,7 +124,11 @@ module ContextPrompt =
             let addIfPresent key label wrap acc =
                 match snapshot |> Map.tryFind key with
                 | Some value when value <> "" ->
-                    { Key = key; Label = label; Value = value; WrapInCodeFence = wrap } :: acc
+                    { Key = key
+                      Label = label
+                      Value = value
+                      WrapInCodeFence = wrap }
+                    :: acc
                 | _ -> acc
 
             let toolOutputEntries =
@@ -110,7 +143,11 @@ module ContextPrompt =
                 |> Map.toList
                 |> List.choose (fun (key, value) ->
                     if key.StartsWith("parallel.branch.") then
-                        Some { Key = key; Label = key; Value = value; WrapInCodeFence = false }
+                        Some
+                            { Key = key
+                              Label = key
+                              Value = value
+                              WrapInCodeFence = false }
                     else
                         None)
 
@@ -119,7 +156,11 @@ module ContextPrompt =
                 |> Map.toList
                 |> List.choose (fun (key, value) ->
                     if key.StartsWith("human.gate.") then
-                        Some { Key = key; Label = key; Value = value; WrapInCodeFence = false }
+                        Some
+                            { Key = key
+                              Label = key
+                              Value = value
+                              WrapInCodeFence = false }
                     else
                         None)
 
@@ -139,13 +180,19 @@ module ContextPrompt =
                     if alreadySelected |> Set.contains key then
                         None
                     else
-                        Some { Key = key; Label = key; Value = value; WrapInCodeFence = false })
+                        Some
+                            { Key = key
+                              Label = key
+                              Value = value
+                              WrapInCodeFence = false })
 
-            structuralEntries @ toolOutputEntries @ parallelEntries @ humanEntries @ remainingEntries
+            structuralEntries
+            @ toolOutputEntries
+            @ parallelEntries
+            @ humanEntries
+            @ remainingEntries
 
-        let usedChars =
-            (0, prioritizedEntries)
-            ||> List.fold addEntry
+        let usedChars = (0, prioritizedEntries) ||> List.fold addEntry
 
         { SystemMessage = sb.ToString()
           FidelityMode = fidelity

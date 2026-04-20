@@ -37,11 +37,12 @@ let private invokeStatic helperName (args: obj array) =
 
 let private generateWithUsage provider usage =
     let mock = ConfigurableMockAdapter(provider)
+
     mock.SetCompleteHandler(fun _ ->
         { Id = "r1"
           Model = "m"
           Provider = provider
-          Message = Message.assistant("cached response")
+          Message = Message.assistant ("cached response")
           FinishReason = Stop "stop"
           Usage = usage
           ResponseId = None
@@ -56,10 +57,7 @@ let private generateWithUsage provider usage =
 [<Fact>]
 let ``Anthropic buildBody caches system and last user by default`` () =
     let request =
-        Request.Create(
-            "claude-opus-4-6",
-            [ Message.system("System guidance")
-              Message.user("Hello") ])
+        Request.Create("claude-opus-4-6", [ Message.system ("System guidance"); Message.user ("Hello") ])
 
     let json = buildAnthropicBody request |> JsonSerializer.Serialize
     Assert.Equal(2, cacheControlCount json)
@@ -69,10 +67,11 @@ let ``Anthropic buildBody caches system and final user across mixed roles`` () =
     let request =
         Request.Create(
             "claude-opus-4-6",
-            [ Message.system("System guidance")
-              Message.user("First user")
-              Message.assistant("Intermediate reply")
-              Message.user("Last user") ])
+            [ Message.system ("System guidance")
+              Message.user ("First user")
+              Message.assistant ("Intermediate reply")
+              Message.user ("Last user") ]
+        )
 
     let json = buildAnthropicBody request |> JsonSerializer.Serialize
     Assert.Equal(2, cacheControlCount json)
@@ -94,10 +93,11 @@ let ``Anthropic buildBody caches system and final tool result`` () =
     let request =
         Request.Create(
             "claude-opus-4-6",
-            [ Message.system("System guidance")
-              Message.user("Call the tool")
+            [ Message.system ("System guidance")
+              Message.user ("Call the tool")
               assistantToolCall
-              Message.toolResult("call_1", "result content", false) ])
+              Message.toolResult ("call_1", "result content", false) ]
+        )
 
     let json = buildAnthropicBody request |> JsonSerializer.Serialize
     Assert.Equal(2, cacheControlCount json)
@@ -105,14 +105,11 @@ let ``Anthropic buildBody caches system and final tool result`` () =
 
 [<Fact>]
 let ``Anthropic buildBody skips cache_control when auto_cache is false`` () =
-    let providerOptions : Map<string, obj> =
+    let providerOptions: Map<string, obj> =
         Map.ofList [ "anthropic", box (Map.ofList [ "auto_cache", box false ]) ]
 
     let request =
-        { Request.Create(
-            "claude-opus-4-6",
-            [ Message.system("System guidance")
-              Message.user("Hello") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.system ("System guidance"); Message.user ("Hello") ]) with
             ProviderOptions = Some providerOptions }
 
     let json = buildAnthropicBody request |> JsonSerializer.Serialize
@@ -160,8 +157,7 @@ let ``Gemini cache usage fields survive Generation.generate`` () =
 [<Fact>]
 let ``B9 OpenAI finish reason mapping table covers all branches`` () =
     let mapOpenAIFinishReason rawStatus rawReason hasToolCalls =
-        invokeStatic "mapOpenAIFinishReason" [| box rawStatus; box rawReason; box hasToolCalls |]
-        :?> FinishReason
+        invokeStatic "mapOpenAIFinishReason" [| box rawStatus; box rawReason; box hasToolCalls |] :?> FinishReason
 
     let cases =
         [ ToolCalls "tool_calls", mapOpenAIFinishReason "completed" (Some "tool_calls") true

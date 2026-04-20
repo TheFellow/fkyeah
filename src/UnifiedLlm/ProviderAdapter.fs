@@ -35,20 +35,20 @@ module RoleTranslation =
     /// Translate a Role to the Anthropic Messages API role string
     let toAnthropic (role: Role) : string =
         match role with
-        | System -> "system"    // extracted to system parameter
+        | System -> "system" // extracted to system parameter
         | User -> "user"
         | Assistant -> "assistant"
-        | Tool -> "user"        // tool results go in user messages
+        | Tool -> "user" // tool results go in user messages
         | Developer -> "system" // merged with system
 
     /// Translate a Role to the Gemini API role string
     let toGemini (role: Role) : string =
         match role with
-        | System -> "system"       // extracted to systemInstruction
+        | System -> "system" // extracted to systemInstruction
         | User -> "user"
         | Assistant -> "model"
-        | Tool -> "user"           // functionResponse in user content
-        | Developer -> "system"    // merged with system
+        | Tool -> "user" // functionResponse in user content
+        | Developer -> "system" // merged with system
 
 /// Mock adapter for OpenAI (for testing without real API calls)
 type MockOpenAIAdapter() =
@@ -62,10 +62,14 @@ type MockOpenAIAdapter() =
             { Id = "mock-openai-" + System.Guid.NewGuid().ToString("N").[..7]
               Model = request.Model
               Provider = "openai"
-              Message = Message.assistant("Mock OpenAI response")
+              Message = Message.assistant ("Mock OpenAI response")
               FinishReason = Stop "stop"
-              Usage = { InputTokens = 10; OutputTokens = 5; ReasoningTokens = None
-                        CacheReadTokens = None; CacheWriteTokens = None }
+              Usage =
+                { InputTokens = 10
+                  OutputTokens = 5
+                  ReasoningTokens = None
+                  CacheReadTokens = None
+                  CacheWriteTokens = None }
               ResponseId = Some "resp-mock-openai"
               Raw = None
               Warnings = []
@@ -79,9 +83,18 @@ type MockOpenAIAdapter() =
                 yield TextDelta(Some "text-1", "OpenAI ")
                 yield TextDelta(Some "text-1", "stream")
                 yield TextEnd "text-1"
-                yield Finish(Stop "completed", Some { InputTokens = 10; OutputTokens = 3
-                                                      ReasoningTokens = None; CacheReadTokens = None
-                                                      CacheWriteTokens = None }, None)
+
+                yield
+                    Finish(
+                        Stop "completed",
+                        Some
+                            { InputTokens = 10
+                              OutputTokens = 3
+                              ReasoningTokens = None
+                              CacheReadTokens = None
+                              CacheWriteTokens = None },
+                        None
+                    )
             }
 
 /// Mock adapter for Anthropic (for testing without real API calls)
@@ -96,10 +109,14 @@ type MockAnthropicAdapter() =
             { Id = "mock-anthropic-" + System.Guid.NewGuid().ToString("N").[..7]
               Model = request.Model
               Provider = "anthropic"
-              Message = Message.assistant("Mock Anthropic response")
+              Message = Message.assistant ("Mock Anthropic response")
               FinishReason = Stop "end_turn"
-              Usage = { InputTokens = 12; OutputTokens = 6; ReasoningTokens = None
-                        CacheReadTokens = None; CacheWriteTokens = None }
+              Usage =
+                { InputTokens = 12
+                  OutputTokens = 6
+                  ReasoningTokens = None
+                  CacheReadTokens = None
+                  CacheWriteTokens = None }
               ResponseId = Some "resp-mock-anthropic"
               Raw = None
               Warnings = []
@@ -113,9 +130,18 @@ type MockAnthropicAdapter() =
                 yield TextDelta(Some "text-1", "Anthropic ")
                 yield TextDelta(Some "text-1", "stream")
                 yield TextEnd "text-1"
-                yield Finish(Stop "end_turn", Some { InputTokens = 12; OutputTokens = 3
-                                                     ReasoningTokens = None; CacheReadTokens = None
-                                                     CacheWriteTokens = None }, None)
+
+                yield
+                    Finish(
+                        Stop "end_turn",
+                        Some
+                            { InputTokens = 12
+                              OutputTokens = 3
+                              ReasoningTokens = None
+                              CacheReadTokens = None
+                              CacheWriteTokens = None },
+                        None
+                    )
             }
 
 /// Mock adapter for Gemini (for testing without real API calls)
@@ -130,10 +156,14 @@ type MockGeminiAdapter() =
             { Id = "mock-gemini-" + System.Guid.NewGuid().ToString("N").[..7]
               Model = request.Model
               Provider = "gemini"
-              Message = Message.assistant("Mock Gemini response")
+              Message = Message.assistant ("Mock Gemini response")
               FinishReason = Stop "STOP"
-              Usage = { InputTokens = 8; OutputTokens = 4; ReasoningTokens = None
-                        CacheReadTokens = None; CacheWriteTokens = None }
+              Usage =
+                { InputTokens = 8
+                  OutputTokens = 4
+                  ReasoningTokens = None
+                  CacheReadTokens = None
+                  CacheWriteTokens = None }
               ResponseId = Some "resp-mock-gemini"
               Raw = None
               Warnings = []
@@ -147,9 +177,18 @@ type MockGeminiAdapter() =
                 yield TextDelta(Some "text-1", "Gemini ")
                 yield TextDelta(Some "text-1", "stream")
                 yield TextEnd "text-1"
-                yield Finish(Stop "STOP", Some { InputTokens = 8; OutputTokens = 3
-                                                 ReasoningTokens = None; CacheReadTokens = None
-                                                 CacheWriteTokens = None }, None)
+
+                yield
+                    Finish(
+                        Stop "STOP",
+                        Some
+                            { InputTokens = 8
+                              OutputTokens = 3
+                              ReasoningTokens = None
+                              CacheReadTokens = None
+                              CacheWriteTokens = None },
+                        None
+                    )
             }
 
 /// A configurable mock adapter that allows tests to control behavior
@@ -157,11 +196,9 @@ type ConfigurableMockAdapter(providerId: string) =
     let mutable completeHandler: (Request -> Response) option = Option.None
     let mutable streamHandler: (Request -> StreamEvent seq) option = Option.None
 
-    member _.SetCompleteHandler(handler: Request -> Response) =
-        completeHandler <- Some handler
+    member _.SetCompleteHandler(handler: Request -> Response) = completeHandler <- Some handler
 
-    member _.SetStreamHandler(handler: Request -> StreamEvent seq) =
-        streamHandler <- Some handler
+    member _.SetStreamHandler(handler: Request -> StreamEvent seq) = streamHandler <- Some handler
 
     interface IProviderAdapter with
         member _.ProviderId = providerId
@@ -176,7 +213,7 @@ type ConfigurableMockAdapter(providerId: string) =
                 { Id = sprintf "mock-%s" providerId
                   Model = request.Model
                   Provider = providerId
-                  Message = Message.assistant("Default mock response")
+                  Message = Message.assistant ("Default mock response")
                   FinishReason = Stop "stop"
                   Usage = Usage.Zero
                   ResponseId = None

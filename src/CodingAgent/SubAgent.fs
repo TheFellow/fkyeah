@@ -4,11 +4,10 @@ open System
 open UnifiedLlm
 
 /// Result from a subagent
-type SubAgentResult = {
-    Output: string
-    Success: bool
-    TurnsUsed: int
-}
+type SubAgentResult =
+    { Output: string
+      Success: bool
+      TurnsUsed: int }
 
 /// Handle to a spawned subagent
 type SubAgentHandle(id: string, session: Session) =
@@ -43,17 +42,26 @@ type SubAgentHandle(id: string, session: Session) =
                 match t with
                 | AssistantTurn(content, _, _, _, _) -> Some content
                 | _ -> None)
+
         let output = lastAssistant |> Option.defaultValue ""
+
         let turns =
             session.History
             |> List.filter (fun t ->
                 match t with
-                | UserTurn _ | AssistantTurn _ -> true
+                | UserTurn _
+                | AssistantTurn _ -> true
                 | _ -> false)
             |> List.length
+
         let success = status <> "failed"
-        if success then status <- "completed"
-        { Output = output; Success = success; TurnsUsed = turns }
+
+        if success then
+            status <- "completed"
+
+        { Output = output
+          Success = success
+          TurnsUsed = turns }
 
     /// Close the subagent
     member _.Close() =
@@ -78,9 +86,11 @@ module SubAgent =
         if currentDepth >= maxDepth then
             None // Depth limit reached
         else
-            let subConfig =
-                config |> Option.defaultValue SessionConfig.Default
-            let subSession = Session(parentProfile, env, client, subConfig, depth = currentDepth + 1)
+            let subConfig = config |> Option.defaultValue SessionConfig.Default
+
+            let subSession =
+                Session(parentProfile, env, client, subConfig, depth = currentDepth + 1)
+
             let handle = SubAgentHandle(Guid.NewGuid().ToString("N"), subSession)
             handle.SendInput(task)
             Some handle

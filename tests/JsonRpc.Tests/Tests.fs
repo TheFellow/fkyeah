@@ -20,10 +20,12 @@ module JsonRpcCodecAndCorrelatorTests =
                 let rec readNext () =
                     task {
                         let! canRead = reader.WaitToReadAsync(cancellationToken).AsTask()
+
                         if not canRead then
                             return false
                         else
                             let mutable item = Unchecked.defaultof<byte array>
+
                             if reader.TryRead(&item) then
                                 current <- item
                                 return true
@@ -50,8 +52,10 @@ module JsonRpcCodecAndCorrelatorTests =
     let private errorBytes id =
         let payload =
             match id with
-            | StringId value -> $"""{{"jsonrpc":"2.0","id":"{value}","error":{{"code":-32601,"message":"Method not found"}}}}"""
-            | NumberId value -> $"""{{"jsonrpc":"2.0","id":{value},"error":{{"code":-32601,"message":"Method not found"}}}}"""
+            | StringId value ->
+                $"""{{"jsonrpc":"2.0","id":"{value}","error":{{"code":-32601,"message":"Method not found"}}}}"""
+            | NumberId value ->
+                $"""{{"jsonrpc":"2.0","id":{value},"error":{{"code":-32601,"message":"Method not found"}}}}"""
 
         Encoding.UTF8.GetBytes(payload)
 
@@ -86,7 +90,8 @@ module JsonRpcCodecAndCorrelatorTests =
 
     [<Fact>]
     let ``decode success response with string id`` () =
-        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":"req-1","result":{"ok":true}}""")
+        let payload =
+            Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":"req-1","result":{"ok":true}}""")
 
         match Codec.decode payload with
         | Ok(Response(StringId id, Ok result)) ->
@@ -96,7 +101,8 @@ module JsonRpcCodecAndCorrelatorTests =
 
     [<Fact>]
     let ``decode success response with numeric id`` () =
-        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"result":{"value":123}}""")
+        let payload =
+            Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"result":{"value":123}}""")
 
         match Codec.decode payload with
         | Ok(Response(NumberId id, Ok result)) ->
@@ -117,7 +123,8 @@ module JsonRpcCodecAndCorrelatorTests =
 
     [<Fact>]
     let ``decode notification without id returns notification`` () =
-        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"tools/changed","params":{"count":2}}""")
+        let payload =
+            Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"tools/changed","params":{"count":2}}""")
 
         match Codec.decode payload with
         | Ok(Notification(methodName, Some parameters)) ->
@@ -127,19 +134,25 @@ module JsonRpcCodecAndCorrelatorTests =
 
     [<Fact>]
     let ``decode request with id returns request`` () =
-        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"method":"filesystem/read_text_file","params":{"path":"notes.txt"}}""")
+        let payload =
+            Encoding.UTF8.GetBytes(
+                """{"jsonrpc":"2.0","id":7,"method":"filesystem/read_text_file","params":{"path":"notes.txt"}}"""
+            )
 
         match Codec.decode payload with
         | Ok(Request request) ->
             match request.Id with
             | NumberId id -> Assert.Equal(7, id)
             | _ -> Assert.Fail("Expected numeric id")
+
             Assert.Equal("filesystem/read_text_file", request.Method)
+
             let parameters =
                 request.Params
                 |> Option.defaultWith (fun () ->
                     Assert.Fail("Expected params")
                     Unchecked.defaultof<_>)
+
             Assert.Equal("notes.txt", parameters.GetProperty("path").GetString())
         | other -> Assert.Fail($"Unexpected decode result: {other}")
 
@@ -159,6 +172,7 @@ module JsonRpcCodecAndCorrelatorTests =
                 { Code = -32601
                   Message = "Method not found"
                   Data = None }
+
         let json = Encoding.UTF8.GetString(payload)
 
         Assert.Contains("\"id\":3", json)
@@ -175,7 +189,8 @@ module JsonRpcCodecAndCorrelatorTests =
 
     [<Fact>]
     let ``decode rejects numeric id that does not fit Int32`` () =
-        let payload = Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9999999999,"result":{}}""")
+        let payload =
+            Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9999999999,"result":{}}""")
 
         match Codec.decode payload with
         | Error "JSON-RPC id number must fit Int32" -> ()
@@ -197,11 +212,14 @@ module JsonRpcCodecAndCorrelatorTests =
                         sent.Count = 3)
 
                 if shouldReply then
-                    let responses =
-                        lock gate (fun () -> sent |> Seq.toList |> List.rev)
+                    let responses = lock gate (fun () -> sent |> Seq.toList |> List.rev)
 
                     for (responseId, responseMethod) in responses do
-                        do! channel.Writer.WriteAsync(responseBytes responseId $"""{{"method":"{responseMethod}"}}""").AsTask() |> Async.AwaitTask
+                        do!
+                            channel.Writer
+                                .WriteAsync(responseBytes responseId $"""{{"method":"{responseMethod}"}}""")
+                                .AsTask()
+                            |> Async.AwaitTask
 
                 return Ok()
             }
@@ -226,6 +244,7 @@ module JsonRpcCodecAndCorrelatorTests =
     let ``correlator fails pending requests when transport stream ends`` () =
         let channel = Channel.CreateUnbounded<byte array>()
         let send _ = async { return Ok() }
+
         let correlator =
             Correlator.start send (ChannelAsyncEnumerable(channel.Reader) :> IAsyncEnumerable<_>) (fun _ _ -> ())
 
@@ -249,10 +268,12 @@ module JsonRpcCodecAndCorrelatorTests =
     let ``correlator fails all pending requests when transport yields unexpected request message`` () =
         let channel = Channel.CreateUnbounded<byte array>()
         let send _ = async { return Ok() }
+
         let correlator =
             Correlator.start send (ChannelAsyncEnumerable(channel.Reader) :> IAsyncEnumerable<_>) (fun _ _ -> ())
 
         let pending = Correlator.sendRequest "one" None correlator |> Async.StartAsTask
+
         let unexpectedRequest =
             Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"echo"}}""")
 
@@ -270,6 +291,7 @@ module JsonRpcCodecAndCorrelatorTests =
     let ``correlator surfaces transport send failure to waiting caller`` () =
         let channel = Channel.CreateUnbounded<byte array>()
         let send _ = async { return Error "boom" }
+
         let correlator =
             Correlator.start send (ChannelAsyncEnumerable(channel.Reader) :> IAsyncEnumerable<_>) (fun _ _ -> ())
 
@@ -296,9 +318,13 @@ module JsonRpcCodecAndCorrelatorTests =
                         parameters
                         |> Option.map (fun value -> value.GetProperty("count").GetInt32())
                         |> Option.defaultValue -1
+
                     notificationReceived.TrySetResult($"{methodName}:{count}") |> ignore)
 
-        channel.Writer.WriteAsync(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"tools/changed","params":{"count":5}}""")).AsTask().Wait()
+        channel.Writer
+            .WriteAsync(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","method":"tools/changed","params":{"count":5}}"""))
+            .AsTask()
+            .Wait()
 
         let completed = notificationReceived.Task.Wait(TimeSpan.FromSeconds(3.0))
         Assert.True(completed)

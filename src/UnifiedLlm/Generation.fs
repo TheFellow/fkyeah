@@ -8,56 +8,55 @@ open System.Threading
 open System.Threading.Tasks
 
 /// Result of a high-level generate call
-type GenerateResult = {
-    Text: string
-    Reasoning: string option
-    ToolCalls: ToolCallData list
-    ToolResults: ToolResultData list
-    FinishReason: FinishReason
-    Usage: Usage
-    TotalUsage: Usage
-    Steps: StepResult list
-    Response: Response
-}
+type GenerateResult =
+    { Text: string
+      Reasoning: string option
+      ToolCalls: ToolCallData list
+      ToolResults: ToolResultData list
+      FinishReason: FinishReason
+      Usage: Usage
+      TotalUsage: Usage
+      Steps: StepResult list
+      Response: Response }
 
 /// High-level generation functions
 module Generation =
 
-    type private RequestOptions = {
-        MaxRetries: int option
-        Timeout: TimeSpan option
-        TimeoutConfig: TimeoutConfig option
-        AdapterTimeout: AdapterTimeout option
-        AbortSignal: AbortSignal option
-        Temperature: float option
-        TopP: float option
-        StopSequences: string list option
-        ResponseFormat: ResponseFormat option
-        Metadata: Map<string, string> option
-        StopWhen: StopCondition list option
-    }
+    type private RequestOptions =
+        { MaxRetries: int option
+          Timeout: TimeSpan option
+          TimeoutConfig: TimeoutConfig option
+          AdapterTimeout: AdapterTimeout option
+          AbortSignal: AbortSignal option
+          Temperature: float option
+          TopP: float option
+          StopSequences: string list option
+          ResponseFormat: ResponseFormat option
+          Metadata: Map<string, string> option
+          StopWhen: StopCondition list option }
 
-    let private defaultRequestOptions = {
-        MaxRetries = None
-        Timeout = None
-        TimeoutConfig = None
-        AdapterTimeout = None
-        AbortSignal = None
-        Temperature = None
-        TopP = None
-        StopSequences = None
-        ResponseFormat = None
-        Metadata = None
-        StopWhen = None
-    }
+    let private defaultRequestOptions =
+        { MaxRetries = None
+          Timeout = None
+          TimeoutConfig = None
+          AdapterTimeout = None
+          AbortSignal = None
+          Temperature = None
+          TopP = None
+          StopSequences = None
+          ResponseFormat = None
+          Metadata = None
+          StopWhen = None }
 
     type private SeqAsyncEnumerable<'T>(source: seq<'T>) =
         interface IAsyncEnumerable<'T> with
             member _.GetAsyncEnumerator(_cancellationToken: CancellationToken) =
                 let enumerator = source.GetEnumerator()
+
                 { new IAsyncEnumerator<'T> with
                     member _.Current = enumerator.Current
                     member _.MoveNextAsync() = ValueTask<bool>(enumerator.MoveNext())
+
                     member _.DisposeAsync() =
                         enumerator.Dispose()
                         ValueTask() }
@@ -86,8 +85,7 @@ module Generation =
                     | ']' -> depth <- depth - 1
                     | _ -> ()
 
-        member _.IsBalanced =
-            depth <= 0 && not inString
+        member _.IsBalanced = depth <= 0 && not inString
 
         member _.Reset() =
             depth <- 0
@@ -110,6 +108,7 @@ module Generation =
         let upsertToolCall (toolCall: ToolCallData) =
             if not (toolCalls.ContainsKey(toolCall.Id)) then
                 toolOrder.Add(toolCall.Id)
+
             toolCalls[toolCall.Id] <- toolCall
 
         let ensureTracker (id: string) =
@@ -123,6 +122,7 @@ module Generation =
         let trackToolArguments (toolCall: ToolCallData) =
             let tracker = ensureTracker toolCall.Id
             tracker.Reset()
+
             if not (String.IsNullOrEmpty(toolCall.Arguments)) then
                 tracker.Feed(toolCall.Arguments)
 
@@ -139,17 +139,21 @@ module Generation =
             | Some response -> response
             | None ->
                 let contentParts =
-                    [
-                        if reasoning.Length > 0 then
-                            yield Thinking { Text = reasoning.ToString(); Signature = None; Redacted = false }
-                        if text.Length > 0 then
-                            yield Text(text.ToString())
-                        for id in toolOrder do
-                            if toolCalls.ContainsKey(id) then
-                                yield ToolCall(toolCalls[id])
-                    ]
+                    [ if reasoning.Length > 0 then
+                          yield
+                              Thinking
+                                  { Text = reasoning.ToString()
+                                    Signature = None
+                                    Redacted = false }
+                      if text.Length > 0 then
+                          yield Text(text.ToString())
+                      for id in toolOrder do
+                          if toolCalls.ContainsKey(id) then
+                              yield ToolCall(toolCalls[id]) ]
 
-                { Id = responseId |> Option.defaultValue ("stream-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+                { Id =
+                    responseId
+                    |> Option.defaultValue ("stream-" + Guid.NewGuid().ToString("N").Substring(0, 8))
                   Model = currentModel
                   Provider = currentProvider
                   Message =
@@ -173,27 +177,30 @@ module Generation =
             | ReasoningEnd _
             | ProviderEvent _
             | StreamError _ -> ()
-            | ThinkingEvent delta ->
-                reasoning.Append(delta) |> ignore
-            | TextDelta(_, delta) ->
-                text.Append(delta) |> ignore
-            | ToolCallStart tc ->
-                upsertToolCall (trackToolArguments tc)
+            | ThinkingEvent delta -> reasoning.Append(delta) |> ignore
+            | TextDelta(_, delta) -> text.Append(delta) |> ignore
+            | ToolCallStart tc -> upsertToolCall (trackToolArguments tc)
             | ToolCallDelta(id, argsDelta) ->
                 if toolCalls.ContainsKey(id) then
                     let existing = toolCalls[id]
                     let nextArgs = existing.Arguments + argsDelta
                     let tracker = ensureTracker id
                     tracker.Feed(argsDelta)
+
                     let metadata =
                         if tracker.IsBalanced && nextArgs <> "" then
                             existing.Metadata |> Map.add "json_complete" "true"
                         else
                             existing.Metadata |> Map.remove "json_complete"
-                    toolCalls[id] <- { existing with Arguments = nextArgs; Metadata = metadata }
+
+                    toolCalls[id] <-
+                        { existing with
+                            Arguments = nextArgs
+                            Metadata = metadata }
                 else
                     let tracker = ensureTracker id
                     tracker.Feed(argsDelta)
+
                     let metadata =
                         [ "orphan", "true" ]
                         |> Map.ofList
@@ -202,13 +209,24 @@ module Generation =
                                 current |> Map.add "json_complete" "true"
                             else
                                 current
-                    upsertToolCall { Id = id; Name = ""; Arguments = argsDelta; Metadata = metadata }
+
+                    upsertToolCall
+                        { Id = id
+                          Name = ""
+                          Arguments = argsDelta
+                          Metadata = metadata }
             | ToolCallEnd tc ->
                 let merged =
                     match toolCalls.TryGetValue(tc.Id) with
                     | true, existing ->
-                        { tc with Metadata = Map.fold (fun state key value -> state |> Map.add key value) existing.Metadata tc.Metadata }
+                        { tc with
+                            Metadata =
+                                Map.fold
+                                    (fun state key value -> state |> Map.add key value)
+                                    existing.Metadata
+                                    tc.Metadata }
                     | false, _ -> tc
+
                 upsertToolCall (trackToolArguments merged)
             | StepFinish(_, responseOpt) ->
                 match responseOpt with
@@ -220,9 +238,11 @@ module Generation =
                 | None -> ()
             | Finish(reason, usageOpt, responseOpt) ->
                 finishReason <- reason
+
                 match usageOpt with
                 | Some u -> usage <- u
                 | None -> ()
+
                 match responseOpt with
                 | Some response ->
                     responseId <- response.ResponseId
@@ -230,26 +250,31 @@ module Generation =
                     currentProvider <- response.Provider
                     usage <- response.Usage
                     finalized <- Some response
-                | None ->
-                    finalized <- Some(snapshot ())
+                | None -> finalized <- Some(snapshot ())
 
-        member _.Events : IAsyncEnumerable<StreamEvent> =
+        member _.Events: IAsyncEnumerable<StreamEvent> =
             { new IAsyncEnumerable<StreamEvent> with
                 member _.GetAsyncEnumerator(cancellationToken: CancellationToken) =
                     let inner = stream.GetAsyncEnumerator(cancellationToken)
+
                     { new IAsyncEnumerator<StreamEvent> with
                         member _.Current = inner.Current
+
                         member _.MoveNextAsync() =
                             ValueTask<bool>(
                                 task {
                                     let! hasNext = inner.MoveNextAsync().AsTask()
+
                                     if hasNext then
                                         processEvent inner.Current
+
                                     return hasNext
-                                })
+                                }
+                            )
+
                         member _.DisposeAsync() = inner.DisposeAsync() } }
 
-        member _.TextStream : IAsyncEnumerable<string> =
+        member _.TextStream: IAsyncEnumerable<string> =
             { new IAsyncEnumerable<string> with
                 member _.GetAsyncEnumerator(cancellationToken: CancellationToken) =
                     let inner = stream.GetAsyncEnumerator(cancellationToken)
@@ -258,17 +283,18 @@ module Generation =
                     let rec moveNextText () =
                         task {
                             let! hasNext = inner.MoveNextAsync().AsTask()
+
                             if not hasNext then
                                 return false
                             else
                                 let evt = inner.Current
                                 processEvent evt
+
                                 match evt with
                                 | TextDelta(_, delta) ->
                                     current <- delta
                                     return true
-                                | _ ->
-                                    return! moveNextText ()
+                                | _ -> return! moveNextText ()
                         }
 
                     { new IAsyncEnumerator<string> with
@@ -276,16 +302,17 @@ module Generation =
                         member _.MoveNextAsync() = ValueTask<bool>(moveNextText ())
                         member _.DisposeAsync() = inner.DisposeAsync() } }
 
-        member _.PartialResponse() =
-            snapshot ()
+        member _.PartialResponse() = snapshot ()
 
         member _.ReasoningText =
-            if reasoning.Length > 0 then Some(reasoning.ToString()) else None
+            if reasoning.Length > 0 then
+                Some(reasoning.ToString())
+            else
+                None
 
-    type StreamObjectResult<'T> = {
-        PartialObjects: IAsyncEnumerable<'T>
-        FinalObject: unit -> 'T option
-    }
+    type StreamObjectResult<'T> =
+        { PartialObjects: IAsyncEnumerable<'T>
+          FinalObject: unit -> 'T option }
 
     let private isToolCalls (reason: FinishReason) =
         match reason with
@@ -298,22 +325,21 @@ module Generation =
 
     let private throwIfAborted (abortSignal: AbortSignal option) =
         match abortSignal with
-        | Some signal when signal.IsAborted ->
-            raise (AbortError("Request aborted by caller"))
+        | Some signal when signal.IsAborted -> raise (AbortError("Request aborted by caller"))
         | _ -> ()
 
     let private matchesStopCondition (condition: StopCondition) (response: Response) (roundsExecuted: int) =
         match condition with
-        | ToolCalled toolName ->
-            response.ToolCalls |> List.exists (fun tc -> tc.Name = toolName)
+        | ToolCalled toolName -> response.ToolCalls |> List.exists (fun tc -> tc.Name = toolName)
         | TextMatches pattern ->
             if String.IsNullOrWhiteSpace(pattern) then
                 false
             else
-                try Regex.IsMatch(response.Text, pattern, RegexOptions.IgnoreCase ||| RegexOptions.Multiline)
-                with _ -> response.Text.Contains(pattern, StringComparison.OrdinalIgnoreCase)
-        | MaxRounds n ->
-            n > 0 && roundsExecuted >= n
+                try
+                    Regex.IsMatch(response.Text, pattern, RegexOptions.IgnoreCase ||| RegexOptions.Multiline)
+                with _ ->
+                    response.Text.Contains(pattern, StringComparison.OrdinalIgnoreCase)
+        | MaxRounds n -> n > 0 && roundsExecuted >= n
 
     let private shouldStop (stopWhen: StopCondition list option) (response: Response) (roundsExecuted: int) =
         stopWhen
@@ -330,20 +356,22 @@ module Generation =
     /// Build messages from prompt or messages input
     let buildMessages (prompt: string option) (messages: Message list option) (system: string option) : Message list =
         validateInput prompt messages
+
         let baseMessages =
             match prompt with
-            | Some p -> [ Message.user(p) ]
+            | Some p -> [ Message.user (p) ]
             | Option.None ->
                 match messages with
                 | Some m -> m
                 | Option.None -> []
+
         match system with
-        | Some s -> Message.system(s) :: baseMessages
+        | Some s -> Message.system (s) :: baseMessages
         | Option.None -> baseMessages
 
     let private tryParseJsonDocument (json: string) =
         try
-            Some (JsonDocument.Parse(json))
+            Some(JsonDocument.Parse(json))
         with _ ->
             None
 
@@ -378,9 +406,14 @@ module Generation =
                 let required =
                     if schema.TryGetProperty("required") |> fst then
                         schema.GetProperty("required").EnumerateArray()
-                        |> Seq.choose (fun e -> if e.ValueKind = JsonValueKind.String then Some(e.GetString()) else None)
+                        |> Seq.choose (fun e ->
+                            if e.ValueKind = JsonValueKind.String then
+                                Some(e.GetString())
+                            else
+                                None)
                         |> Seq.toList
-                    else []
+                    else
+                        []
 
                 let properties =
                     if schema.TryGetProperty("properties") |> fst then
@@ -391,21 +424,29 @@ module Generation =
                 let missingErrors =
                     required
                     |> List.choose (fun name ->
-                        if args.TryGetProperty(name) |> fst then None
-                        else Some(sprintf "Missing required field '%s'" name))
+                        if args.TryGetProperty(name) |> fst then
+                            None
+                        else
+                            Some(sprintf "Missing required field '%s'" name))
 
                 let typeErrors =
                     properties.EnumerateObject()
                     |> Seq.choose (fun p ->
                         let propName = p.Name
                         let propSchema = p.Value
-                        if not (args.TryGetProperty(propName) |> fst) then None
-                        elif not (propSchema.TryGetProperty("type") |> fst) then None
+
+                        if not (args.TryGetProperty(propName) |> fst) then
+                            None
+                        elif not (propSchema.TryGetProperty("type") |> fst) then
+                            None
                         else
                             let expectedType = propSchema.GetProperty("type").GetString()
                             let argValue = args.GetProperty(propName)
-                            if jsonTypeMatches expectedType argValue then None
-                            else Some(sprintf "Field '%s' must be type '%s'" propName expectedType))
+
+                            if jsonTypeMatches expectedType argValue then
+                                None
+                            else
+                                Some(sprintf "Field '%s' must be type '%s'" propName expectedType))
                     |> Seq.toList
 
                 missingErrors @ typeErrors
@@ -413,12 +454,17 @@ module Generation =
     /// Execute a tool call against a tool registry
     let executeTool (tools: Tool list) (toolCall: ToolCallData) : ToolResultData =
         let tool = tools |> List.tryFind (fun t -> t.Definition.Name = toolCall.Name)
+
         match tool with
         | Option.None ->
-            { ToolCallId = toolCall.Id; Content = sprintf "Unknown tool: %s" toolCall.Name; IsError = true
-              ImageData = None; ImageMediaType = None }
+            { ToolCallId = toolCall.Id
+              Content = sprintf "Unknown tool: %s" toolCall.Name
+              IsError = true
+              ImageData = None
+              ImageMediaType = None }
         | Some t ->
             let validationErrors = validateToolArguments t toolCall.Arguments
+
             if not validationErrors.IsEmpty then
                 { ToolCallId = toolCall.Id
                   Content = sprintf "Tool argument validation failed: %s" (String.concat "; " validationErrors)
@@ -428,16 +474,26 @@ module Generation =
             else
                 match t.Execute with
                 | Option.None ->
-                    { ToolCallId = toolCall.Id; Content = "Tool has no execute handler"; IsError = true
-                      ImageData = None; ImageMediaType = None }
+                    { ToolCallId = toolCall.Id
+                      Content = "Tool has no execute handler"
+                      IsError = true
+                      ImageData = None
+                      ImageMediaType = None }
                 | Some exec ->
                     try
                         let result = exec toolCall.Arguments
-                        { ToolCallId = toolCall.Id; Content = result; IsError = false
-                          ImageData = None; ImageMediaType = None }
+
+                        { ToolCallId = toolCall.Id
+                          Content = result
+                          IsError = false
+                          ImageData = None
+                          ImageMediaType = None }
                     with ex ->
-                        { ToolCallId = toolCall.Id; Content = sprintf "Tool error: %s" ex.Message; IsError = true
-                          ImageData = None; ImageMediaType = None }
+                        { ToolCallId = toolCall.Id
+                          Content = sprintf "Tool error: %s" ex.Message
+                          IsError = true
+                          ImageData = None
+                          ImageMediaType = None }
 
     /// Execute multiple tool calls concurrently while preserving order.
     let executeAllTools (tools: Tool list) (toolCalls: ToolCallData list) : ToolResultData list =
@@ -466,8 +522,7 @@ module Generation =
             |> Option.orElseWith (fun () ->
                 options.TimeoutConfig
                 |> Option.bind (fun timeout ->
-                    timeout.PerStepMs
-                    |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))))
+                    timeout.PerStepMs |> Option.map (fun ms -> TimeSpan.FromMilliseconds(float ms))))
 
         { Request.Create(model, conversation) with
             Tools = toolDefs
@@ -498,8 +553,7 @@ module Generation =
         : GenerateResult =
 
         let initialMessages = buildMessages prompt messages system
-        let toolDefs =
-            tools |> Option.map (List.map (fun t -> t.Definition))
+        let toolDefs = tools |> Option.map (List.map (fun t -> t.Definition))
 
         let mutable conversation = initialMessages
         let mutable steps: StepResult list = []
@@ -514,6 +568,7 @@ module Generation =
                 match timeoutConfig.TotalMs with
                 | Some totalMs when totalMs > 0 ->
                     let elapsedMs = int (DateTimeOffset.UtcNow - startedAt).TotalMilliseconds
+
                     if elapsedMs > totalMs then
                         raise (RequestTimeoutError(sprintf "Generation exceeded total timeout (%dms)" totalMs))
                 | _ -> ()
@@ -537,22 +592,19 @@ module Generation =
                     executeAllTools ts toolCalls
                 | _ -> []
 
-            let step = {
-                ToolCalls = toolCalls
-                ToolResults = toolResults
-                Usage = response.Usage
-                Response = response
-            }
+            let step =
+                { ToolCalls = toolCalls
+                  ToolResults = toolResults
+                  Usage = response.Usage
+                  Response = response }
+
             steps <- steps @ [ step ]
 
             let continuingWithTools =
-                not toolCalls.IsEmpty
-                && isToolCalls response.FinishReason
-                && hasActiveTools
-            let roundsAfterThisStep =
-                if continuingWithTools then roundCount + 1 else roundCount
-            let stopConditionMatched =
-                shouldStop options.StopWhen response roundsAfterThisStep
+                not toolCalls.IsEmpty && isToolCalls response.FinishReason && hasActiveTools
+
+            let roundsAfterThisStep = if continuingWithTools then roundCount + 1 else roundCount
+            let stopConditionMatched = shouldStop options.StopWhen response roundsAfterThisStep
 
             if toolCalls.IsEmpty || not (isToolCalls response.FinishReason) then
                 keepLooping <- false
@@ -565,21 +617,23 @@ module Generation =
             else
                 roundCount <- roundsAfterThisStep
                 conversation <- conversation @ [ response.Message ]
+
                 for result in toolResults do
-                    conversation <- conversation @ [ Message.toolResult(result.ToolCallId, result.Content, result.IsError) ]
+                    conversation <-
+                        conversation
+                        @ [ Message.toolResult (result.ToolCallId, result.Content, result.IsError) ]
 
         let lastStep = steps |> List.last
-        {
-            Text = lastStep.Response.Text
-            Reasoning = lastStep.Response.Reasoning
-            ToolCalls = lastStep.ToolCalls
-            ToolResults = lastStep.ToolResults
-            FinishReason = lastStep.Response.FinishReason
-            Usage = lastStep.Usage
-            TotalUsage = totalUsage
-            Steps = steps
-            Response = lastStep.Response
-        }
+
+        { Text = lastStep.Response.Text
+          Reasoning = lastStep.Response.Reasoning
+          ToolCalls = lastStep.ToolCalls
+          ToolResults = lastStep.ToolResults
+          FinishReason = lastStep.Response.FinishReason
+          Usage = lastStep.Usage
+          TotalUsage = totalUsage
+          Steps = steps
+          Response = lastStep.Response }
 
     /// High-level generate function with automatic tool loop and advanced controls.
     let generateWithControl
@@ -650,6 +704,7 @@ module Generation =
 
         if schema.TryGetProperty("type") |> fst then
             let expected = schema.GetProperty("type").GetString()
+
             if not (jsonTypeMatches expected payload) then
                 raise (NoObjectGeneratedError(sprintf "Generated JSON type mismatch. Expected '%s'." expected))
 
@@ -657,9 +712,14 @@ module Generation =
             let required =
                 if schema.TryGetProperty("required") |> fst then
                     schema.GetProperty("required").EnumerateArray()
-                    |> Seq.choose (fun e -> if e.ValueKind = JsonValueKind.String then Some(e.GetString()) else None)
+                    |> Seq.choose (fun e ->
+                        if e.ValueKind = JsonValueKind.String then
+                            Some(e.GetString())
+                        else
+                            None)
                     |> Seq.toList
-                else []
+                else
+                    []
 
             for field in required do
                 if not (payload.TryGetProperty(field) |> fst) then
@@ -667,13 +727,20 @@ module Generation =
 
             if schema.TryGetProperty("properties") |> fst then
                 let properties = schema.GetProperty("properties")
+
                 for p in properties.EnumerateObject() do
                     if payload.TryGetProperty(p.Name) |> fst then
                         let value = payload.GetProperty(p.Name)
+
                         if p.Value.TryGetProperty("type") |> fst then
                             let expected = p.Value.GetProperty("type").GetString()
+
                             if not (jsonTypeMatches expected value) then
-                                raise (NoObjectGeneratedError(sprintf "Generated JSON field '%s' should be '%s'." p.Name expected))
+                                raise (
+                                    NoObjectGeneratedError(
+                                        sprintf "Generated JSON field '%s' should be '%s'." p.Name expected
+                                    )
+                                )
 
     /// Generate structured JSON using provider-native response format controls.
     let generateObjectWithControl
@@ -707,7 +774,9 @@ module Generation =
         // lives in the tool-call arguments rather than in the text content.
         let text =
             let t = result.Text.Trim()
-            if not (String.IsNullOrWhiteSpace t) then t
+
+            if not (String.IsNullOrWhiteSpace t) then
+                t
             else
                 result.ToolCalls
                 |> List.tryHead
@@ -719,16 +788,17 @@ module Generation =
 
         try
             validateJsonAgainstSchema schema text
-        with
-        | :? JsonException as ex ->
+        with :? JsonException as ex ->
             raise (NoObjectGeneratedError(sprintf "Provider did not return valid JSON: %s" ex.Message))
 
         // Return a result with the extracted text so callers always see it in result.Text
         { result with
             Text = text
-            Response = { result.Response with
-                            Message = { result.Response.Message with
-                                            Content = [ ContentPart.Text text ] } } }
+            Response =
+                { result.Response with
+                    Message =
+                        { result.Response.Message with
+                            Content = [ ContentPart.Text text ] } } }
 
     /// Backward-compatible structured output function.
     let generateObject
@@ -772,14 +842,16 @@ module Generation =
             let mutable emittedStreamStart = false
 
             while keepLooping do
-                let request = buildRequest model conversation toolDefs provider reasoningEffort options
+                let request =
+                    buildRequest model conversation toolDefs provider reasoningEffort options
 
                 let events =
                     Retry.execute (maxRetriesConfig options.MaxRetries) (fun () ->
                         throwIfAborted abortSignal
                         client.Stream(request) |> Seq.toList)
 
-                let mutable finishEvent: (FinishReason * Usage option * Response option) option = None
+                let mutable finishEvent: (FinishReason * Usage option * Response option) option =
+                    None
 
                 for event in events do
                     match event with
@@ -787,10 +859,8 @@ module Generation =
                         emittedStreamStart <- true
                         yield StreamStart
                     | StreamStart -> ()
-                    | Finish(reason, usage, response) ->
-                        finishEvent <- Some(reason, usage, response)
-                    | _ ->
-                        yield event
+                    | Finish(reason, usage, response) -> finishEvent <- Some(reason, usage, response)
+                    | _ -> yield event
 
                 match finishEvent with
                 | None ->
@@ -810,8 +880,11 @@ module Generation =
                             | None -> []
 
                         conversation <- conversation @ [ response.Message ]
+
                         for result in toolResults do
-                            conversation <- conversation @ [ Message.toolResult(result.ToolCallId, result.Content, result.IsError) ]
+                            conversation <-
+                                conversation
+                                @ [ Message.toolResult (result.ToolCallId, result.Content, result.IsError) ]
 
                         yield StepFinish(stepIndex, Some response)
                         stepIndex <- stepIndex + 1
@@ -829,19 +902,7 @@ module Generation =
         (system: string option)
         (provider: string option)
         : StreamEvent seq =
-        streamWithControl
-            client
-            model
-            prompt
-            messages
-            system
-            None
-            0
-            provider
-            None
-            None
-            None
-            None
+        streamWithControl client model prompt messages system None 0 provider None None None None
 
     let private tryDeserialize<'T> (text: string) =
         try
@@ -860,12 +921,15 @@ module Generation =
         : StreamObjectResult<'T> =
 
         let request =
-            { Request.Create(model, [ Message.user(prompt) ]) with
+            { Request.Create(model, [ Message.user (prompt) ]) with
                 Provider = provider
                 ResponseFormat = Some(ResponseFormat.JsonSchema("generated_object", schema, true)) }
 
         let events = client.Stream(request) |> toAsyncEnumerable
-        let accumulator = StreamAccumulator(events, model = model, provider = (provider |> Option.defaultValue ""))
+
+        let accumulator =
+            StreamAccumulator(events, model = model, provider = (provider |> Option.defaultValue ""))
+
         let mutable finalValue: 'T option = None
         let mutable finalComputed = false
 
@@ -878,31 +942,38 @@ module Generation =
 
                     { new IAsyncEnumerator<'T> with
                         member _.Current = current
+
                         member _.MoveNextAsync() =
                             let rec nextParsed () =
                                 task {
                                     let! hasNext = inner.MoveNextAsync().AsTask()
+
                                     if not hasNext then
                                         if not finalComputed then
                                             finalComputed <- true
                                             finalValue <- tryDeserialize<'T> (accumulator.PartialResponse().Text.Trim())
+
                                         return false
                                     else
                                         text.Append(inner.Current) |> ignore
+
                                         match tryDeserialize<'T> (text.ToString().Trim()) with
                                         | Some parsed ->
                                             current <- parsed
                                             finalValue <- Some parsed
                                             return true
-                                        | None ->
-                                            return! nextParsed ()
+                                        | None -> return! nextParsed ()
                                 }
+
                             ValueTask<bool>(nextParsed ())
+
                         member _.DisposeAsync() = inner.DisposeAsync() } }
 
         { PartialObjects = partials
-          FinalObject = fun () ->
-              if not finalComputed then
-                  finalComputed <- true
-                  finalValue <- tryDeserialize<'T> (accumulator.PartialResponse().Text.Trim())
-              finalValue }
+          FinalObject =
+            fun () ->
+                if not finalComputed then
+                    finalComputed <- true
+                    finalValue <- tryDeserialize<'T> (accumulator.PartialResponse().Text.Trim())
+
+                finalValue }

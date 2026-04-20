@@ -19,10 +19,13 @@ let mutable sharedObservabilitySink = ObservabilitySink.none
 
 [<Literal>]
 let ExitSuccess = 0
+
 [<Literal>]
 let ExitPipelineFailure = 1
+
 [<Literal>]
 let ExitValidationError = 1
+
 [<Literal>]
 let ExitConfigError = 3
 
@@ -43,41 +46,66 @@ type LlmBackend(llmClient: Client) =
         member _.Run(node, prompt, context) =
             try
                 let model =
-                    if node.LlmModel <> "" then node.LlmModel
-                    else "claude-sonnet-4-6"
-                let provider =
-                    if node.LlmProvider <> "" then Some node.LlmProvider
+                    if node.LlmModel <> "" then
+                        node.LlmModel
                     else
-                        if model.StartsWith("claude") then Some "anthropic"
-                        elif model.StartsWith("gpt") || model.StartsWith("o1") || model.StartsWith("o3") || model.StartsWith("o4") then Some "openai"
-                        elif model.StartsWith("gemini") then Some "gemini"
-                        else None
+                        "claude-sonnet-4-6"
+
+                let provider =
+                    if node.LlmProvider <> "" then
+                        Some node.LlmProvider
+                    else if model.StartsWith("claude") then
+                        Some "anthropic"
+                    elif
+                        model.StartsWith("gpt")
+                        || model.StartsWith("o1")
+                        || model.StartsWith("o3")
+                        || model.StartsWith("o4")
+                    then
+                        Some "openai"
+                    elif model.StartsWith("gemini") then
+                        Some "gemini"
+                    else
+                        None
 
                 // Build context from pipeline state
                 let goal = context.Get("graph.goal", "")
+
                 let preparedContext =
                     ContextPrompt.preparePromptContext (resolveContextFidelity node) context goal
+
                 let systemMsg = preparedContext.SystemMessage
 
                 if verbose then
                     let providerStr = provider |> Option.defaultValue "auto"
-                    eprintfn "        LLM call: model=%s provider=%s prompt=%d chars context=%d chars fidelity=%s budget=%d/%d" model providerStr prompt.Length systemMsg.Length (preparedContext.FidelityMode.ToString()) preparedContext.CharBudgetUsed (FidelityMode.charBudget preparedContext.FidelityMode)
+
+                    eprintfn
+                        "        LLM call: model=%s provider=%s prompt=%d chars context=%d chars fidelity=%s budget=%d/%d"
+                        model
+                        providerStr
+                        prompt.Length
+                        systemMsg.Length
+                        (preparedContext.FidelityMode.ToString())
+                        preparedContext.CharBudgetUsed
+                        (FidelityMode.charBudget preparedContext.FidelityMode)
 
                 // Read reasoning effort from node (set by stylesheet or attribute)
                 let reasoningEffort =
                     let re = node.ReasoningEffort
-                    if re <> "" && re <> "high" then Some re  // "high" is default, don't send explicitly
-                    else None
+
+                    if re <> "" && re <> "high" then
+                        Some re // "high" is default, don't send explicitly
+                    else
+                        None
 
                 // Read previous response ID for conversation chaining (OpenAI Responses API)
                 let prevResponseId =
                     context.TryGet($"llm.response_id.{model}")
                     |> Option.bind (fun v -> if v <> "" then Some v else None)
 
-                let messages = [
-                    UnifiedLlm.Message.system(systemMsg)
-                    UnifiedLlm.Message.user(prompt)
-                ]
+                let messages =
+                    [ UnifiedLlm.Message.system (systemMsg); UnifiedLlm.Message.user (prompt) ]
+
                 let request =
                     { Request.Create(model, messages) with
                         Provider = provider
@@ -89,10 +117,20 @@ type LlmBackend(llmClient: Client) =
                 let response = llmClient.Complete(request)
                 sw.Stop()
 
-                match Costing.tryCalculateCostById response.Model response.Usage (response.Usage.CacheReadTokens |> Option.defaultValue 0 > 0) with
+                match
+                    Costing.tryCalculateCostById
+                        response.Model
+                        response.Usage
+                        (response.Usage.CacheReadTokens |> Option.defaultValue 0 > 0)
+                with
                 | Some cost ->
                     context.Set("llm.cost_microdollars", string cost.TotalMicrodollars)
-                    context.Set("llm.cost_usd", cost.TotalUsd.ToString(System.Globalization.CultureInfo.InvariantCulture))
+
+                    context.Set(
+                        "llm.cost_usd",
+                        cost.TotalUsd.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    )
+
                     context.Set("llm.input_tokens", string response.Usage.InputTokens)
                     context.Set("llm.output_tokens", string response.Usage.OutputTokens)
                     context.Set("llm.cache_hit", string cost.CacheHit)
@@ -114,31 +152,41 @@ type LlmBackend(llmClient: Client) =
                                     match response.Usage.CacheReadTokens with
                                     | Some c when c > 0 -> sprintf " cache_read=%d" c
                                     | _ -> ""
+
                                 let write =
                                     match response.Usage.CacheWriteTokens with
                                     | Some c when c > 0 -> sprintf " cache_write=%d" c
                                     | _ -> ""
+
                                 read + write
+
                             let reasonStr =
                                 match response.Usage.ReasoningTokens with
                                 | Some r when r > 0 -> sprintf " reasoning=%d" r
                                 | _ -> ""
-                            sprintf "in=%d out=%d%s%s" response.Usage.InputTokens response.Usage.OutputTokens cacheStr reasonStr
+
+                            sprintf
+                                "in=%d out=%d%s%s"
+                                response.Usage.InputTokens
+                                response.Usage.OutputTokens
+                                cacheStr
+                                reasonStr
                         else
                             "tokens=n/a"
+
                     eprintfn "        LLM done: %d chars, %.1fs, %s" response.Text.Length sw.Elapsed.TotalSeconds tokens
 
                 Ok response.Text
             with
             | :? OperationCanceledException ->
                 eprintfn "        LLM call cancelled (Ctrl-C)"
-                Result.Error (Outcome.Fail("Cancelled by user"))
+                Result.Error(Outcome.Fail("Cancelled by user"))
             | :? ValidationError as ex ->
                 eprintfn "        LLM validation error: %s" ex.Message
-                Result.Error (Outcome.Fail($"Validation failed: {ex.Message}"))
+                Result.Error(Outcome.Fail($"Validation failed: {ex.Message}"))
             | ex ->
                 eprintfn "        LLM error: %s" ex.Message
-                Result.Error (Outcome.Retry($"LLM call failed: {ex.Message}"))
+                Result.Error(Outcome.Retry($"LLM call failed: {ex.Message}"))
 
 /// CLI event observer with verbose stats
 type ConsoleEventObserver() =
@@ -159,7 +207,9 @@ type ConsoleEventObserver() =
             | PipelineEvent.StageCompleted(name, index, duration) ->
                 if duration.TotalSeconds >= 1.0 then
                     totalLlmStages <- totalLlmStages + 1
+
                 printfn "[%s]   Stage %s completed (%.1fs)" (timestamp ()) name duration.TotalSeconds
+
                 if verbose then
                     let elapsed = DateTimeOffset.UtcNow - pipelineStart
                     eprintfn "        [stats] stage %d/%d elapsed=%.0fs" (index + 1) stageCount elapsed.TotalSeconds
@@ -170,8 +220,13 @@ type ConsoleEventObserver() =
                 printfn "[%s]   Stage %s retrying (attempt %d, backoff %dms)" (timestamp ()) name attempt delayMs
             | PipelineEvent.PipelineCompleted(duration, count) ->
                 printfn "[%s] Pipeline completed: %d stages in %.1fs" (timestamp ()) count duration.TotalSeconds
+
                 if verbose then
-                    eprintfn "        [stats] total_stages=%d llm_stages=%d wall_time=%.1fs" count totalLlmStages duration.TotalSeconds
+                    eprintfn
+                        "        [stats] total_stages=%d llm_stages=%d wall_time=%.1fs"
+                        count
+                        totalLlmStages
+                        duration.TotalSeconds
             | PipelineEvent.PipelineFailed(error, duration) ->
                 printfn "[%s] Pipeline FAILED after %.1fs: %s" (timestamp ()) duration.TotalSeconds error
             | PipelineEvent.CheckpointSaved(nodeId) ->
@@ -188,14 +243,17 @@ type ConsoleEventObserver() =
                     eprintfn "        [stats] branch %s: %s (%.1fs)" branch status duration.TotalSeconds
             | PipelineEvent.ParallelCompleted(duration, successCount, failureCount) ->
                 if verbose then
-                    eprintfn "        [stats] parallel done: %d ok, %d failed (%.1fs)" successCount failureCount duration.TotalSeconds
+                    eprintfn
+                        "        [stats] parallel done: %d ok, %d failed (%.1fs)"
+                        successCount
+                        failureCount
+                        duration.TotalSeconds
             | PipelineEvent.ChangeImplementationStarted _
             | PipelineEvent.ChangeReviewCompleted _
             | PipelineEvent.ChangeScenarioCompleted _
             | PipelineEvent.DeployStarted _
             | PipelineEvent.DeployVerified _
-            | PipelineEvent.DeployRolledBack _ ->
-                ()
+            | PipelineEvent.DeployRolledBack _ -> ()
             | _ -> ()
 
 // ============================================================================
@@ -203,7 +261,8 @@ type ConsoleEventObserver() =
 // ============================================================================
 
 let printUsage () =
-    printfn """Attractor - DOT-based AI pipeline runner
+    printfn
+        """Attractor - DOT-based AI pipeline runner
 
 Usage:
   attractor <file.dot> [options]      Run a pipeline
@@ -237,7 +296,8 @@ Environment:
 LLM codergen nodes require at least one API key unless --simulate is passed."""
 
 let printSchema () =
-    printfn """# Attractor DOT Schema Reference
+    printfn
+        """# Attractor DOT Schema Reference
 #
 # Attractor pipelines are directed graphs in Graphviz DOT syntax.
 # Each node is a stage (LLM call, human gate, tool, conditional branch, etc.)
@@ -410,7 +470,8 @@ let printSchema () =
 # ═══════════════════════════════════════════════════════════════════════════"""
 
 let printExample () =
-    printfn """// Example: Multi-stage code review pipeline with human approval
+    printfn
+        """// Example: Multi-stage code review pipeline with human approval
 //
 // This pipeline plans a task, implements it, runs tests, and asks a human
 // to approve. If tests fail, it loops back to implement. If the human
@@ -478,15 +539,20 @@ let printModels () =
     let byProvider = models |> List.groupBy (fun m -> m.Provider) |> List.sortBy fst
     printfn "Known models for llm_model= (use either the canonical ID or any alias):"
     printfn ""
+
     for (provider, list) in byProvider do
         printfn "# %s (llm_provider=%s)" (provider.ToUpperInvariant()) provider
+
         for m in list |> List.sortBy (fun m -> m.Id) do
             let aliases =
                 match m.Aliases with
                 | [] -> ""
                 | xs -> xs |> String.concat ", " |> sprintf " (aliases: %s)"
+
             printfn "  %-38s %s%s" m.Id m.DisplayName aliases
+
         printfn ""
+
     printfn "Reference in DOT:"
     printfn "  node_id [shape=box, llm_model=\"claude-sonnet-4-6\"]"
     printfn "  model_stylesheet=\"* { llm_model: gpt-5.4; } .planner { llm_model: claude-opus-4-7; }\""
@@ -517,35 +583,29 @@ let parseArgs (args: string array) =
 
     while i < args.Length do
         match args[i] with
-        | "--help" | "-h" ->
-            showHelp <- true
+        | "--help"
+        | "-h" -> showHelp <- true
         | "--logs" when i + 1 < args.Length ->
             logsRoot <- Some args[i + 1]
             i <- i + 1
-        | "--validate" ->
-            validateOnly <- true
+        | "--validate" -> validateOnly <- true
         | "--resume" when i + 1 < args.Length ->
             resumeDir <- Some args[i + 1]
             i <- i + 1
-        | "--auto-approve" ->
-            autoApprove <- true
-        | "--simulate" ->
-            simulate <- true
-        | "--quiet" | "-q" ->
-            quiet <- true
-        | "--verbose" ->
-            explicitVerbose <- true
+        | "--auto-approve" -> autoApprove <- true
+        | "--simulate" -> simulate <- true
+        | "--quiet"
+        | "-q" -> quiet <- true
+        | "--verbose" -> explicitVerbose <- true
         | "--trace" when i + 1 < args.Length ->
             trace <- Some args[i + 1]
             i <- i + 1
-        | "--cache" ->
-            cache <- true
+        | "--cache" -> cache <- true
         | "--cache-dir" when i + 1 < args.Length ->
             cacheDir <- Some args[i + 1]
             cache <- true
             i <- i + 1
-        | "--version" ->
-            showVersion <- true
+        | "--version" -> showVersion <- true
         | "serve" ->
             if servePort.IsNone then
                 servePort <- Some 8080
@@ -558,20 +618,36 @@ let parseArgs (args: string array) =
                 eprintfn "Invalid --port value: %s" args[i + 1]
                 showHelp <- true
                 i <- i + 1
-        | "schema" | "--schema" ->
-            showSchema <- true
-        | "example" | "--example" ->
-            showExample <- true
-        | "models" | "--models" ->
-            showModels <- true
-        | arg when not (arg.StartsWith("-")) && dotFile.IsNone ->
-            dotFile <- Some arg
+        | "schema"
+        | "--schema" -> showSchema <- true
+        | "example"
+        | "--example" -> showExample <- true
+        | "models"
+        | "--models" -> showModels <- true
+        | arg when not (arg.StartsWith("-")) && dotFile.IsNone -> dotFile <- Some arg
         | arg ->
             eprintfn "Unknown argument: %s" arg
             showHelp <- true
+
         i <- i + 1
 
-    (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showModels, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort)
+    (dotFile,
+     logsRoot,
+     validateOnly,
+     resumeDir,
+     autoApprove,
+     showHelp,
+     showSchema,
+     showExample,
+     showModels,
+     showVersion,
+     simulate,
+     quiet,
+     explicitVerbose,
+     trace,
+     cache,
+     cacheDir,
+     servePort)
 
 let validate (source: string) =
     let graph = Pipeline.parseOrRaise source
@@ -585,6 +661,7 @@ let validate (source: string) =
     for d in errors do
         let nodeStr = if d.NodeId <> "" then $" ({d.NodeId})" else ""
         printfn "  [ERROR] %s%s: %s" d.Rule nodeStr d.Message
+
     for d in warnings do
         let nodeStr = if d.NodeId <> "" then $" ({d.NodeId})" else ""
         printfn "  [WARN] %s%s: %s" d.Rule nodeStr d.Message
@@ -593,14 +670,15 @@ let validate (source: string) =
         printfn "  No issues found."
 
     printfn ""
-    printfn "Nodes: %d | Edges: %d | Goal: %s"
-        graph.Nodes.Count graph.Edges.Length graph.Goal
+    printfn "Nodes: %d | Edges: %d | Goal: %s" graph.Nodes.Count graph.Edges.Length graph.Goal
 
     // Print synopsis
     let synopsisLines = infos |> List.filter (fun d -> d.Rule = "synopsis")
+
     if not synopsisLines.IsEmpty then
         printfn ""
         printfn "Synopsis:"
+
         for d in synopsisLines do
             printfn "  %s" d.Message
 
@@ -614,13 +692,15 @@ let validate (source: string) =
 
 /// Create a handler registry with LLM backend if keys are available
 let private configureClientMiddleware (client: UnifiedLlm.Client) =
-    let validator = RequestValidator.fromCatalog()
-    let ledger = CostLedger.inMemory()
+    let validator = RequestValidator.fromCatalog ()
+    let ledger = CostLedger.inMemory ()
     sharedCostLedger <- Some ledger
 
     let consoleSink =
-        if verbose then ObservabilitySink.console true
-        else ObservabilitySink.none
+        if verbose then
+            ObservabilitySink.console true
+        else
+            ObservabilitySink.none
 
     let sink =
         match tracePath with
@@ -633,19 +713,25 @@ let private configureClientMiddleware (client: UnifiedLlm.Client) =
     client.AddMiddlewareFn(Middleware.circuitBreaker CircuitBreakerConfig.Default sink)
 
     if cacheEnabled then
-        let root = cacheDirectory |> Option.defaultValue (Path.Combine(Environment.CurrentDirectory, ".fkyeah-cache"))
+        let root =
+            cacheDirectory
+            |> Option.defaultValue (Path.Combine(Environment.CurrentDirectory, ".fkyeah-cache"))
+
         let store =
             CacheStore.fileSystem
                 { CacheConfig.Default with
                     PersistencePath = Some root }
+
         client.AddMiddlewareFn(Middleware.cache store sink)
 
     client.AddMiddlewareFn(Middleware.observability sink (Some ledger))
 
 let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, int> =
     let interviewer: IInterviewer =
-        if autoApprove then AutoApproveInterviewer() :> IInterviewer
-        else ConsoleInterviewer() :> IInterviewer
+        if autoApprove then
+            AutoApproveInterviewer() :> IInterviewer
+        else
+            ConsoleInterviewer() :> IInterviewer
 
     let acpPermissionStrategy =
         if autoApprove then
@@ -666,17 +752,22 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
     elif hasAnthropic || hasOpenai || hasGemini then
         let llmClient = UnifiedLlm.Client()
         configureClientMiddleware llmClient
+
         if hasAnthropic then
             eprintfn "  Registered Anthropic adapter (ANTHROPIC_API_KEY)"
             llmClient.RegisterAdapter(UnifiedLlm.AnthropicAdapter(anthropicKey))
+
         if hasOpenai then
             eprintfn "  Registered OpenAI adapter (OPENAI_API_KEY)"
             llmClient.RegisterAdapter(UnifiedLlm.OpenAIAdapter(openaiKey))
+
         if hasGemini then
             eprintfn "  Registered Gemini adapter (GEMINI_API_KEY)"
             llmClient.RegisterAdapter(UnifiedLlm.GeminiAdapter(geminiKey))
+
         let backend = LlmBackend(llmClient) :> ICodergenBackend
         eprintfn "  Using live LLM backend"
+
         Ok(
             HandlerRegistry.CreateDefault(
                 interviewer = interviewer,
@@ -686,7 +777,9 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
             )
         )
     else
-        eprintfn "Error: No API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY — or pass --simulate."
+        eprintfn
+            "Error: No API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY — or pass --simulate."
+
         eprintfn ""
         eprintfn "  attractor <file.dot> --simulate          # run with mock LLM responses"
         eprintfn "  export ANTHROPIC_API_KEY=sk-...           # or set an API key for live calls"
@@ -697,43 +790,44 @@ let run (source: string) (logsRoot: string) (autoApprove: bool) (simulate: bool)
     | Result.Error code -> code
     | Ok registry ->
 
-    let emitter = EventEmitter()
-    emitter.AddObserver(ConsoleEventObserver())
+        let emitter = EventEmitter()
+        emitter.AddObserver(ConsoleEventObserver())
 
-    if verbose then
-        let graph = Pipeline.parseOrRaise source
-        eprintfn "  Pipeline: %s | Goal: %s" graph.Name graph.Goal
-        eprintfn "  Nodes: %d | Edges: %d | Logs: %s" graph.Nodes.Count graph.Edges.Length logsRoot
+        if verbose then
+            let graph = Pipeline.parseOrRaise source
+            eprintfn "  Pipeline: %s | Goal: %s" graph.Name graph.Goal
+            eprintfn "  Nodes: %d | Edges: %d | Logs: %s" graph.Nodes.Count graph.Edges.Length logsRoot
 
-    let config =
-        { LogsRoot = logsRoot
-          Registry = registry
-          EventEmitter = emitter
-          ExtraTransforms = []
-          InitialContextValues = Map.empty }
+        let config =
+            { LogsRoot = logsRoot
+              Registry = registry
+              EventEmitter = emitter
+              ExtraTransforms = []
+              InitialContextValues = Map.empty }
 
-    let result = Pipeline.runFromSource source config
+        let result = Pipeline.runFromSource source config
 
-    printfn ""
-    match result.FinalOutcome.Status with
-    | StageStatus.Success ->
-        printfn "Result: SUCCESS"
-        printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
-        sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
-        printfn "Logs: %s" logsRoot
-        ExitSuccess
-    | StageStatus.PartialSuccess ->
-        printfn "Result: PARTIAL SUCCESS"
-        printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
-        sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
-        printfn "Logs: %s" logsRoot
-        ExitSuccess
-    | _ ->
-        eprintfn "Result: FAILED"
-        eprintfn "Reason: %s" result.FinalOutcome.FailureReason
-        eprintfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
-        eprintfn "Logs: %s" logsRoot
-        ExitPipelineFailure
+        printfn ""
+
+        match result.FinalOutcome.Status with
+        | StageStatus.Success ->
+            printfn "Result: SUCCESS"
+            printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+            sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
+            printfn "Logs: %s" logsRoot
+            ExitSuccess
+        | StageStatus.PartialSuccess ->
+            printfn "Result: PARTIAL SUCCESS"
+            printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+            sharedCostLedger |> Option.iter (fun ledger -> printfn "%s" (ledger.Summary()))
+            printfn "Logs: %s" logsRoot
+            ExitSuccess
+        | _ ->
+            eprintfn "Result: FAILED"
+            eprintfn "Reason: %s" result.FinalOutcome.FailureReason
+            eprintfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+            eprintfn "Logs: %s" logsRoot
+            ExitPipelineFailure
 
 let resume (logsRoot: string) (dotFile: string option) (autoApprove: bool) (simulate: bool) =
     match Engine.loadCheckpoint logsRoot with
@@ -750,34 +844,37 @@ let resume (logsRoot: string) (dotFile: string option) (autoApprove: bool) (simu
             | Result.Error code -> code
             | Ok registry ->
 
-            let source = File.ReadAllText(f)
-            let (graph, _) = Transforms.preparePipeline source None
+                let source = File.ReadAllText(f)
+                let (graph, _) = Transforms.preparePipeline source None
 
-            let emitter = EventEmitter()
-            emitter.AddObserver(ConsoleEventObserver())
+                let emitter = EventEmitter()
+                emitter.AddObserver(ConsoleEventObserver())
 
-            let config =
-                { LogsRoot = logsRoot
-                  Registry = registry
-                  EventEmitter = emitter
-                  ExtraTransforms = []
-                  InitialContextValues = Map.empty }
+                let config =
+                    { LogsRoot = logsRoot
+                      Registry = registry
+                      EventEmitter = emitter
+                      ExtraTransforms = []
+                      InitialContextValues = Map.empty }
 
-            printfn "Resuming from checkpoint at node '%s' (%d nodes completed)"
-                checkpoint.CurrentNode checkpoint.CompletedNodes.Length
+                printfn
+                    "Resuming from checkpoint at node '%s' (%d nodes completed)"
+                    checkpoint.CurrentNode
+                    checkpoint.CompletedNodes.Length
 
-            let result = Engine.resumeFromCheckpoint graph config checkpoint
+                let result = Engine.resumeFromCheckpoint graph config checkpoint
 
-            printfn ""
-            match result.FinalOutcome.Status with
-            | StageStatus.Success ->
-                printfn "Result: SUCCESS"
-                printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
-                ExitSuccess
-            | _ ->
-                eprintfn "Result: FAILED"
-                eprintfn "Reason: %s" result.FinalOutcome.FailureReason
-                ExitPipelineFailure
+                printfn ""
+
+                match result.FinalOutcome.Status with
+                | StageStatus.Success ->
+                    printfn "Result: SUCCESS"
+                    printfn "Completed stages: %s" (result.CompletedNodes |> String.concat " -> ")
+                    ExitSuccess
+                | _ ->
+                    eprintfn "Result: FAILED"
+                    eprintfn "Reason: %s" result.FinalOutcome.FailureReason
+                    ExitPipelineFailure
 
 type PendingQuestion =
     { Id: string
@@ -787,32 +884,38 @@ type PendingQuestion =
 type HttpInterviewer() =
     let pending = ConcurrentDictionary<string, PendingQuestion>()
 
-    member _.PendingQuestions =
-        pending.Values
-        |> Seq.sortBy (fun q -> q.Id)
-        |> Seq.toList
+    member _.PendingQuestions = pending.Values |> Seq.sortBy (fun q -> q.Id) |> Seq.toList
 
     member _.TryAnswer(questionId: string, answer: string) =
         match pending.TryRemove(questionId) with
         | true, question ->
             let normalized = answer.Trim()
+
             let resolved =
-                match question.Question.Options |> List.tryFind (fun o ->
-                    o.Key.Equals(normalized, StringComparison.OrdinalIgnoreCase)
-                    || o.Label.Equals(normalized, StringComparison.OrdinalIgnoreCase)) with
+                match
+                    question.Question.Options
+                    |> List.tryFind (fun o ->
+                        o.Key.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+                        || o.Label.Equals(normalized, StringComparison.OrdinalIgnoreCase))
+                with
                 | Some opt -> Answer.FromOption(opt)
                 | None -> Answer.FromText(normalized)
+
             question.Completion.TrySetResult(resolved)
         | false, _ -> false
 
     interface IInterviewer with
         member _.Ask(question) =
             let questionId = Guid.NewGuid().ToString("N")
-            let completion = TaskCompletionSource<Answer>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+            let completion =
+                TaskCompletionSource<Answer>(TaskCreationOptions.RunContinuationsAsynchronously)
+
             let pendingQuestion =
                 { Id = questionId
                   Question = question
                   Completion = completion }
+
             pending[questionId] <- pendingQuestion
 
             let timeoutMs =
@@ -821,6 +924,7 @@ type HttpInterviewer() =
                 |> Option.defaultValue Timeout.Infinite
 
             let completed = completion.Task.Wait(timeoutMs)
+
             if completed then
                 completion.Task.Result
             else
@@ -850,27 +954,68 @@ type ServerEventObserver(run: PipelineRunRecord) =
                 match evt with
                 | PipelineEvent.PipelineStarted(name, id) ->
                     run.Status <- "running"
-                    JsonSerializer.Serialize(box {| kind = "PipelineStarted"; name = name; id = id |})
+
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "PipelineStarted"
+                               name = name
+                               id = id |}
+                    )
                 | PipelineEvent.StageStarted(name, index) ->
                     run.CurrentNode <- name
-                    JsonSerializer.Serialize(box {| kind = "StageStarted"; name = name; index = index |})
+
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "StageStarted"
+                               name = name
+                               index = index |}
+                    )
                 | PipelineEvent.StageCompleted(name, index, duration) ->
-                    JsonSerializer.Serialize(box {| kind = "StageCompleted"; name = name; index = index; duration_ms = int duration.TotalMilliseconds |})
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "StageCompleted"
+                               name = name
+                               index = index
+                               duration_ms = int duration.TotalMilliseconds |}
+                    )
                 | PipelineEvent.StageFailed(name, index, error, willRetry) ->
-                    JsonSerializer.Serialize(box {| kind = "StageFailed"; name = name; index = index; error = error; will_retry = willRetry |})
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "StageFailed"
+                               name = name
+                               index = index
+                               error = error
+                               will_retry = willRetry |}
+                    )
                 | PipelineEvent.CheckpointSaved(nodeId) ->
-                    JsonSerializer.Serialize(box {| kind = "CheckpointSaved"; node_id = nodeId |})
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "CheckpointSaved"
+                               node_id = nodeId |}
+                    )
                 | PipelineEvent.PipelineCompleted(duration, count) ->
                     run.Status <- "completed"
                     run.FinalStatus <- "success"
-                    JsonSerializer.Serialize(box {| kind = "PipelineCompleted"; duration_ms = int duration.TotalMilliseconds; completed = count |})
+
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "PipelineCompleted"
+                               duration_ms = int duration.TotalMilliseconds
+                               completed = count |}
+                    )
                 | PipelineEvent.PipelineFailed(error, duration) ->
                     run.Status <- "failed"
                     run.FinalStatus <- "failed"
                     run.FailureReason <- error
-                    JsonSerializer.Serialize(box {| kind = "PipelineFailed"; error = error; duration_ms = int duration.TotalMilliseconds |})
-                | _ ->
-                    JsonSerializer.Serialize(box {| kind = string evt |})
+
+                    JsonSerializer.Serialize(
+                        box
+                            {| kind = "PipelineFailed"
+                               error = error
+                               duration_ms = int duration.TotalMilliseconds |}
+                    )
+                | _ -> JsonSerializer.Serialize(box {| kind = string evt |})
+
             run.EventQueue.Enqueue(json)
 
 let readRequestBody (req: HttpListenerRequest) =
@@ -878,7 +1023,9 @@ let readRequestBody (req: HttpListenerRequest) =
     reader.ReadToEnd()
 
 let writeJson (resp: HttpListenerResponse) (statusCode: int) (payload: obj) =
-    let json = JsonSerializer.Serialize(payload, JsonSerializerOptions(WriteIndented = true))
+    let json =
+        JsonSerializer.Serialize(payload, JsonSerializerOptions(WriteIndented = true))
+
     let bytes = Encoding.UTF8.GetBytes(json)
     resp.StatusCode <- statusCode
     resp.ContentType <- "application/json"
@@ -904,12 +1051,12 @@ let serve (port: int) =
 
     let startRun (dot: string) (simulate: bool) (autoApprove: bool) =
         match makeRegistry autoApprove simulate with
-        | Result.Error code ->
-            Result.Error code
+        | Result.Error code -> Result.Error code
         | Result.Ok registry ->
             let id = Guid.NewGuid().ToString("N")
             let logsRoot = Path.Combine("attractor-logs", id)
             let interviewer = HttpInterviewer()
+
             let run =
                 { Id = id
                   LogsRoot = logsRoot
@@ -928,17 +1075,22 @@ let serve (port: int) =
                     try
                         let emitter = EventEmitter()
                         emitter.AddObserver(ServerEventObserver(run))
+
                         let config =
                             { LogsRoot = logsRoot
                               Registry = registry
                               EventEmitter = emitter
                               ExtraTransforms = []
                               InitialContextValues = Map.empty }
+
                         let result = Pipeline.runFromSource dot config
                         run.ContextSnapshot <- result.Context.Snapshot()
                         run.FinalStatus <- result.FinalOutcome.Status.ToString()
-                        if result.FinalOutcome.Status <> StageStatus.Success
-                           && result.FinalOutcome.Status <> StageStatus.PartialSuccess then
+
+                        if
+                            result.FinalOutcome.Status <> StageStatus.Success
+                            && result.FinalOutcome.Status <> StageStatus.PartialSuccess
+                        then
                             run.Status <- "failed"
                             run.FailureReason <- result.FinalOutcome.FailureReason
                         elif run.Status <> "failed" then
@@ -946,14 +1098,17 @@ let serve (port: int) =
                     with ex ->
                         run.Status <- "failed"
                         run.FailureReason <- ex.Message
+
                     ())
                 |> ignore
+
                 Result.Ok run
 
     let rec loop () =
         let ctx = listener.GetContext()
         let req = ctx.Request
         let resp = ctx.Response
+
         let pathSegments =
             req.Url.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries)
             |> Array.toList
@@ -965,33 +1120,55 @@ let serve (port: int) =
                 let doc = JsonDocument.Parse(body)
                 let root = doc.RootElement
                 let dot = root.GetProperty("dot").GetString()
+
                 let simulate =
                     let mutable v = Unchecked.defaultof<JsonElement>
-                    if root.TryGetProperty("simulate", &v) && v.ValueKind = JsonValueKind.False then false
-                    else true
+
+                    if root.TryGetProperty("simulate", &v) && v.ValueKind = JsonValueKind.False then
+                        false
+                    else
+                        true
+
                 let autoApprove =
                     let mutable v = Unchecked.defaultof<JsonElement>
-                    if root.TryGetProperty("auto_approve", &v) && v.ValueKind = JsonValueKind.True then true
-                    else false
+
+                    if root.TryGetProperty("auto_approve", &v) && v.ValueKind = JsonValueKind.True then
+                        true
+                    else
+                        false
+
                 match startRun dot simulate autoApprove with
                 | Result.Ok run ->
-                    writeJson resp 202 (box {| id = run.Id; status = run.Status; logs_root = run.LogsRoot |})
+                    writeJson
+                        resp
+                        202
+                        (box
+                            {| id = run.Id
+                               status = run.Status
+                               logs_root = run.LogsRoot |})
                 | Result.Error code ->
-                    writeJson resp 400 (box {| error = "failed to start pipeline"; code = code |})
+                    writeJson
+                        resp
+                        400
+                        (box
+                            {| error = "failed to start pipeline"
+                               code = code |})
 
             | "GET", [ "pipelines"; id ] ->
                 match runs.TryGetValue(id) with
                 | true, run ->
-                    writeJson resp 200 (box
-                        {| id = run.Id
-                           status = run.Status
-                           current_node = run.CurrentNode
-                           final_status = run.FinalStatus
-                           failure_reason = run.FailureReason
-                           logs_root = run.LogsRoot
-                           context = run.ContextSnapshot |})
-                | false, _ ->
-                    writeJson resp 404 (box {| error = "pipeline not found" |})
+                    writeJson
+                        resp
+                        200
+                        (box
+                            {| id = run.Id
+                               status = run.Status
+                               current_node = run.CurrentNode
+                               final_status = run.FinalStatus
+                               failure_reason = run.FailureReason
+                               logs_root = run.LogsRoot
+                               context = run.ContextSnapshot |})
+                | false, _ -> writeJson resp 404 (box {| error = "pipeline not found" |})
 
             | "GET", [ "pipelines"; id; "events" ] ->
                 match runs.TryGetValue(id) with
@@ -1002,8 +1179,10 @@ let serve (port: int) =
                     resp.Headers.Add("Connection", "keep-alive")
                     use writer = new StreamWriter(resp.OutputStream, Encoding.UTF8)
                     let mutable keepStreaming = true
+
                     while keepStreaming do
                         let mutable evt = ""
+
                         if run.EventQueue.TryDequeue(&evt) then
                             writer.Write("data: ")
                             writer.Write(evt)
@@ -1011,20 +1190,20 @@ let serve (port: int) =
                             writer.Flush()
                         else
                             Thread.Sleep(200)
+
                             if run.Status = "completed" || run.Status = "failed" then
                                 keepStreaming <- false
+
                     resp.OutputStream.Close()
-                | false, _ ->
-                    writeJson resp 404 (box {| error = "pipeline not found" |})
+                | false, _ -> writeJson resp 404 (box {| error = "pipeline not found" |})
 
             | "POST", [ "pipelines"; id; "cancel" ] ->
                 match runs.TryGetValue(id) with
                 | true, run ->
-                    UnifiedLlm.HttpCancellation.cancel()
+                    UnifiedLlm.HttpCancellation.cancel ()
                     run.Status <- "cancelled"
                     writeJson resp 202 (box {| id = id; status = "cancelled" |})
-                | false, _ ->
-                    writeJson resp 404 (box {| error = "pipeline not found" |})
+                | false, _ -> writeJson resp 404 (box {| error = "pipeline not found" |})
 
             | "GET", [ "pipelines"; id; "questions" ] ->
                 match runs.TryGetValue(id) with
@@ -1036,9 +1215,14 @@ let serve (port: int) =
                                stage = q.Question.Stage
                                text = q.Question.Text
                                options = q.Question.Options |})
-                    writeJson resp 200 (box {| pipeline_id = id; questions = questions |})
-                | false, _ ->
-                    writeJson resp 404 (box {| error = "pipeline not found" |})
+
+                    writeJson
+                        resp
+                        200
+                        (box
+                            {| pipeline_id = id
+                               questions = questions |})
+                | false, _ -> writeJson resp 404 (box {| error = "pipeline not found" |})
 
             | "POST", [ "pipelines"; id; "questions"; qid; "answer" ] ->
                 match runs.TryGetValue(id) with
@@ -1046,15 +1230,20 @@ let serve (port: int) =
                     let body = readRequestBody req
                     let doc = JsonDocument.Parse(body)
                     let answer = doc.RootElement.GetProperty("answer").GetString()
+
                     if run.Interviewer.TryAnswer(qid, answer) then
-                        writeJson resp 200 (box {| pipeline_id = id; question_id = qid; status = "answered" |})
+                        writeJson
+                            resp
+                            200
+                            (box
+                                {| pipeline_id = id
+                                   question_id = qid
+                                   status = "answered" |})
                     else
                         writeJson resp 404 (box {| error = "question not found" |})
-                | false, _ ->
-                    writeJson resp 404 (box {| error = "pipeline not found" |})
+                | false, _ -> writeJson resp 404 (box {| error = "pipeline not found" |})
 
-            | _ ->
-                writeJson resp 404 (box {| error = "not found" |})
+            | _ -> writeJson resp 404 (box {| error = "not found" |})
         with ex ->
             writeJson resp 500 (box {| error = ex.Message |})
 
@@ -1070,21 +1259,39 @@ let serve (port: int) =
 let main args =
     // Handle Ctrl-C: first press cancels gracefully, second press force-exits
     let mutable cancelCount = 0
+
     Console.CancelKeyPress.Add(fun e ->
         cancelCount <- cancelCount + 1
         e.Cancel <- true
         eprintfn ""
+
         if cancelCount >= 2 then
             eprintfn "  Force quit."
             Environment.Exit(130)
         else
             eprintfn "  Interrupted (Ctrl-C). Cancelling in-flight LLM calls..."
             eprintfn "  Press Ctrl-C again to force quit."
-            CodingAgent.AutoCheckpointRegistry.saveAll()
-            UnifiedLlm.HttpCancellation.cancel()
-    )
+            CodingAgent.AutoCheckpointRegistry.saveAll ()
+            UnifiedLlm.HttpCancellation.cancel ())
 
-    let (dotFile, logsRoot, validateOnly, resumeDir, autoApprove, showHelp, showSchema, showExample, showModels, showVersion, simulate, quiet, explicitVerbose, trace, cache, cacheDir, servePort) = parseArgs args
+    let (dotFile,
+         logsRoot,
+         validateOnly,
+         resumeDir,
+         autoApprove,
+         showHelp,
+         showSchema,
+         showExample,
+         showModels,
+         showVersion,
+         simulate,
+         quiet,
+         explicitVerbose,
+         trace,
+         cache,
+         cacheDir,
+         servePort) =
+        parseArgs args
 
     if quiet then
         verbose <- false
@@ -1114,35 +1321,36 @@ let main args =
         if showHelp then ExitSuccess else ExitConfigError
     else
 
-    try
-        match resumeDir with
-        | Some dir ->
-            resume dir dotFile autoApprove simulate
-        | None ->
-            let file = dotFile.Value
-            if not (File.Exists(file)) then
-                eprintfn "File not found: %s" file
-                ExitConfigError
-            else
-                let source = File.ReadAllText(file)
+        try
+            match resumeDir with
+            | Some dir -> resume dir dotFile autoApprove simulate
+            | None ->
+                let file = dotFile.Value
 
-                if validateOnly then
-                    validate source
+                if not (File.Exists(file)) then
+                    eprintfn "File not found: %s" file
+                    ExitConfigError
                 else
-                    let logs =
-                        logsRoot
-                        |> Option.defaultWith (fun () ->
-                            Path.Combine("attractor-logs", DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")))
-                    run source logs autoApprove simulate
-    with
-    | :? OperationCanceledException ->
-        eprintfn ""
-        eprintfn "Aborted by user."
-        130
-    | :? AggregateException as ae when ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException) ->
-        eprintfn ""
-        eprintfn "Aborted by user."
-        130
-    | ex ->
-        eprintfn "Error: %s" ex.Message
-        ExitPipelineFailure
+                    let source = File.ReadAllText(file)
+
+                    if validateOnly then
+                        validate source
+                    else
+                        let logs =
+                            logsRoot
+                            |> Option.defaultWith (fun () ->
+                                Path.Combine("attractor-logs", DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")))
+
+                        run source logs autoApprove simulate
+        with
+        | :? OperationCanceledException ->
+            eprintfn ""
+            eprintfn "Aborted by user."
+            130
+        | :? AggregateException as ae when ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException) ->
+            eprintfn ""
+            eprintfn "Aborted by user."
+            130
+        | ex ->
+            eprintfn "Error: %s" ex.Message
+            ExitPipelineFailure

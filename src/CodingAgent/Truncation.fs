@@ -4,28 +4,28 @@ open System
 
 /// Default character limits per tool
 module TruncationDefaults =
-    let defaultCharLimits = Map.ofList [
-        "read_file", 50000
-        "shell", 30000
-        "grep", 20000
-        "glob", 20000
-        "edit_file", 10000
-        "apply_patch", 10000
-        "write_file", 1000
-        "spawn_agent", 20000
-    ]
+    let defaultCharLimits =
+        Map.ofList
+            [ "read_file", 50000
+              "shell", 30000
+              "grep", 20000
+              "glob", 20000
+              "edit_file", 10000
+              "apply_patch", 10000
+              "write_file", 1000
+              "spawn_agent", 20000 ]
 
-    let defaultLineLimits = Map.ofList [
-        "shell", 256
-        "grep", 200
-        "glob", 500
-    ]
+    let defaultLineLimits = Map.ofList [ "shell", 256; "grep", 200; "glob", 500 ]
 
     /// Truncation modes per tool
     let truncationMode (toolName: string) =
         match toolName with
         | "shell" -> "tail"
-        | "grep" | "glob" | "edit_file" | "apply_patch" | "write_file" -> "tail"
+        | "grep"
+        | "glob"
+        | "edit_file"
+        | "apply_patch"
+        | "write_file" -> "tail"
         | _ -> "head_tail"
 
 /// Tool output truncation
@@ -42,24 +42,32 @@ module Truncation =
                 let removed = output.Length - maxChars
                 let head = output.Substring(0, half)
                 let tail = output.Substring(output.Length - half)
-                sprintf "%s\n\n[WARNING: Tool output was truncated. %d characters removed from the middle.]\n\n%s"
-                    head removed tail
+
+                sprintf
+                    "%s\n\n[WARNING: Tool output was truncated. %d characters removed from the middle.]\n\n%s"
+                    head
+                    removed
+                    tail
             | "tail" ->
                 let removed = output.Length - maxChars
                 let tail = output.Substring(output.Length - maxChars)
-                sprintf "[WARNING: Tool output was truncated. First %d characters were removed.]\n\n%s"
-                    removed tail
+                sprintf "[WARNING: Tool output was truncated. First %d characters were removed.]\n\n%s" removed tail
             | _ ->
                 let half = maxChars / 2
                 let removed = output.Length - maxChars
                 let head = output.Substring(0, half)
                 let tail = output.Substring(output.Length - half)
-                sprintf "%s\n\n[WARNING: Tool output was truncated. %d characters removed from the middle.]\n\n%s"
-                    head removed tail
+
+                sprintf
+                    "%s\n\n[WARNING: Tool output was truncated. %d characters removed from the middle.]\n\n%s"
+                    head
+                    removed
+                    tail
 
     /// Line-based truncation with head/tail split
     let truncateLines (output: string) (maxLines: int) : string =
         let lines = output.Split([| '\n' |])
+
         if lines.Length <= maxLines then
             output
         else
@@ -80,6 +88,7 @@ module Truncation =
                 TruncationDefaults.defaultCharLimits
                 |> Map.tryFind toolName
                 |> Option.defaultValue 30000)
+
         let mode = TruncationDefaults.truncationMode toolName
         let afterChars = truncateChars output maxChars mode
 
@@ -87,8 +96,8 @@ module Truncation =
         let maxLines =
             config.ToolLineLimits
             |> Map.tryFind toolName
-            |> Option.orElseWith (fun () ->
-                TruncationDefaults.defaultLineLimits |> Map.tryFind toolName)
+            |> Option.orElseWith (fun () -> TruncationDefaults.defaultLineLimits |> Map.tryFind toolName)
+
         match maxLines with
         | Some ml -> truncateLines afterChars ml
         | None -> afterChars

@@ -14,52 +14,48 @@ type Role =
     | Developer
 
 /// Image data for multimodal content
-type ImageData = {
-    Url: string option
-    Data: byte array option
-    FilePath: string option
-    MediaType: string option
-}
+type ImageData =
+    { Url: string option
+      Data: byte array option
+      FilePath: string option
+      MediaType: string option }
 
 /// Audio data
-type AudioData = {
-    Url: string option
-    Data: byte array option
-    MediaType: string option
-}
+type AudioData =
+    { Url: string option
+      Data: byte array option
+      MediaType: string option }
 
 /// Document data
-type DocumentData = {
-    Url: string option
-    Data: byte array option
-    MediaType: string option
-    FileName: string option
-}
+type DocumentData =
+    { Url: string option
+      Data: byte array option
+      MediaType: string option
+      FileName: string option }
 
 /// Tool call data from the model
-type ToolCallData = {
-    Id: string
-    Name: string
-    Arguments: string
-    /// Provider-specific metadata (e.g., Gemini thoughtSignature)
-    Metadata: Map<string, string>
-}
+type ToolCallData =
+    {
+        Id: string
+        Name: string
+        Arguments: string
+        /// Provider-specific metadata (e.g., Gemini thoughtSignature)
+        Metadata: Map<string, string>
+    }
 
 /// Tool result data
-type ToolResultData = {
-    ToolCallId: string
-    Content: string
-    IsError: bool
-    ImageData: byte array option
-    ImageMediaType: string option
-}
+type ToolResultData =
+    { ToolCallId: string
+      Content: string
+      IsError: bool
+      ImageData: byte array option
+      ImageMediaType: string option }
 
 /// Thinking data for reasoning content
-type ThinkingData = {
-    Text: string
-    Signature: string option
-    Redacted: bool
-}
+type ThinkingData =
+    { Text: string
+      Signature: string option
+      Redacted: bool }
 
 /// Content part discriminated union — multimodal message content
 type ContentPart =
@@ -72,12 +68,12 @@ type ContentPart =
     | Thinking of ThinkingData
 
 /// A conversation message
-type Message = {
-    Role: Role
-    Content: ContentPart list
-    Name: string option
-    ToolCallId: string option
-} with
+type Message =
+    { Role: Role
+      Content: ContentPart list
+      Name: string option
+      ToolCallId: string option }
+
     /// Convenience: concatenate all text parts
     member this.Text =
         this.Content
@@ -89,40 +85,60 @@ type Message = {
 
     /// Convenience constructors
     static member system(text: string) =
-        { Role = System; Content = [ Text text ]; Name = None; ToolCallId = None }
+        { Role = System
+          Content = [ Text text ]
+          Name = None
+          ToolCallId = None }
 
     static member user(text: string) =
-        { Role = User; Content = [ Text text ]; Name = None; ToolCallId = None }
+        { Role = User
+          Content = [ Text text ]
+          Name = None
+          ToolCallId = None }
 
     static member assistant(text: string) =
-        { Role = Assistant; Content = [ Text text ]; Name = None; ToolCallId = None }
+        { Role = Assistant
+          Content = [ Text text ]
+          Name = None
+          ToolCallId = None }
 
     static member toolResult(toolCallId: string, content: string, isError: bool) =
         { Role = Tool
-          Content = [ ToolResult { ToolCallId = toolCallId; Content = content; IsError = isError; ImageData = None; ImageMediaType = None } ]
+          Content =
+            [ ToolResult
+                  { ToolCallId = toolCallId
+                    Content = content
+                    IsError = isError
+                    ImageData = None
+                    ImageMediaType = None } ]
           Name = None
           ToolCallId = Some toolCallId }
 
 /// Token usage record
-type Usage = {
-    InputTokens: int
-    OutputTokens: int
-    ReasoningTokens: int option
-    CacheReadTokens: int option
-    CacheWriteTokens: int option
-} with
+type Usage =
+    { InputTokens: int
+      OutputTokens: int
+      ReasoningTokens: int option
+      CacheReadTokens: int option
+      CacheWriteTokens: int option }
+
     member this.TotalTokens = this.InputTokens + this.OutputTokens
 
     static member Zero =
-        { InputTokens = 0; OutputTokens = 0; ReasoningTokens = None
-          CacheReadTokens = None; CacheWriteTokens = None }
+        { InputTokens = 0
+          OutputTokens = 0
+          ReasoningTokens = None
+          CacheReadTokens = None
+          CacheWriteTokens = None }
 
-    static member (+) (a: Usage, b: Usage) =
+    static member (+)(a: Usage, b: Usage) =
         let addOpt (x: int option) (y: int option) =
             match x, y with
             | None, None -> None
-            | Some v, None | None, Some v -> Some v
+            | Some v, None
+            | None, Some v -> Some v
             | Some v1, Some v2 -> Some(v1 + v2)
+
         { InputTokens = a.InputTokens + b.InputTokens
           OutputTokens = a.OutputTokens + b.OutputTokens
           ReasoningTokens = addOpt a.ReasoningTokens b.ReasoningTokens
@@ -137,7 +153,7 @@ type FinishReason =
     | ContentFilter of Raw: string
     | Error of Raw: string
     | Other of Raw: string
-with
+
     member this.Raw =
         match this with
         | Stop raw
@@ -154,17 +170,15 @@ type StopCondition =
     | MaxRounds of n: int
 
 /// Generation timeout controls
-type TimeoutConfig = {
-    TotalMs: int option
-    PerStepMs: int option
-}
+type TimeoutConfig =
+    { TotalMs: int option
+      PerStepMs: int option }
 
 /// Provider adapter timeout controls
-type AdapterTimeout = {
-    ConnectMs: int option
-    RequestMs: int option
-    StreamReadMs: int option
-}
+type AdapterTimeout =
+    { ConnectMs: int option
+      RequestMs: int option
+      StreamReadMs: int option }
 
 /// Response format preference
 [<RequireQualifiedAccess>]
@@ -174,11 +188,10 @@ type ResponseFormat =
     | JsonSchema of name: string * schema: string * strict: bool
 
 /// Parsed provider rate limit info
-type RateLimitInfo = {
-    Limit: int option
-    Remaining: int option
-    ResetAt: DateTimeOffset option
-}
+type RateLimitInfo =
+    { Limit: int option
+      Remaining: int option
+      ResetAt: DateTimeOffset option }
 
 /// Caller-driven cancel handle
 type AbortSignal() =
@@ -192,41 +205,53 @@ type AbortSignal() =
         member _.Dispose() = cts.Dispose()
 
 /// A request to the LLM
-type Request = {
-    Model: string
-    Messages: Message list
-    Prompt: string option
-    Tools: ToolDefinition list option
-    ToolChoice: ToolChoice option
-    MaxTokens: int option
-    Temperature: float option
-    TopP: float option
-    StopSequences: string list option
-    ResponseFormat: ResponseFormat option
-    Metadata: Map<string, string> option
-    ReasoningEffort: string option
-    Provider: string option
-    ProviderOptions: Map<string, obj> option
-    Timeout: TimeSpan option
-    TimeoutConfig: TimeoutConfig option
-    AdapterTimeout: AdapterTimeout option
-    AbortSignal: AbortSignal option
-    PreviousResponseId: string option
-} with
+type Request =
+    { Model: string
+      Messages: Message list
+      Prompt: string option
+      Tools: ToolDefinition list option
+      ToolChoice: ToolChoice option
+      MaxTokens: int option
+      Temperature: float option
+      TopP: float option
+      StopSequences: string list option
+      ResponseFormat: ResponseFormat option
+      Metadata: Map<string, string> option
+      ReasoningEffort: string option
+      Provider: string option
+      ProviderOptions: Map<string, obj> option
+      Timeout: TimeSpan option
+      TimeoutConfig: TimeoutConfig option
+      AdapterTimeout: AdapterTimeout option
+      AbortSignal: AbortSignal option
+      PreviousResponseId: string option }
+
     static member Create(model: string, messages: Message list) =
-        { Model = model; Messages = messages; Prompt = None; Tools = None
-          ToolChoice = None; MaxTokens = None; Temperature = None; TopP = None
-          StopSequences = None; ResponseFormat = None; Metadata = None
-          ReasoningEffort = None; Provider = None; ProviderOptions = None
-          Timeout = None; TimeoutConfig = None; AdapterTimeout = None
-          AbortSignal = None; PreviousResponseId = None }
+        { Model = model
+          Messages = messages
+          Prompt = None
+          Tools = None
+          ToolChoice = None
+          MaxTokens = None
+          Temperature = None
+          TopP = None
+          StopSequences = None
+          ResponseFormat = None
+          Metadata = None
+          ReasoningEffort = None
+          Provider = None
+          ProviderOptions = None
+          Timeout = None
+          TimeoutConfig = None
+          AdapterTimeout = None
+          AbortSignal = None
+          PreviousResponseId = None }
 
 /// Tool definition for the LLM
-and ToolDefinition = {
-    Name: string
-    Description: string
-    Parameters: string
-}
+and ToolDefinition =
+    { Name: string
+      Description: string
+      Parameters: string }
 
 /// Tool choice mode
 and [<RequireQualifiedAccess>] ToolChoice =
@@ -236,18 +261,18 @@ and [<RequireQualifiedAccess>] ToolChoice =
     | Named of string
 
 /// LLM response
-type Response = {
-    Id: string
-    Model: string
-    Provider: string
-    Message: Message
-    FinishReason: FinishReason
-    Usage: Usage
-    ResponseId: string option
-    Raw: JsonElement option
-    Warnings: string list
-    RateLimit: RateLimitInfo option
-} with
+type Response =
+    { Id: string
+      Model: string
+      Provider: string
+      Message: Message
+      FinishReason: FinishReason
+      Usage: Usage
+      ResponseId: string option
+      Raw: JsonElement option
+      Warnings: string list
+      RateLimit: RateLimitInfo option }
+
     member this.Text = this.Message.Text
 
     member this.ToolCalls =
@@ -285,9 +310,8 @@ type StreamEvent =
     | Finish of finishReason: FinishReason * usage: Usage option * response: Response option
 
 /// Result of a single step in a multi-step generation
-type StepResult = {
-    ToolCalls: ToolCallData list
-    ToolResults: ToolResultData list
-    Usage: Usage
-    Response: Response
-}
+type StepResult =
+    { ToolCalls: ToolCallData list
+      ToolResults: ToolResultData list
+      Usage: Usage
+      Response: Response }

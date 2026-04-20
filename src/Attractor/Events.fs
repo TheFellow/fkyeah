@@ -59,14 +59,11 @@ type EventEmitter() =
     let observers = ResizeArray<IEventObserver>()
     let asyncObservers = ResizeArray<IAsyncEventObserver>()
 
-    member _.AddObserver(observer: IEventObserver) =
-        observers.Add(observer)
+    member _.AddObserver(observer: IEventObserver) = observers.Add(observer)
 
-    member _.AddAsyncObserver(observer: IAsyncEventObserver) =
-        asyncObservers.Add(observer)
+    member _.AddAsyncObserver(observer: IAsyncEventObserver) = asyncObservers.Add(observer)
 
-    member _.RemoveObserver(observer: IEventObserver) =
-        observers.Remove(observer) |> ignore
+    member _.RemoveObserver(observer: IEventObserver) = observers.Remove(observer) |> ignore
 
     member _.Emit(event: PipelineEvent) =
         for observer in observers do

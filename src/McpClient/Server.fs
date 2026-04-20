@@ -8,6 +8,7 @@ module Server =
 
     let private tryGetProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
+
         if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
             Some value
         else
@@ -21,7 +22,7 @@ module Server =
     let private cloneOrDefault (value: JsonElement option) =
         match value with
         | Some element -> element.Clone()
-        | None -> JsonSerializer.SerializeToElement({||}).Clone()
+        | None -> JsonSerializer.SerializeToElement({| |}).Clone()
 
     let private serializeToElement<'T> (value: 'T) =
         JsonSerializer.SerializeToElement(value).Clone()
@@ -78,6 +79,7 @@ module Server =
                     | None -> return Error McpError.NotConnected
                     | Some current ->
                         let! result = Correlator.sendRequest methodName parameters current
+
                         return
                             match result with
                             | Ok payload -> Ok payload
@@ -87,9 +89,10 @@ module Server =
             let initialize () =
                 async {
                     let! connectResult = transport.Connect()
+
                     match connectResult with
                     | Error error -> return Error error
-                    | Ok () ->
+                    | Ok() ->
                         let newCorrelator =
                             let receiveStream =
                                 { new System.Collections.Generic.IAsyncEnumerable<byte array> with
@@ -113,6 +116,7 @@ module Server =
                                    clientInfo = {| name = "fkyeah-attractor" |} |}
 
                         let! initResult = sendRpc "initialize" (Some parameters)
+
                         match initResult with
                         | Ok _ -> return Ok()
                         | Error error ->
@@ -155,10 +159,12 @@ module Server =
                     | Some cached -> return Ok cached
                     | None ->
                         let! ready = ensureInitialized ()
+
                         match ready with
                         | Error error -> return Error error
-                        | Ok () ->
+                        | Ok() ->
                             let! response = sendRpc "tools/list" None
+
                             match response with
                             | Error error -> return Error error
                             | Ok payload ->
@@ -190,11 +196,13 @@ module Server =
             let callToolInternal name arguments =
                 async {
                     let! ready = ensureInitialized ()
+
                     match ready with
                     | Error error -> return Error error
-                    | Ok () ->
+                    | Ok() ->
                         let parameters = serializeToElement {| name = name; arguments = arguments |}
                         let! response = sendRpc "tools/call" (Some parameters)
+
                         match response with
                         | Error error -> return Error error
                         | Ok payload ->
@@ -229,6 +237,7 @@ module Server =
                 let rec attempt remaining =
                     async {
                         let! result = operation ()
+
                         match result with
                         | Ok _ -> return result
                         | Error error when policy.AutoReconnect && remaining > 0 && isRecoverable error ->
@@ -238,12 +247,14 @@ module Server =
                                 do! Async.Sleep(int policy.RetryDelay.TotalMilliseconds)
 
                             let! reconnected = initialize ()
+
                             match reconnected with
                             | Error reconnectError -> return Error reconnectError
-                            | Ok () ->
+                            | Ok() ->
                                 if refreshTools && policy.RefreshToolsOnReconnect then
                                     toolCache <- None
                                     let! refreshed = listToolsInternal ()
+
                                     match refreshed with
                                     | Error refreshError -> return Error refreshError
                                     | Ok _ -> return! attempt (remaining - 1)

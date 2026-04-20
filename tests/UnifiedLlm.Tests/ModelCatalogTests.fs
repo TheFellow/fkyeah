@@ -22,11 +22,19 @@ module ModelCatalogSprint007 =
               SupportsVision = false }
 
         Assert.False(
-            CapabilityRequirement.satisfiedBy baseline
-                { CapabilityRequirement.none with RequiresTools = true })
+            CapabilityRequirement.satisfiedBy
+                baseline
+                { CapabilityRequirement.none with
+                    RequiresTools = true }
+        )
+
         Assert.True(
-            CapabilityRequirement.satisfiedBy baseline
-                { CapabilityRequirement.none with RequiresVision = false })
+            CapabilityRequirement.satisfiedBy
+                baseline
+                { CapabilityRequirement.none with
+                    RequiresVision = false }
+        )
+
         Assert.True(CapabilityRequirement.satisfiedBy baseline CapabilityRequirement.none)
 
     [<Fact>]

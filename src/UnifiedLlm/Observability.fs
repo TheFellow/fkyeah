@@ -7,9 +7,19 @@ open System.Text.Json
 [<RequireQualifiedAccess>]
 type ObservabilityEvent =
     | RequestStarted of correlationId: string * model: string * messageCount: int
-    | RequestCompleted of correlationId: string * model: string * durationMs: int64 * usage: Usage * totalMicrodollars: int64 option
+    | RequestCompleted of
+        correlationId: string *
+        model: string *
+        durationMs: int64 *
+        usage: Usage *
+        totalMicrodollars: int64 option
     | StreamStarted of correlationId: string * model: string
-    | StreamCompleted of correlationId: string * model: string * durationMs: int64 * usage: Usage * totalMicrodollars: int64 option
+    | StreamCompleted of
+        correlationId: string *
+        model: string *
+        durationMs: int64 *
+        usage: Usage *
+        totalMicrodollars: int64 option
     | ValidationFailed of correlationId: string * issues: string list
     | CacheHit of correlationId: string * cacheKey: string * model: string
     | CacheMiss of correlationId: string * cacheKey: string * model: string
@@ -24,8 +34,7 @@ type ObservabilityEvent =
     | ToolCacheHit of correlationId: string * toolName: string
     | ToolCacheMiss of correlationId: string * toolName: string
 
-type ObservabilitySink =
-    { Emit: ObservabilityEvent -> unit }
+type ObservabilitySink = { Emit: ObservabilityEvent -> unit }
 
 module ObservabilityEvent =
 
@@ -39,9 +48,16 @@ module ObservabilityEvent =
     let private stateName state =
         match state with
         | CircuitState.Closed failures -> "closed", box {| consecutiveFailures = failures |}
-        | CircuitState.Open(openedAt, retryAt) -> "open", box {| openedAt = openedAt; retryAt = retryAt |}
+        | CircuitState.Open(openedAt, retryAt) ->
+            "open",
+            box
+                {| openedAt = openedAt
+                   retryAt = retryAt |}
         | CircuitState.HalfOpen(probeStartedAt, successCount) ->
-            "half_open", box {| probeStartedAt = probeStartedAt; successCount = successCount |}
+            "half_open",
+            box
+                {| probeStartedAt = probeStartedAt
+                   successCount = successCount |}
 
     let toPayload (timestamp: DateTimeOffset) (event: ObservabilityEvent) : obj =
         match event with
@@ -62,7 +78,11 @@ module ObservabilityEvent =
                    usage = usageJson usage
                    totalMicrodollars = totalMicrodollars |}
         | ObservabilityEvent.StreamStarted(correlationId, model) ->
-            box {| timestamp = timestamp; event = "stream_started"; correlationId = correlationId; model = model |}
+            box
+                {| timestamp = timestamp
+                   event = "stream_started"
+                   correlationId = correlationId
+                   model = model |}
         | ObservabilityEvent.StreamCompleted(correlationId, model, durationMs, usage, totalMicrodollars) ->
             box
                 {| timestamp = timestamp
@@ -73,16 +93,36 @@ module ObservabilityEvent =
                    usage = usageJson usage
                    totalMicrodollars = totalMicrodollars |}
         | ObservabilityEvent.ValidationFailed(correlationId, issues) ->
-            box {| timestamp = timestamp; event = "validation_failed"; correlationId = correlationId; issues = issues |}
+            box
+                {| timestamp = timestamp
+                   event = "validation_failed"
+                   correlationId = correlationId
+                   issues = issues |}
         | ObservabilityEvent.CacheHit(correlationId, cacheKey, model) ->
-            box {| timestamp = timestamp; event = "cache_hit"; correlationId = correlationId; cacheKey = cacheKey; model = model |}
+            box
+                {| timestamp = timestamp
+                   event = "cache_hit"
+                   correlationId = correlationId
+                   cacheKey = cacheKey
+                   model = model |}
         | ObservabilityEvent.CacheMiss(correlationId, cacheKey, model) ->
-            box {| timestamp = timestamp; event = "cache_miss"; correlationId = correlationId; cacheKey = cacheKey; model = model |}
+            box
+                {| timestamp = timestamp
+                   event = "cache_miss"
+                   correlationId = correlationId
+                   cacheKey = cacheKey
+                   model = model |}
         | ObservabilityEvent.CacheStored(correlationId, cacheKey, model) ->
-            box {| timestamp = timestamp; event = "cache_stored"; correlationId = correlationId; cacheKey = cacheKey; model = model |}
+            box
+                {| timestamp = timestamp
+                   event = "cache_stored"
+                   correlationId = correlationId
+                   cacheKey = cacheKey
+                   model = model |}
         | ObservabilityEvent.BreakerStateChanged(provider, oldState, newState) ->
             let oldName, oldPayload = stateName oldState
             let newName, newPayload = stateName newState
+
             box
                 {| timestamp = timestamp
                    event = "breaker_state_changed"
@@ -100,11 +140,26 @@ module ObservabilityEvent =
                    totalMicrodollars = totalMicrodollars
                    cacheHit = cacheHit |}
         | ObservabilityEvent.CheckpointSaved(sessionId, path, turnCount) ->
-            box {| timestamp = timestamp; event = "checkpoint_saved"; sessionId = sessionId; path = path; turnCount = turnCount |}
+            box
+                {| timestamp = timestamp
+                   event = "checkpoint_saved"
+                   sessionId = sessionId
+                   path = path
+                   turnCount = turnCount |}
         | ObservabilityEvent.CheckpointLoaded(sessionId, path, turnCount) ->
-            box {| timestamp = timestamp; event = "checkpoint_loaded"; sessionId = sessionId; path = path; turnCount = turnCount |}
+            box
+                {| timestamp = timestamp
+                   event = "checkpoint_loaded"
+                   sessionId = sessionId
+                   path = path
+                   turnCount = turnCount |}
         | ObservabilityEvent.PipelineNodeStarted(pipelineRunId, nodeId, shape) ->
-            box {| timestamp = timestamp; event = "pipeline_node_started"; pipelineRunId = pipelineRunId; nodeId = nodeId; shape = shape |}
+            box
+                {| timestamp = timestamp
+                   event = "pipeline_node_started"
+                   pipelineRunId = pipelineRunId
+                   nodeId = nodeId
+                   shape = shape |}
         | ObservabilityEvent.PipelineNodeCompleted(pipelineRunId, nodeId, durationMs, status) ->
             box
                 {| timestamp = timestamp
@@ -114,16 +169,27 @@ module ObservabilityEvent =
                    durationMs = durationMs
                    status = status |}
         | ObservabilityEvent.PipelineTotalUpdated(pipelineRunId, totalMicrodollars) ->
-            box {| timestamp = timestamp; event = "pipeline_total_updated"; pipelineRunId = pipelineRunId; totalMicrodollars = totalMicrodollars |}
+            box
+                {| timestamp = timestamp
+                   event = "pipeline_total_updated"
+                   pipelineRunId = pipelineRunId
+                   totalMicrodollars = totalMicrodollars |}
         | ObservabilityEvent.ToolCacheHit(correlationId, toolName) ->
-            box {| timestamp = timestamp; event = "tool_cache_hit"; correlationId = correlationId; toolName = toolName |}
+            box
+                {| timestamp = timestamp
+                   event = "tool_cache_hit"
+                   correlationId = correlationId
+                   toolName = toolName |}
         | ObservabilityEvent.ToolCacheMiss(correlationId, toolName) ->
-            box {| timestamp = timestamp; event = "tool_cache_miss"; correlationId = correlationId; toolName = toolName |}
+            box
+                {| timestamp = timestamp
+                   event = "tool_cache_miss"
+                   correlationId = correlationId
+                   toolName = toolName |}
 
 module ObservabilitySink =
 
-    let none: ObservabilitySink =
-        { Emit = ignore }
+    let none: ObservabilitySink = { Emit = ignore }
 
     let console (verbose: bool) : ObservabilitySink =
         let usd micros = decimal micros / 1_000_000m
@@ -136,28 +202,33 @@ module ObservabilitySink =
                         totalMicrodollars
                         |> Option.map (fun micros -> sprintf " $%.4f" (float (usd micros)))
                         |> Option.defaultValue ""
+
                     eprintfn "[llm] %s %dms in=%d out=%d%s" model durationMs usage.InputTokens usage.OutputTokens cost
                 | ObservabilityEvent.StreamCompleted(_, model, durationMs, usage, totalMicrodollars) ->
                     let cost =
                         totalMicrodollars
                         |> Option.map (fun micros -> sprintf " $%.4f" (float (usd micros)))
                         |> Option.defaultValue ""
-                    eprintfn "[llm] %s stream %dms in=%d out=%d%s" model durationMs usage.InputTokens usage.OutputTokens cost
-                | ObservabilityEvent.CacheHit(_, _, model) when verbose ->
-                    eprintfn "[cache] hit %s" model
-                | ObservabilityEvent.CacheMiss(_, _, model) when verbose ->
-                    eprintfn "[cache] miss %s" model
+
+                    eprintfn
+                        "[llm] %s stream %dms in=%d out=%d%s"
+                        model
+                        durationMs
+                        usage.InputTokens
+                        usage.OutputTokens
+                        cost
+                | ObservabilityEvent.CacheHit(_, _, model) when verbose -> eprintfn "[cache] hit %s" model
+                | ObservabilityEvent.CacheMiss(_, _, model) when verbose -> eprintfn "[cache] miss %s" model
                 | ObservabilityEvent.ValidationFailed(_, issues) ->
                     eprintfn "[validation] %s" (String.concat "; " issues)
                 | ObservabilityEvent.BreakerStateChanged(provider, oldState, newState) ->
                     eprintfn "[breaker] %s %A -> %A" provider oldState newState
-                | _ when verbose ->
-                    eprintfn "[obs] %A" event
-                | _ ->
-                    () }
+                | _ when verbose -> eprintfn "[obs] %A" event
+                | _ -> () }
 
     let jsonLines (path: string) : ObservabilitySink =
         let dir = Path.GetDirectoryName(path)
+
         if not (String.IsNullOrWhiteSpace(dir)) && not (Directory.Exists(dir)) then
             Directory.CreateDirectory(dir) |> ignore
 
@@ -171,4 +242,7 @@ module ObservabilitySink =
                 lock gate (fun () -> File.AppendAllText(path, json + Environment.NewLine)) }
 
     let combine (sinks: ObservabilitySink list) : ObservabilitySink =
-        { Emit = fun event -> for sink in sinks do sink.Emit event }
+        { Emit =
+            fun event ->
+                for sink in sinks do
+                    sink.Emit event }

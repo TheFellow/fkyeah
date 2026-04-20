@@ -19,7 +19,7 @@ type Token =
     | Semicolon
     | Comma
     | Equals
-    | Arrow       // ->
+    | Arrow // ->
     | Identifier of string
     | QuotedString of string
     | IntegerLit of int
@@ -30,16 +30,20 @@ type Token =
 
 module Lexer =
     let private isIdentStart c = Char.IsLetter(c) || c = '_'
-    let private isIdentChar c = Char.IsLetterOrDigit(c) || c = '_' || c = '.' || c = ':' || c = '-'
+
+    let private isIdentChar c =
+        Char.IsLetterOrDigit(c) || c = '_' || c = '.' || c = ':' || c = '-'
 
     let private stripComments (input: string) =
         let sb = StringBuilder(input.Length)
         let mutable i = 0
         let mutable inString = false
+
         while i < input.Length do
             if inString then
                 // Inside a quoted string — pass through everything, handle escapes
                 sb.Append(input[i]) |> ignore
+
                 if input[i] = '\\' && i + 1 < input.Length then
                     // Escaped character — pass both through
                     sb.Append(input[i + 1]) |> ignore
@@ -62,57 +66,86 @@ module Lexer =
             elif i + 1 < input.Length && input[i] = '/' && input[i + 1] = '*' then
                 // Block comment — skip to */
                 i <- i + 2
+
                 while i + 1 < input.Length && not (input[i] = '*' && input[i + 1] = '/') do
                     i <- i + 1
+
                 if i + 1 < input.Length then
                     i <- i + 2
             else
                 sb.Append(input[i]) |> ignore
                 i <- i + 1
+
         sb.ToString()
 
     let private skipWhitespace (input: string) (pos: int) =
         let mutable p = pos
+
         while p < input.Length && Char.IsWhiteSpace(input[p]) do
             p <- p + 1
+
         p
 
     let private readQuotedString (input: string) (startPos: int) =
         // startPos points to the opening quote
         let sb = StringBuilder()
         let mutable p = startPos + 1
+
         while p < input.Length && input[p] <> '"' do
             if input[p] = '\\' && p + 1 < input.Length then
                 match input[p + 1] with
-                | 'n' -> sb.Append('\n') |> ignore; p <- p + 2
-                | 't' -> sb.Append('\t') |> ignore; p <- p + 2
-                | '\\' -> sb.Append('\\') |> ignore; p <- p + 2
-                | '"' -> sb.Append('"') |> ignore; p <- p + 2
-                | c -> sb.Append('\\').Append(c) |> ignore; p <- p + 2
+                | 'n' ->
+                    sb.Append('\n') |> ignore
+                    p <- p + 2
+                | 't' ->
+                    sb.Append('\t') |> ignore
+                    p <- p + 2
+                | '\\' ->
+                    sb.Append('\\') |> ignore
+                    p <- p + 2
+                | '"' ->
+                    sb.Append('"') |> ignore
+                    p <- p + 2
+                | c ->
+                    sb.Append('\\').Append(c) |> ignore
+                    p <- p + 2
             else
                 sb.Append(input[p]) |> ignore
                 p <- p + 1
+
         if p < input.Length then
             p <- p + 1 // skip closing quote
+
         (sb.ToString(), p)
 
     let private readIdentifier (input: string) (startPos: int) =
         let mutable p = startPos
+
         while p < input.Length && isIdentChar input[p] do
             p <- p + 1
+
         (input.Substring(startPos, p - startPos), p)
 
     let private readNumber (input: string) (startPos: int) =
         let mutable p = startPos
+
         if p < input.Length && input[p] = '-' then
             p <- p + 1
+
         while p < input.Length && Char.IsDigit(input[p]) do
             p <- p + 1
         // Check for float
-        if p < input.Length && input[p] = '.' && p + 1 < input.Length && Char.IsDigit(input[p + 1]) then
+        if
+            p < input.Length
+            && input[p] = '.'
+            && p + 1 < input.Length
+            && Char.IsDigit(input[p + 1])
+        then
             p <- p + 1
+
             while p < input.Length && Char.IsDigit(input[p]) do
                 p <- p + 1
+
             let s = input.Substring(startPos, p - startPos)
             (Token.FloatLit(Double.Parse(s)), p)
         else
@@ -142,31 +175,52 @@ module Lexer =
 
         while pos < input.Length do
             pos <- skipWhitespace input pos
+
             if pos >= input.Length then
                 ()
             else
                 let c = input[pos]
+
                 match c with
-                | '{' -> tokens.Add(Token.LBrace); pos <- pos + 1
-                | '}' -> tokens.Add(Token.RBrace); pos <- pos + 1
-                | '[' -> tokens.Add(Token.LBracket); pos <- pos + 1
-                | ']' -> tokens.Add(Token.RBracket); pos <- pos + 1
-                | ';' -> tokens.Add(Token.Semicolon); pos <- pos + 1
-                | ',' -> tokens.Add(Token.Comma); pos <- pos + 1
-                | '=' -> tokens.Add(Token.Equals); pos <- pos + 1
+                | '{' ->
+                    tokens.Add(Token.LBrace)
+                    pos <- pos + 1
+                | '}' ->
+                    tokens.Add(Token.RBrace)
+                    pos <- pos + 1
+                | '[' ->
+                    tokens.Add(Token.LBracket)
+                    pos <- pos + 1
+                | ']' ->
+                    tokens.Add(Token.RBracket)
+                    pos <- pos + 1
+                | ';' ->
+                    tokens.Add(Token.Semicolon)
+                    pos <- pos + 1
+                | ',' ->
+                    tokens.Add(Token.Comma)
+                    pos <- pos + 1
+                | '=' ->
+                    tokens.Add(Token.Equals)
+                    pos <- pos + 1
                 | '-' when pos + 1 < input.Length && input[pos + 1] = '>' ->
-                    tokens.Add(Token.Arrow); pos <- pos + 2
+                    tokens.Add(Token.Arrow)
+                    pos <- pos + 2
                 | '-' when pos + 1 < input.Length && (Char.IsDigit(input[pos + 1]) || input[pos + 1] = '.') ->
                     let (tok, newPos) = readNumber input pos
-                    tokens.Add(tok); pos <- newPos
+                    tokens.Add(tok)
+                    pos <- newPos
                 | '"' ->
                     let (s, newPos) = readQuotedString input pos
-                    tokens.Add(Token.QuotedString s); pos <- newPos
+                    tokens.Add(Token.QuotedString s)
+                    pos <- newPos
                 | c when Char.IsDigit(c) ->
                     let (tok, newPos) = readNumber input pos
-                    tokens.Add(tok); pos <- newPos
+                    tokens.Add(tok)
+                    pos <- newPos
                 | c when isIdentStart c ->
                     let (id, newPos) = readIdentifier input pos
+
                     match id with
                     | "digraph" -> tokens.Add(Token.Digraph)
                     | "graph" -> tokens.Add(Token.Graph)
@@ -176,9 +230,9 @@ module Lexer =
                     | "true" -> tokens.Add(Token.BoolLit true)
                     | "false" -> tokens.Add(Token.BoolLit false)
                     | _ -> tokens.Add(Token.Identifier id)
+
                     pos <- newPos
-                | _ ->
-                    pos <- pos + 1 // skip unknown characters
+                | _ -> pos <- pos + 1 // skip unknown characters
 
         tokens.Add(Token.Eof)
         tokens |> Seq.toList
@@ -198,6 +252,7 @@ module DotParser =
 
         member this.Peek(offset: int) =
             let idx = this.Pos + offset
+
             if idx < this.Tokens.Length then
                 this.Tokens[idx]
             else
@@ -240,8 +295,7 @@ module DotParser =
         | Token.Identifier id ->
             state.Advance()
             AttrValue.String id
-        | other ->
-            failwithf "Expected a value but got %A at position %d" other state.Pos
+        | other -> failwithf "Expected a value but got %A at position %d" other state.Pos
 
     let private parseAttrKey (state: ParseState) : string =
         match state.Current with
@@ -251,8 +305,7 @@ module DotParser =
         | Token.QuotedString s ->
             state.Advance()
             s
-        | other ->
-            failwithf "Expected attribute key but got %A at position %d" other state.Pos
+        | other -> failwithf "Expected attribute key but got %A at position %d" other state.Pos
 
     let private parseAttrBlock (state: ParseState) : Map<string, AttrValue> =
         if state.Current <> Token.LBracket then
@@ -260,6 +313,7 @@ module DotParser =
         else
             state.Advance() // consume [
             let attrs = ResizeArray<string * AttrValue>()
+
             while state.Current <> Token.RBracket && state.Current <> Token.Eof do
                 // Parse key = value
                 let key = parseAttrKey state
@@ -269,13 +323,12 @@ module DotParser =
                 // Consume optional comma or semicolon
                 state.TryConsume(Token.Comma) |> ignore
                 state.TryConsume(Token.Semicolon) |> ignore
+
             state.TryConsume(Token.RBracket) |> ignore
             attrs |> Seq.fold (fun m (k, v) -> Map.add k v m) Map.empty
 
     let private mergeAttrs (defaults: Map<string, AttrValue>) (explicit: Map<string, AttrValue>) =
-        Map.fold (fun acc k v ->
-            if Map.containsKey k acc then acc else Map.add k v acc
-        ) explicit defaults
+        Map.fold (fun acc k v -> if Map.containsKey k acc then acc else Map.add k v acc) explicit defaults
 
     type private ParsedStatement =
         | NodeDef of id: string * attrs: Map<string, AttrValue>
@@ -290,10 +343,12 @@ module DotParser =
         state.TryConsume(Token.Semicolon) |> ignore
 
         match state.Current with
-        | Token.Eof | Token.RBrace -> None
+        | Token.Eof
+        | Token.RBrace -> None
 
         | Token.Graph ->
             state.Advance()
+
             if state.Current = Token.LBracket then
                 let attrs = parseAttrBlock state
                 state.TryConsume(Token.Semicolon) |> ignore
@@ -320,12 +375,14 @@ module DotParser =
 
         | Token.Subgraph ->
             state.Advance()
+
             let name =
                 match state.Current with
                 | Token.Identifier id ->
                     state.Advance()
                     Some id
                 | _ -> None
+
             state.Expect(Token.LBrace)
             let stmts = parseStatements state
             state.Expect(Token.RBrace)
@@ -341,9 +398,11 @@ module DotParser =
                 // Edge statement: A -> B -> C [attrs]
                 let nodeIds = ResizeArray<string>()
                 nodeIds.Add(id)
+
                 while state.TryConsume(Token.Arrow) do
                     let nextId = parseAttrKey state
                     nodeIds.Add(nextId)
+
                 let attrs = parseAttrBlock state
                 state.TryConsume(Token.Semicolon) |> ignore
                 Some(EdgeDef(nodeIds |> Seq.toList, attrs))
@@ -373,10 +432,12 @@ module DotParser =
     and private parseStatements (state: ParseState) : ParsedStatement list =
         let stmts = ResizeArray<ParsedStatement>()
         let mutable cont = true
+
         while cont do
             match parseStatement state with
             | Some stmt -> stmts.Add(stmt)
             | None -> cont <- false
+
         stmts |> Seq.toList
 
     let private deriveSubgraphClass (name: string option) (stmts: ParsedStatement list) =
@@ -398,9 +459,8 @@ module DotParser =
             |> fun s -> Regex.Replace(s, @"[^a-z0-9-]", "")
             |> Some
         | None ->
-            name |> Option.map (fun n ->
-                n.ToLowerInvariant()
-                |> fun s -> Regex.Replace(s, @"[^a-z0-9-]", ""))
+            name
+            |> Option.map (fun n -> n.ToLowerInvariant() |> fun s -> Regex.Replace(s, @"[^a-z0-9-]", ""))
 
     let private buildGraph (name: string) (statements: ParsedStatement list) : Graph =
         let graphAttrs = ResizeArray<string * AttrValue>()
@@ -416,14 +476,11 @@ module DotParser =
                     for kv in attrs do
                         graphAttrs.Add(kv.Key, kv.Value)
 
-                | GraphAttrDecl(key, value) ->
-                    graphAttrs.Add(key, value)
+                | GraphAttrDecl(key, value) -> graphAttrs.Add(key, value)
 
-                | NodeDefaultBlock attrs ->
-                    nodeDefaults <- Map.fold (fun acc k v -> Map.add k v acc) nodeDefaults attrs
+                | NodeDefaultBlock attrs -> nodeDefaults <- Map.fold (fun acc k v -> Map.add k v acc) nodeDefaults attrs
 
-                | EdgeDefaultBlock attrs ->
-                    edgeDefaults <- Map.fold (fun acc k v -> Map.add k v acc) edgeDefaults attrs
+                | EdgeDefaultBlock attrs -> edgeDefaults <- Map.fold (fun acc k v -> Map.add k v acc) edgeDefaults attrs
 
                 | NodeDef(id, attrs) ->
                     let mergedAttrs = mergeAttrs nodeDefaults (mergeAttrs extraNodeAttrs attrs)
@@ -437,6 +494,7 @@ module DotParser =
                             nodes.Add(nid, mergedAttrs)
                     // Create edges for each pair
                     let mergedEdgeAttrs = mergeAttrs edgeDefaults attrs
+
                     for i in 0 .. nodeIds.Length - 2 do
                         edges.Add(nodeIds[i], nodeIds[i + 1], mergedEdgeAttrs)
 
@@ -452,7 +510,9 @@ module DotParser =
                         |> List.fold (fun acc attrs -> Map.fold (fun a k v -> Map.add k v a) acc attrs) Map.empty
 
                     let subExtraAttrs =
-                        let withDefaults = mergeAttrs nodeDefaults (mergeAttrs extraNodeAttrs subNodeDefaults)
+                        let withDefaults =
+                            mergeAttrs nodeDefaults (mergeAttrs extraNodeAttrs subNodeDefaults)
+
                         match derivedClass with
                         | Some cls ->
                             // Add derived class to nodes
@@ -461,9 +521,13 @@ module DotParser =
                                 |> Map.tryFind "class"
                                 |> Option.map (fun v -> v.AsString())
                                 |> Option.defaultValue ""
+
                             let newClass =
-                                if existingClass = "" then cls
-                                else existingClass + "," + cls
+                                if existingClass = "" then
+                                    cls
+                                else
+                                    existingClass + "," + cls
+
                             Map.add "class" (AttrValue.String newClass) withDefaults
                         | None -> withDefaults
 
@@ -471,9 +535,12 @@ module DotParser =
                         subStmts
                         |> List.filter (fun s ->
                             match s with
-                            | NodeDefaultBlock _ | EdgeDefaultBlock _ -> false
-                            | GraphAttrBlock _ | GraphAttrDecl _ -> false
+                            | NodeDefaultBlock _
+                            | EdgeDefaultBlock _ -> false
+                            | GraphAttrBlock _
+                            | GraphAttrDecl _ -> false
                             | _ -> true)
+
                     processStatements nonDefaultStmts subExtraAttrs
 
         processStatements statements Map.empty
@@ -486,18 +553,20 @@ module DotParser =
                     defs
                     |> Seq.map snd
                     |> Seq.fold (fun acc attrs -> Map.fold (fun a k v -> Map.add k v a) acc attrs) Map.empty
+
                 id, { Id = id; Attributes = mergedAttrs })
             |> Map.ofSeq
 
         let edgeList =
             edges
             |> Seq.map (fun (from, to', attrs) ->
-                { FromNode = from; ToNode = to'; Attributes = attrs })
+                { FromNode = from
+                  ToNode = to'
+                  Attributes = attrs })
             |> Seq.toList
 
         let graphAttrMap =
-            graphAttrs
-            |> Seq.fold (fun acc (k, v) -> Map.add k v acc) Map.empty
+            graphAttrs |> Seq.fold (fun acc (k, v) -> Map.add k v acc) Map.empty
 
         { Name = name
           Nodes = nodeMap
@@ -508,12 +577,14 @@ module DotParser =
     let parse (source: string) : Result<Graph, string> =
         try
             let tokens = Lexer.tokenize source
+
             let state =
                 { Tokens = tokens |> Array.ofList
                   Pos = 0 }
 
             // Expect: digraph Name { ... }
             state.Expect(Token.Digraph)
+
             let name =
                 match state.Current with
                 | Token.Identifier id ->
@@ -523,6 +594,7 @@ module DotParser =
                     state.Advance()
                     s
                 | _ -> "unnamed"
+
             state.Expect(Token.LBrace)
             let statements = parseStatements state
             state.Expect(Token.RBrace)

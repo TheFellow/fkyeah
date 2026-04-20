@@ -6,7 +6,9 @@ open Xunit
 open Attractor
 
 let private createTempDir () =
-    let dir = Path.Combine(Path.GetTempPath(), $"attractor-sprint014-{Guid.NewGuid():N}")
+    let dir =
+        Path.Combine(Path.GetTempPath(), $"attractor-sprint014-{Guid.NewGuid():N}")
+
     Directory.CreateDirectory(dir) |> ignore
     dir
 
@@ -16,6 +18,7 @@ module InitialContextTests =
     let ``InitialContext seeds fresh runs and overrides graph defaults`` () =
         let mutable seenSeed = ""
         let mutable seenGoal = ""
+
         let handler =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
@@ -24,7 +27,8 @@ module InitialContextTests =
                     Outcome.Success() }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 graph [goal="from-graph"]
                 start [shape=Mdiamond]
@@ -37,13 +41,11 @@ module InitialContextTests =
         let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", handler)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
-                InitialContextValues =
-                    Map.ofList
-                        [ "seed", "hello"
-                          "graph.goal", "overridden" ] }
+                InitialContextValues = Map.ofList [ "seed", "hello"; "graph.goal", "overridden" ] }
 
         let result = Engine.run graph config
 
@@ -61,6 +63,7 @@ module InitialContextTests =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
                     calls <- calls + 1
+
                     if calls > 1 then
                         secondPassSeed <- context.Get("seed")
                         Outcome.Success(contextUpdates = Map.ofList [ "loop_done", "true" ])
@@ -72,7 +75,8 @@ module InitialContextTests =
                 member _.Execute(_, _, _, _) = Outcome.Success() }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 graph [goal="restart"]
                 start [shape=Mdiamond]
@@ -89,6 +93,7 @@ module InitialContextTests =
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("ha", handlerA)
         registry.Register("hb", handlerB)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -103,7 +108,8 @@ module InitialContextTests =
     [<Fact>]
     let ``InitialContext fills missing keys only on checkpoint resume`` () =
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 graph [goal="resume"]
                 start [shape=Mdiamond]
@@ -118,23 +124,15 @@ module InitialContextTests =
               CurrentNode = "A"
               CompletedNodes = [ "start"; "A" ]
               NodeRetries = Map.empty
-              NodeOutcomes =
-                Map.ofList
-                    [ "start", Outcome.Success()
-                      "A", Outcome.Success() ]
-              ContextValues =
-                Map.ofList
-                    [ "graph.goal", "resume"
-                      "seed", "existing" ]
+              NodeOutcomes = Map.ofList [ "start", Outcome.Success(); "A", Outcome.Success() ]
+              ContextValues = Map.ofList [ "graph.goal", "resume"; "seed", "existing" ]
               Logs = [] }
 
         let logsRoot = createTempDir ()
+
         let config =
             { RunConfig.Default(logsRoot) with
-                InitialContextValues =
-                    Map.ofList
-                        [ "seed", "new"
-                          "extra", "added" ] }
+                InitialContextValues = Map.ofList [ "seed", "new"; "extra", "added" ] }
 
         let result = Engine.resumeFromCheckpoint graph config checkpoint
 
@@ -151,7 +149,8 @@ module ParallelQualificationTests =
                     Outcome.Success(contextUpdates = Map.ofList [ "result_key", node.Id ]) }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 graph [default_fidelity="full"]
                 start [shape=Mdiamond]
@@ -173,7 +172,10 @@ module ParallelQualificationTests =
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("branch", branchHandler)
         registry.Register("parallel", Handlers.ParallelHandler(resolveHandler = registry.Resolve))
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
 
         let result = Engine.run graph config
         let raw = result.Context.Get("result_key")
@@ -189,6 +191,7 @@ module ManagerLoopLaneTests =
     [<Fact>]
     let ``Manager loop polling mode propagates lane`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
               Attributes =
@@ -197,7 +200,16 @@ module ManagerLoopLaneTests =
                       "max_cycles", AttrValue.Integer 1
                       "lane", AttrValue.String "deploy" ] }
 
-        let outcome = handler.Execute(node, Context(), { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }, createTempDir ())
+        let outcome =
+            handler.Execute(
+                node,
+                Context(),
+                { Name = "test"
+                  Nodes = Map.empty
+                  Edges = []
+                  GraphAttributes = Map.empty },
+                createTempDir ()
+            )
 
         Assert.True(outcome.ContextUpdates.ContainsKey("manager.lane"))
         Assert.Equal("deploy", outcome.ContextUpdates["manager.lane"])
@@ -205,14 +217,21 @@ module ManagerLoopLaneTests =
     [<Fact>]
     let ``Manager loop polling mode omits lane when unset`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
-              Attributes =
-                Map.ofList
-                    [ "shape", AttrValue.String "house"
-                      "max_cycles", AttrValue.Integer 1 ] }
+              Attributes = Map.ofList [ "shape", AttrValue.String "house"; "max_cycles", AttrValue.Integer 1 ] }
 
-        let outcome = handler.Execute(node, Context(), { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }, createTempDir ())
+        let outcome =
+            handler.Execute(
+                node,
+                Context(),
+                { Name = "test"
+                  Nodes = Map.empty
+                  Edges = []
+                  GraphAttributes = Map.empty },
+                createTempDir ()
+            )
 
         Assert.False(outcome.ContextUpdates.ContainsKey("manager.lane"))
 
@@ -221,11 +240,15 @@ module HumanMetadataTests =
     [<Fact>]
     let ``WaitForHuman includes node_id attr metadata and preserves existing keys`` () =
         let mutable metadata = Map.empty
+
         let interviewer =
             CallbackInterviewer(fun question ->
                 metadata <- question.Metadata
-                Answer.FromOption(question.Options.Head)) :> IInterviewer
+                Answer.FromOption(question.Options.Head))
+            :> IInterviewer
+
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "review"
               Attributes =
@@ -233,18 +256,28 @@ module HumanMetadataTests =
                     [ "shape", AttrValue.String "hexagon"
                       "prompt", AttrValue.String "Review"
                       "fidelity", AttrValue.String "full" ] }
+
         let context = Context()
         context.Set("last_stage", "build")
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "review", node
-                      "approve", { Id = "approve"; Attributes = Map.empty }
-                      "reject", { Id = "reject"; Attributes = Map.empty } ]
+                      "approve",
+                      { Id = "approve"
+                        Attributes = Map.empty }
+                      "reject",
+                      { Id = "reject"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "review"; ToNode = "approve"; Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
-                  { FromNode = "review"; ToNode = "reject"; Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
+                [ { FromNode = "review"
+                    ToNode = "approve"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "review"
+                    ToNode = "reject"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
               GraphAttributes = Map.ofList [ "goal", AttrValue.String "Ship it" ] }
 
         let logsRoot = createTempDir ()
@@ -262,26 +295,30 @@ module HumanMetadataTests =
     [<Fact>]
     let ``WaitForHuman freeform metadata preserves response_file alongside new metadata`` () =
         let mutable metadata = Map.empty
+
         let interviewer =
             CallbackInterviewer(fun question ->
                 metadata <- question.Metadata
                 File.WriteAllText(question.Metadata["response_file"], "details")
-                Answer.FromText("")) :> IInterviewer
+                Answer.FromText(""))
+            :> IInterviewer
+
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "gate"
               Attributes =
                 Map.ofList
                     [ "shape", AttrValue.String "hexagon"
                       "prompt", AttrValue.String "Explain the change" ] }
+
         let graph =
             { Name = "test"
-              Nodes =
-                Map.ofList
-                    [ "gate", node
-                      "next", { Id = "next"; Attributes = Map.empty } ]
+              Nodes = Map.ofList [ "gate", node; "next", { Id = "next"; Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "gate"; ToNode = "next"; Attributes = Map.ofList [ "label", AttrValue.String "next" ] } ]
+                [ { FromNode = "gate"
+                    ToNode = "next"
+                    Attributes = Map.ofList [ "label", AttrValue.String "next" ] } ]
               GraphAttributes = Map.ofList [ "goal", AttrValue.String "Collect input" ] }
 
         let outcome = handler.Execute(node, Context(), graph, createTempDir ())
@@ -313,7 +350,10 @@ module EventExpansionTests =
     let ``EventCollector captures new Sprint 014 event cases`` () =
         let collector = EventCollector()
         let emitter = EventEmitter()
-        let evt = PipelineEvent.ChangeImplementationStarted(PipelineEventContext.Empty, "test")
+
+        let evt =
+            PipelineEvent.ChangeImplementationStarted(PipelineEventContext.Empty, "test")
+
         emitter.AddObserver(collector)
 
         emitter.Emit(evt)
@@ -338,10 +378,12 @@ module AcpPresetTests =
     let private withEnvCleared (keys: string list) (action: unit -> unit) =
         let original =
             keys |> List.map (fun key -> key, Environment.GetEnvironmentVariable(key))
+
         try
             for key, _ in original do
                 Environment.SetEnvironmentVariable(key, null)
-            action()
+
+            action ()
         finally
             for key, value in original do
                 Environment.SetEnvironmentVariable(key, value)

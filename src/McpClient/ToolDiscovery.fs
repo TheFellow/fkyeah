@@ -9,6 +9,7 @@ module ToolDiscovery =
                 | [] -> return Ok(List.rev discovered)
                 | server :: rest ->
                     let! result = server.ListTools()
+
                     match result with
                     | Error error -> return Error error
                     | Ok tools ->
@@ -17,6 +18,7 @@ module ToolDiscovery =
                             |> List.map (fun definition ->
                                 { ServerName = server.Config.Name
                                   Definition = definition })
+
                         return! loop rest (List.rev next @ discovered)
             }
 

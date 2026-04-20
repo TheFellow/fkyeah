@@ -41,7 +41,8 @@ let ``Compact projection preserves structural keys under budget pressure`` () =
     ctx.Set("graph.goal", String.replicate 200 "g")
     ctx.Set("current_node", "implement")
     ctx.Set("outcome", "success")
-    for index in 1 .. 20 do
+
+    for index in 1..20 do
         ctx.Set($"payload.{index}", String.replicate 500 "x")
 
     let projected = ctx.Project(FidelityMode.Compact)
@@ -80,7 +81,8 @@ let ``preparePromptContext prioritizes high value keys and records truncation`` 
     ctx.Set("parallel.branch.a", "done")
     ctx.Set("human.gate.input", "approved")
 
-    let prepared = ContextPrompt.preparePromptContext FidelityMode.Truncate ctx "ship feature"
+    let prepared =
+        ContextPrompt.preparePromptContext FidelityMode.Truncate ctx "ship feature"
 
     Assert.Contains("tool.output", prepared.IncludedKeys)
     Assert.Contains("tool.output", prepared.TruncatedKeys)
@@ -93,7 +95,8 @@ let ``SummaryHigh prompt preparation includes context summary`` () =
     let ctx = Context()
     ctx.Set("context_summary", "graph.goal=ship; outcome=success")
 
-    let prepared = ContextPrompt.preparePromptContext FidelityMode.SummaryHigh ctx "ship"
+    let prepared =
+        ContextPrompt.preparePromptContext FidelityMode.SummaryHigh ctx "ship"
 
     Assert.Contains("context_summary", prepared.IncludedKeys)
     Assert.Contains("context_summary", prepared.SystemMessage)
@@ -101,6 +104,7 @@ let ``SummaryHigh prompt preparation includes context summary`` () =
 [<Fact>]
 let ``Codergen handler writes context_budget artifact`` () =
     let handler = Handlers.CodergenHandler() :> IHandler
+
     let node =
         { Id = "implement"
           Attributes =
@@ -108,14 +112,17 @@ let ``Codergen handler writes context_budget artifact`` () =
                 [ "shape", AttrValue.String "box"
                   "prompt", AttrValue.String "Implement"
                   "__resolved_fidelity", AttrValue.String "truncate" ] }
+
     let ctx = Context()
     ctx.Set("tool.output", String.replicate 1000 "x")
+
     let graph =
         { Name = "test"
           Nodes = Map.empty
           Edges = []
           GraphAttributes = Map.ofList [ "goal", AttrValue.String "ship feature" ] }
-    let logsRoot = createTempDir()
+
+    let logsRoot = createTempDir ()
 
     let outcome = handler.Execute(node, ctx, graph, logsRoot)
     Assert.Equal(StageStatus.Success, outcome.Status)

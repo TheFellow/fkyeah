@@ -8,17 +8,25 @@ module Stylesheet =
 
     /// Known shape names for shape-based selectors
     let private knownShapes =
-        set [ "box"; "Mdiamond"; "Msquare"; "hexagon"; "diamond";
-              "component"; "tripleoctagon"; "parallelogram"; "house" ]
+        set
+            [ "box"
+              "Mdiamond"
+              "Msquare"
+              "hexagon"
+              "diamond"
+              "component"
+              "tripleoctagon"
+              "parallelogram"
+              "house" ]
 
     /// Selector types with specificity
     /// Specificity: universal (0) < shape (1) < class (2) < id (3)
     [<RequireQualifiedAccess>]
     type Selector =
-        | Universal               // * -> specificity 0
-        | Shape of string         // bare shape name (e.g., box) -> specificity 1
-        | Class of string         // .className -> specificity 2
-        | Id of string            // #nodeId -> specificity 3
+        | Universal // * -> specificity 0
+        | Shape of string // bare shape name (e.g., box) -> specificity 1
+        | Class of string // .className -> specificity 2
+        | Id of string // #nodeId -> specificity 3
 
         member this.Specificity =
             match this with
@@ -35,13 +43,12 @@ module Stylesheet =
                 let nodeClasses =
                     node.Class.Split(',', StringSplitOptions.RemoveEmptyEntries)
                     |> Array.map (fun s -> s.Trim())
+
                 nodeClasses |> Array.exists (fun c -> c = cls)
             | Id id -> node.Id = id
 
     /// A single property declaration
-    type Declaration =
-        { Property: string
-          Value: string }
+    type Declaration = { Property: string; Value: string }
 
     /// A stylesheet rule (selector + declarations)
     type Rule =
@@ -49,26 +56,35 @@ module Stylesheet =
           Declarations: Declaration list }
 
     /// Parsed stylesheet
-    type ParsedStylesheet =
-        { Rules: Rule list }
+    type ParsedStylesheet = { Rules: Rule list }
 
     let private parseSelector (s: string) : Selector =
         let s = s.Trim()
-        if s = "*" then Selector.Universal
-        elif s.StartsWith(".") then Selector.Class(s.Substring(1))
-        elif s.StartsWith("#") then Selector.Id(s.Substring(1))
+
+        if s = "*" then
+            Selector.Universal
+        elif s.StartsWith(".") then
+            Selector.Class(s.Substring(1))
+        elif s.StartsWith("#") then
+            Selector.Id(s.Substring(1))
         elif knownShapes.Contains(s) || Regex.IsMatch(s, @"^[a-zA-Z]\w*$") then
             // Bare identifier that could be a shape name
-            if knownShapes.Contains(s) then Selector.Shape(s)
-            else Selector.Shape(s) // treat any bare word as a shape selector
-        else Selector.Universal
+            if knownShapes.Contains(s) then
+                Selector.Shape(s)
+            else
+                Selector.Shape(s) // treat any bare word as a shape selector
+        else
+            Selector.Universal
 
     let private parseDeclarations (block: string) : Declaration list =
         block.Split(';', StringSplitOptions.RemoveEmptyEntries)
         |> Array.choose (fun decl ->
             let parts = decl.Split(':', 2, StringSplitOptions.None)
+
             if parts.Length = 2 then
-                Some { Property = parts[0].Trim(); Value = parts[1].Trim() }
+                Some
+                    { Property = parts[0].Trim()
+                      Value = parts[1].Trim() }
             else
                 None)
         |> Array.toList
@@ -83,10 +99,16 @@ module Stylesheet =
                 // Match pattern: selector { declarations }
                 let regex = Regex(@"([*#.]?[\w-]*)\s*\{([^}]*)\}", RegexOptions.Singleline)
                 let matches = regex.Matches(source)
+
                 for m in matches do
                     let selector = parseSelector (m.Groups[1].Value)
                     let declarations = parseDeclarations (m.Groups[2].Value)
-                    rules.Add({ Selector = selector; Declarations = declarations })
+
+                    rules.Add(
+                        { Selector = selector
+                          Declarations = declarations }
+                    )
+
                 Ok { Rules = rules |> Seq.toList }
             with ex ->
                 Error ex.Message
@@ -122,22 +144,28 @@ module Stylesheet =
                 // Build a map of property -> value from matching rules (highest specificity wins)
                 let stylesheetValues =
                     matchingRules
-                    |> List.fold (fun acc rule ->
-                        rule.Declarations
-                        |> List.fold (fun a decl ->
-                            if properties.Contains(decl.Property) then
-                                Map.add decl.Property decl.Value a
-                            else a
-                        ) acc
-                    ) Map.empty
+                    |> List.fold
+                        (fun acc rule ->
+                            rule.Declarations
+                            |> List.fold
+                                (fun a decl ->
+                                    if properties.Contains(decl.Property) then
+                                        Map.add decl.Property decl.Value a
+                                    else
+                                        a)
+                                acc)
+                        Map.empty
 
                 // Merge: explicit node attrs have highest precedence, then stylesheet
                 let newAttrs =
                     stylesheetValues
-                    |> Map.fold (fun attrs prop value ->
-                        if explicitProps.Contains(prop) then attrs
-                        else Map.add prop (AttrValue.String value) attrs
-                    ) node.Attributes
+                    |> Map.fold
+                        (fun attrs prop value ->
+                            if explicitProps.Contains(prop) then
+                                attrs
+                            else
+                                Map.add prop (AttrValue.String value) attrs)
+                        node.Attributes
 
                 { node with Attributes = newAttrs })
 

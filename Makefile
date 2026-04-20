@@ -3,7 +3,16 @@ CLI_PROJECT := src/Attractor.Cli/Attractor.Cli.fsproj
 PUBLISH_DIR := $(shell mktemp -d)
 RID := osx-arm64
 
-.PHONY: build test publish install conformance clean
+.PHONY: build test publish install conformance clean format format-check tools
+
+tools:
+	dotnet tool restore
+
+format: tools
+	dotnet fantomas src tests
+
+format-check: tools
+	dotnet fantomas --check src tests
 
 build:
 	dotnet build

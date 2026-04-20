@@ -37,9 +37,7 @@ module CheckpointDto =
           Data: Map<string, string>
           FullOutput: string option }
 
-    type Subagent =
-        { AgentId: string
-          Status: string }
+    type Subagent = { AgentId: string; Status: string }
 
 type SessionCheckpointV1 =
     { Version: int
@@ -57,6 +55,7 @@ type SessionCheckpointV1 =
       FollowupQueue: string list
       SubagentMetadata: CheckpointDto.Subagent list
       SavedAt: DateTimeOffset }
+
     static member CurrentVersion = 1
 
 type SessionPersistence =
@@ -150,9 +149,9 @@ module SessionPersistence =
                 turn.ToolCalls |> List.map toolCallOfDto,
                 turn.Reasoning,
                 turn.Usage |> Option.defaultValue Usage.Zero,
-                turn.Timestamp)
-        | "tool_results" ->
-            ToolResultsTurn(turn.ToolResults |> List.map toolResultOfDto, turn.Timestamp)
+                turn.Timestamp
+            )
+        | "tool_results" -> ToolResultsTurn(turn.ToolResults |> List.map toolResultOfDto, turn.Timestamp)
         | "steering" -> SteeringTurn(turn.Content, turn.Timestamp)
         | "system" -> SystemTurn(turn.Content, turn.Timestamp)
         | other -> failwith $"Unknown turn case '{other}'"
@@ -165,8 +164,7 @@ module SessionPersistence =
           FullOutput = event.FullOutput }
 
     let subagentToDto (agentId: string, status: string) : CheckpointDto.Subagent =
-        { AgentId = agentId
-          Status = status }
+        { AgentId = agentId; Status = status }
 
     let eventKindOfString (value: string) =
         match value with
@@ -199,8 +197,10 @@ module SessionPersistence =
 
     let private writeAtomically (path: string) (content: byte array) =
         let dir = Path.GetDirectoryName(path)
+
         if not (String.IsNullOrWhiteSpace(dir)) && not (Directory.Exists(dir)) then
             Directory.CreateDirectory(dir) |> ignore
+
         let tempPath = path + ".tmp." + Guid.NewGuid().ToString("N")
         File.WriteAllBytes(tempPath, content)
         File.Move(tempPath, path, true)
@@ -212,7 +212,7 @@ module SessionPersistence =
                     try
                         let bytes = JsonSerializer.SerializeToUtf8Bytes(checkpoint, jsonOptions)
                         writeAtomically path bytes
-                        return Result.Ok ()
+                        return Result.Ok()
                     with ex ->
                         return Result.Error($"Failed to save checkpoint: {ex.Message}")
                 }
@@ -225,10 +225,12 @@ module SessionPersistence =
                         else
                             let json = File.ReadAllBytes(path)
                             let checkpoint = JsonSerializer.Deserialize<SessionCheckpointV1>(json, jsonOptions)
+
                             if checkpoint.Version <> SessionCheckpointV1.CurrentVersion then
                                 return
                                     Result.Error(
-                                        $"Checkpoint version mismatch: expected {SessionCheckpointV1.CurrentVersion}, got {checkpoint.Version}")
+                                        $"Checkpoint version mismatch: expected {SessionCheckpointV1.CurrentVersion}, got {checkpoint.Version}"
+                                    )
                             else
                                 return Result.Ok checkpoint
                     with ex ->
@@ -239,11 +241,9 @@ module AutoCheckpointRegistry =
 
     let private callbacks = ConcurrentDictionary<string, unit -> unit>()
 
-    let register (key: string) (callback: unit -> unit) =
-        callbacks[key] <- callback
+    let register (key: string) (callback: unit -> unit) = callbacks[key] <- callback
 
-    let unregister (key: string) =
-        callbacks.TryRemove(key) |> ignore
+    let unregister (key: string) = callbacks.TryRemove(key) |> ignore
 
     let saveAll () =
         for callback in callbacks.Values do

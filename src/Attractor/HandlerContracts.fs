@@ -14,10 +14,13 @@ module HandlerArtifacts =
     let private writeStageFile (stageDir: string) (rootDir: string) (fileName: string) (content: string) =
         if not (Directory.Exists(stageDir)) then
             Directory.CreateDirectory(stageDir) |> ignore
+
         File.WriteAllText(Path.Combine(stageDir, fileName), content)
+
         if stageDir <> rootDir then
             if not (Directory.Exists(rootDir)) then
                 Directory.CreateDirectory(rootDir) |> ignore
+
             File.WriteAllText(Path.Combine(rootDir, fileName), content)
 
     let writeStatus (stageDir: string) (rootDir: string) (outcome: Outcome) =
@@ -28,5 +31,8 @@ module HandlerArtifacts =
                context_updates = outcome.ContextUpdates
                notes = outcome.Notes
                failure_reason = outcome.FailureReason |}
-        let json = JsonSerializer.Serialize(status, JsonSerializerOptions(WriteIndented = true))
+
+        let json =
+            JsonSerializer.Serialize(status, JsonSerializerOptions(WriteIndented = true))
+
         writeStageFile stageDir rootDir "status.json" json

@@ -71,9 +71,7 @@ type McpToolDefinition =
       Description: string
       InputSchema: JsonElement }
 
-type McpToolCallResult =
-    { Content: JsonElement
-      IsError: bool }
+type McpToolCallResult = { Content: JsonElement; IsError: bool }
 
 type McpRemoteServer =
     { Config: McpServerConfig
@@ -103,7 +101,11 @@ module McpServerConfig =
         let requireField (fieldName: string) (value: string option) =
             match value with
             | Some raw when not (String.IsNullOrWhiteSpace(raw)) -> Ok config
-            | _ -> Error(McpError.InvalidConfiguration $"Server '{config.Name}' requires '{fieldName}' for {config.Transport}")
+            | _ ->
+                Error(
+                    McpError.InvalidConfiguration
+                        $"Server '{config.Name}' requires '{fieldName}' for {config.Transport}"
+                )
 
         match config.Transport with
         | McpTransportKind.Stdio -> requireField "command" config.Command
@@ -112,4 +114,8 @@ module McpServerConfig =
             match config.Url, config.RequestUrl with
             | Some url, _
             | _, Some url when not (String.IsNullOrWhiteSpace(url)) -> Ok config
-            | _ -> Error(McpError.InvalidConfiguration $"Server '{config.Name}' requires 'url' or 'requestUrl' for {config.Transport}")
+            | _ ->
+                Error(
+                    McpError.InvalidConfiguration
+                        $"Server '{config.Name}' requires 'url' or 'requestUrl' for {config.Transport}"
+                )

@@ -9,6 +9,7 @@ module Codec =
 
     let private writeId (writer: Utf8JsonWriter) (id: JsonRpcId) =
         writer.WritePropertyName("id")
+
         match id with
         | StringId value -> writer.WriteStringValue(value)
         | NumberId value -> writer.WriteNumberValue(value)
@@ -24,13 +25,13 @@ module Codec =
 
     let private tryGetProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
+
         if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
             Some value
         else
             None
 
-    let private cloneOption (elementOpt: JsonElement option) =
-        elementOpt |> Option.map _.Clone()
+    let private cloneOption (elementOpt: JsonElement option) = elementOpt |> Option.map _.Clone()
 
     let encode (request: JsonRpcRequest) =
         use stream = new MemoryStream()
@@ -39,11 +40,13 @@ module Codec =
         writer.WriteString("jsonrpc", "2.0")
         writeId writer request.Id
         writer.WriteString("method", request.Method)
+
         match request.Params with
         | Some parameters ->
             writer.WritePropertyName("params")
             parameters.WriteTo(writer)
         | None -> ()
+
         writer.WriteEndObject()
         writer.Flush()
         stream.ToArray()
@@ -54,11 +57,13 @@ module Codec =
         writer.WriteStartObject()
         writer.WriteString("jsonrpc", "2.0")
         writer.WriteString("method", methodName)
+
         match parameters with
         | Some value ->
             writer.WritePropertyName("params")
             value.WriteTo(writer)
         | None -> ()
+
         writer.WriteEndObject()
         writer.Flush()
         stream.ToArray()
@@ -85,11 +90,13 @@ module Codec =
         writer.WriteStartObject()
         writer.WriteNumber("code", error.Code)
         writer.WriteString("message", error.Message)
+
         match error.Data with
         | Some value ->
             writer.WritePropertyName("data")
             value.WriteTo(writer)
         | None -> ()
+
         writer.WriteEndObject()
         writer.WriteEndObject()
         writer.Flush()
@@ -114,6 +121,7 @@ module Codec =
                                 match tryGetProperty "code" errorElement with
                                 | Some value -> value
                                 | None -> raise (InvalidOperationException("JSON-RPC error is missing code"))
+
                             let messageElement =
                                 match tryGetProperty "message" errorElement with
                                 | Some value -> value

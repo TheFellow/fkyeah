@@ -13,7 +13,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Parser accepts supported DOT subset (digraph with attribute blocks)`` () =
-        let dot = """
+        let dot =
+            """
         digraph Simple {
             graph [goal="Run tests"]
             node [shape=box]
@@ -23,13 +24,15 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("Simple", graph.Name)
         Assert.True(graph.Nodes.Count >= 3)
 
     [<Fact>]
     let ``Graph-level attributes are extracted correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Test goal", label="Test Label"]
             start [shape=Mdiamond]
@@ -37,13 +40,15 @@ module DotParsingTests =
             start -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("Test goal", graph.Goal)
         Assert.Equal("Test Label", graph.GraphLabel)
 
     [<Fact>]
     let ``Node attributes are parsed including multi-line attribute blocks`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -55,6 +60,7 @@ module DotParsingTests =
             start -> review -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let review = graph.Nodes["review"]
         Assert.Equal("hexagon", review.Shape)
@@ -63,7 +69,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Edge attributes are parsed correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -74,15 +81,20 @@ module DotParsingTests =
             gate -> A [label="No", condition="outcome!=success"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let yesEdge = graph.Edges |> List.find (fun e -> e.FromNode = "gate" && e.ToNode = "exit")
+
+        let yesEdge =
+            graph.Edges |> List.find (fun e -> e.FromNode = "gate" && e.ToNode = "exit")
+
         Assert.Equal("Yes", yesEdge.Label)
         Assert.Equal("outcome=success", yesEdge.Condition)
         Assert.Equal(10, yesEdge.Weight)
 
     [<Fact>]
     let ``Chained edges produce individual edges for each pair`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -91,6 +103,7 @@ module DotParsingTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.True(graph.Edges |> List.exists (fun e -> e.FromNode = "start" && e.ToNode = "A"))
         Assert.True(graph.Edges |> List.exists (fun e -> e.FromNode = "A" && e.ToNode = "B"))
@@ -98,7 +111,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Node and edge default blocks apply to subsequent declarations`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             node [shape=box, timeout=900s]
             edge [weight=5]
@@ -108,6 +122,7 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let nodeA = graph.Nodes["A"]
         Assert.Equal("box", nodeA.Shape)
@@ -121,7 +136,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Subgraph blocks are flattened`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -134,6 +150,7 @@ module DotParsingTests =
             start -> Plan -> Implement -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.True(graph.Nodes |> Map.containsKey "Plan")
         Assert.True(graph.Nodes |> Map.containsKey "Implement")
@@ -141,7 +158,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Quoted and unquoted attribute values both work`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -149,6 +167,7 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let a = graph.Nodes["A"]
         Assert.Equal("Quoted Label", a.Label)
@@ -157,7 +176,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Comments are stripped before parsing`` () =
-        let dot = """
+        let dot =
+            """
         // This is a line comment
         digraph Test {
             /* This is a block comment */
@@ -166,12 +186,14 @@ module DotParsingTests =
             start -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal(2, graph.Nodes.Count)
 
     [<Fact>]
     let ``Double slash inside quoted string is preserved`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -179,13 +201,15 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let cmd = graph.Nodes["A"].GetAttrString("tool_command", "")
         Assert.Contains("https://example.com/api", cmd)
 
     [<Fact>]
     let ``Block comment inside quoted string is preserved`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -193,13 +217,15 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let cmd = graph.Nodes["A"].GetAttrString("tool_command", "")
         Assert.Contains("*.go", cmd)
 
     [<Fact>]
     let ``Class attribute on nodes works`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -207,12 +233,14 @@ module DotParsingTests =
             start -> review -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("code,critical", graph.Nodes["review"].Class)
 
     [<Fact>]
     let ``Qualified dotted attribute keys parse correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -220,6 +248,7 @@ module DotParsingTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let node = graph.Nodes["A"]
         Assert.Equal("echo pre", node.GetAttrString("tool_hooks.pre", ""))
@@ -227,7 +256,8 @@ module DotParsingTests =
 
     [<Fact>]
     let ``Bare values allow colon and hyphen characters`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -242,12 +272,16 @@ module DotParsingTests =
             gate -> exit [condition="context.build=release-candidate"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let node = graph.Nodes["A"]
         Assert.Equal("summary:high", node.Fidelity)
         Assert.Equal("gemini-3.1-pro-preview", node.LlmModel)
         Assert.Equal("release-candidate", node.Class)
-        let edge = graph.Edges |> List.find (fun e -> e.FromNode = "gate" && e.ToNode = "exit")
+
+        let edge =
+            graph.Edges |> List.find (fun e -> e.FromNode = "gate" && e.ToNode = "exit")
+
         Assert.Equal("context.build=release-candidate", edge.Condition)
 
 // ============================================================================
@@ -258,33 +292,46 @@ module ValidationTests =
 
     [<Fact>]
     let ``Exactly one start node is required`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             exit [shape=Msquare]
             A [shape=box]
             A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "start_node" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "start_node" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Exactly one exit node is required`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             A [shape=box]
             start -> A
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Validation accepts id=exit without Msquare shape`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=box]
@@ -292,13 +339,19 @@ module ValidationTests =
             start -> work -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.False(diags |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error))
+
+        Assert.False(
+            diags
+            |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Validation remains case-sensitive for exit id`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             Exit [shape=box]
@@ -306,13 +359,19 @@ module ValidationTests =
             start -> work -> Exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Validation fails when multiple exit nodes are present`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit1 [shape=Msquare]
@@ -322,17 +381,21 @@ module ValidationTests =
             A -> exit2
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         let terminalDiag =
             diags
             |> List.tryFind (fun d -> d.Rule = "terminal_node" && d.Severity = Severity.Error)
+
         Assert.True(terminalDiag.IsSome)
         Assert.Contains("exactly one exit node", terminalDiag.Value.Message.ToLowerInvariant())
 
     [<Fact>]
     let ``Start node has no incoming edges`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -341,13 +404,19 @@ module ValidationTests =
             A -> start
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "start_no_incoming" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "start_no_incoming" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Exit node has no outgoing edges`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -356,13 +425,19 @@ module ValidationTests =
             exit -> A
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "exit_no_outgoing" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "exit_no_outgoing" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``All nodes are reachable from start`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -371,13 +446,15 @@ module ValidationTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.True(diags |> List.exists (fun d -> d.Rule = "reachability" && d.NodeId = "orphan"))
 
     [<Fact>]
     let ``Codergen nodes without prompt produce warning`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -385,13 +462,19 @@ module ValidationTests =
             start -> bare_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "prompt_on_llm_nodes" && d.Severity = Severity.Warning))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "prompt_on_llm_nodes" && d.Severity = Severity.Warning)
+        )
 
     [<Fact>]
     let ``Condition expressions on edges parse without errors`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -400,30 +483,34 @@ module ValidationTests =
             A -> exit [condition="outcome=success"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "condition_syntax"))
 
     [<Fact>]
     let ``validate_or_raise throws on error-severity violations`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             A [shape=box]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        Assert.Throws<ValidationException>(fun () ->
-            Validation.validateOrRaise graph None |> ignore)
+        Assert.Throws<ValidationException>(fun () -> Validation.validateOrRaise graph None |> ignore)
 
     [<Fact>]
     let ``Lint results include rule name, severity, node ID, and message`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             exit [shape=Msquare]
             A [shape=box]
             A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         let startDiag = diags |> List.find (fun d -> d.Rule = "start_node")
@@ -432,7 +519,8 @@ module ValidationTests =
 
     [<Fact>]
     let ``model_known passes for canonical model id on a node`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             plan [shape=box, llm_model="claude-sonnet-4-6", prompt="p"]
@@ -440,13 +528,15 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
 
     [<Fact>]
     let ``model_known passes for known alias on a node`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             plan [shape=box, llm_model="claude-opus", prompt="p"]
@@ -454,13 +544,15 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
 
     [<Fact>]
     let ``model_known warns on unknown model on a node`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             plan [shape=box, llm_model="claude-sonnet-99", prompt="p"]
@@ -468,11 +560,13 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         let diag =
-            diags
-            |> List.tryFind (fun d -> d.Rule = "model_known" && d.NodeId = "plan")
+            diags |> List.tryFind (fun d -> d.Rule = "model_known" && d.NodeId = "plan")
+
         Assert.True(diag.IsSome)
         Assert.Equal(Severity.Error, diag.Value.Severity)
         Assert.Contains("claude-sonnet-99", diag.Value.Message)
@@ -480,7 +574,8 @@ module ValidationTests =
 
     [<Fact>]
     let ``model_known warns on unknown model in stylesheet`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [model_stylesheet="* { llm_model: gpt-7-mythic; }"]
             start [shape=Mdiamond]
@@ -489,18 +584,18 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        let diag =
-            diags
-            |> List.tryFind (fun d -> d.Rule = "model_known")
+        let diag = diags |> List.tryFind (fun d -> d.Rule = "model_known")
         Assert.True(diag.IsSome)
         Assert.Equal(Severity.Error, diag.Value.Severity)
         Assert.Contains("gpt-7-mythic", diag.Value.Message)
 
     [<Fact>]
     let ``model_known passes for known model in stylesheet`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [model_stylesheet="* { llm_model: gpt-5.4; } .planner { llm_model: claude-opus-4-7; }"]
             start [shape=Mdiamond]
@@ -509,13 +604,15 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
 
     [<Fact>]
     let ``model_known does not warn on empty llm_model`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             plan [shape=box, prompt="p"]
@@ -523,6 +620,7 @@ module ValidationTests =
             start -> plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
@@ -540,22 +638,25 @@ module ExecutionEngineTests =
 
     [<Fact>]
     let ``Engine resolves the start node and begins execution there`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
             start -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
 
     [<Fact>]
     let ``Each node handler is resolved via shape-to-handler-type mapping`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -565,8 +666,9 @@ module ExecutionEngineTests =
             gate -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.True(result.CompletedNodes |> List.contains "A")
@@ -574,7 +676,8 @@ module ExecutionEngineTests =
 
     [<Fact>]
     let ``Handler is called with node, context, graph, logs_root and returns Outcome`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -582,8 +685,9 @@ module ExecutionEngineTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.True(result.NodeOutcomes |> Map.containsKey "A")
@@ -591,7 +695,8 @@ module ExecutionEngineTests =
 
     [<Fact>]
     let ``Outcome is written to logs_root/node_id/status_json`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -599,8 +704,9 @@ module ExecutionEngineTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
         let statusPath = Path.Combine(logsRoot, "A", "status.json")
@@ -609,7 +715,8 @@ module ExecutionEngineTests =
     [<Fact>]
     let ``Edge selection follows 5-step priority`` () =
         // Test condition match wins over weight
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -621,8 +728,9 @@ module ExecutionEngineTests =
             gate -> fail_exit [label="No", weight=100]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         // Should follow the condition match to exit, not the higher weight fail_exit
@@ -630,7 +738,8 @@ module ExecutionEngineTests =
 
     [<Fact>]
     let ``Engine loops: execute -> select edge -> advance -> repeat`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -640,15 +749,17 @@ module ExecutionEngineTests =
             start -> A -> B -> C -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
-        Assert.Equal<string list>(["start"; "A"; "B"; "C"], result.CompletedNodes)
+        Assert.Equal<string list>([ "start"; "A"; "B"; "C" ], result.CompletedNodes)
 
     [<Fact>]
     let ``Terminal node stops execution`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -656,8 +767,9 @@ module ExecutionEngineTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -666,7 +778,8 @@ module ExecutionEngineTests =
 
     [<Fact>]
     let ``Pipeline outcome is success if all goal gates succeeded`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -674,8 +787,9 @@ module ExecutionEngineTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -683,7 +797,8 @@ module ExecutionEngineTests =
     [<Fact>]
     let ``selectEdge returns None when cancellation is signaled and only unconditional edges exist`` () =
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -721,7 +836,8 @@ module GoalGateTests =
 
     [<Fact>]
     let ``Nodes with goal_gate=true are tracked`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -729,13 +845,15 @@ module GoalGateTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let a = graph.Nodes["A"]
         Assert.True(a.GoalGate)
 
     [<Fact>]
     let ``Goal gate allows exit when all satisfied`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -743,8 +861,9 @@ module GoalGateTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -752,7 +871,8 @@ module GoalGateTests =
     [<Fact>]
     let ``Goal gate enforcement checks at exit`` () =
         // Test with a custom handler that returns FAIL for goal gate node
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -760,9 +880,10 @@ module GoalGateTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         // With default codergen (simulated), it should succeed
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -781,16 +902,19 @@ module RetryTests =
     [<Fact>]
     let ``Nodes with max_retries are retried on failure`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(node, context, graph, logsRoot) =
                     callCount <- callCount + 1
+
                     if callCount < 3 then
                         Outcome.Retry("not ready yet")
                     else
                         Outcome.Success(notes = "finally succeeded") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -798,11 +922,16 @@ module RetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, callCount)
@@ -810,13 +939,15 @@ module RetryTests =
     [<Fact>]
     let ``Retry count respects configured limit`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
                     Outcome.Retry("always fails") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -824,11 +955,16 @@ module RetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
         Assert.Equal(3, callCount) // 1 initial + 2 retries
@@ -842,13 +978,15 @@ module RetryTests =
     [<Fact>]
     let ``After retry exhaustion the final outcome is used`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
                     Outcome.Retry("retry") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -856,12 +994,20 @@ module RetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
+        let logsRoot =
+            Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(logsRoot) |> ignore
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         // allow_partial=true should yield PartialSuccess when retries exhausted
         Assert.Equal(StageStatus.PartialSuccess, result.NodeOutcomes["A"].Status)
@@ -869,13 +1015,15 @@ module RetryTests =
     [<Fact>]
     let ``FAIL outcomes are NOT retried even when retry policy is configured`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
                     Outcome.Fail("deterministic failure") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -883,11 +1031,16 @@ module RetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
         Assert.Equal(1, callCount) // Fail is deterministic — no retries
@@ -895,13 +1048,15 @@ module RetryTests =
     [<Fact>]
     let ``FAIL outcome routes through condition edges immediately`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
                     Outcome.Fail("check failed") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -913,11 +1068,16 @@ module RetryTests =
             recover -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         // check should fail once, route to recover via condition edge — no retries
         Assert.Equal(1, callCount)
@@ -926,14 +1086,19 @@ module RetryTests =
     [<Fact>]
     let ``RETRY outcomes are still retried when retry policy is configured`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
-                    if callCount < 3 then Outcome.Retry("transient")
-                    else Outcome.Success() }
 
-        let dot = """
+                    if callCount < 3 then
+                        Outcome.Retry("transient")
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -941,11 +1106,16 @@ module RetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, callCount)
@@ -953,17 +1123,20 @@ module RetryTests =
     [<Fact>]
     let ``executeWithRetry retries thrown retriable exception and succeeds on later attempt`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
+
                     if callCount = 1 then
                         raise (UnifiedLlm.RateLimitError("retry me"))
                     else
                         Outcome.Success(notes = "recovered") }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -971,12 +1144,14 @@ module RetryTests =
                 start -> A -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
         let emitter = EventEmitter()
         let collector = EventCollector()
         emitter.AddObserver(collector :> IEventObserver)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -986,15 +1161,18 @@ module RetryTests =
 
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(2, callCount)
+
         Assert.True(
             collector.Events
             |> List.exists (function
                 | PipelineEvent.StageRetrying("A", _, 1, _) -> true
-                | _ -> false))
+                | _ -> false)
+        )
 
     [<Fact>]
     let ``max_visits stops infinite node loops`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -1003,8 +1181,9 @@ module RetryTests =
             A -> A
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let result = Engine.run graph (RunConfig.Default(logsRoot))
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
         Assert.Contains("exceeded max_visits", result.FinalOutcome.FailureReason)
@@ -1023,37 +1202,61 @@ module HandlerTests =
     [<Fact>]
     let ``Start handler returns SUCCESS immediately`` () =
         let handler = Handlers.StartHandler() :> IHandler
-        let node = { Id = "start"; Attributes = Map.ofList ["shape", AttrValue.String "Mdiamond"] }
+
+        let node =
+            { Id = "start"
+              Attributes = Map.ofList [ "shape", AttrValue.String "Mdiamond" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
 
     [<Fact>]
     let ``Exit handler returns SUCCESS immediately`` () =
         let handler = Handlers.ExitHandler() :> IHandler
-        let node = { Id = "exit"; Attributes = Map.ofList ["shape", AttrValue.String "Msquare"] }
+
+        let node =
+            { Id = "exit"
+              Attributes = Map.ofList [ "shape", AttrValue.String "Msquare" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
 
     [<Fact>]
     let ``Codergen handler expands goal in prompt and writes files`` () =
         let handler = Handlers.CodergenHandler() :> IHandler
+
         let node =
             { Id = "plan"
               Attributes =
                 Map.ofList
                     [ "shape", AttrValue.String "box"
                       "prompt", AttrValue.String "Plan for: $goal" ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
-              GraphAttributes = Map.ofList ["goal", AttrValue.String "Build a feature"] }
-        let logsRoot = createTempDir()
+              GraphAttributes = Map.ofList [ "goal", AttrValue.String "Build a feature" ] }
+
+        let logsRoot = createTempDir ()
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         // Check prompt.md was written
@@ -1067,8 +1270,11 @@ module HandlerTests =
     let ``Codergen handler supports outcome_fail_pattern`` () =
         let backend =
             { new ICodergenBackend with
-                member _.Run(_, _, _) = Result.Ok "BLOCKED: waiting on external dependency" }
+                member _.Run(_, _, _) =
+                    Result.Ok "BLOCKED: waiting on external dependency" }
+
         let handler = Handlers.CodergenHandler(backend) :> IHandler
+
         let node =
             { Id = "plan"
               Attributes =
@@ -1076,13 +1282,16 @@ module HandlerTests =
                     [ "shape", AttrValue.String "box"
                       "prompt", AttrValue.String "Plan for: $goal"
                       "outcome_fail_pattern", AttrValue.String "BLOCKED|FATAL" ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
-              GraphAttributes = Map.ofList ["goal", AttrValue.String "Build a feature"] }
-        let logsRoot = createTempDir()
+              GraphAttributes = Map.ofList [ "goal", AttrValue.String "Build a feature" ] }
+
+        let logsRoot = createTempDir ()
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Fail, outcome.Status)
         Assert.Contains("Matched outcome_fail_pattern", outcome.FailureReason)
@@ -1090,14 +1299,21 @@ module HandlerTests =
     [<Fact>]
     let ``Codergen handler writes versioned artifacts by visit count`` () =
         let handler = Handlers.CodergenHandler() :> IHandler
+
         let node =
             { Id = "plan"
               Attributes = Map.ofList [ "shape", AttrValue.String "box"; "prompt", AttrValue.String "Do work" ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
         let context = Context()
 
-        for visit in 1 .. 3 do
+        for visit in 1..3 do
             context.Set("node.visit_count", string visit)
             let outcome = handler.Execute(node, context, graph, logsRoot)
             Assert.Equal(StageStatus.Success, outcome.Status)
@@ -1109,7 +1325,10 @@ module HandlerTests =
 
     [<Fact>]
     let ``Tab shape resolves to coding_agent handler type`` () =
-        let node = { Id = "agent"; Attributes = Map.ofList ["shape", AttrValue.String "tab"] }
+        let node =
+            { Id = "agent"
+              Attributes = Map.ofList [ "shape", AttrValue.String "tab" ] }
+
         Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType node)
 
     [<Fact>]
@@ -1118,21 +1337,28 @@ module HandlerTests =
         let mutable capturedProvider: string option = None
         let mutable capturedPrompt = ""
         let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+
         mock.SetCompleteHandler(fun req ->
             callCount <- callCount + 1
             capturedProvider <- req.Provider
             capturedPrompt <- req.Messages |> List.map (fun m -> m.Text) |> String.concat "\n"
+
             { Id = "r1"
               Model = req.Model
               Provider = "test"
-              Message = UnifiedLlm.Message.assistant("Coding agent completed.")
+              Message = UnifiedLlm.Message.assistant ("Coding agent completed.")
               FinishReason = UnifiedLlm.FinishReason.Stop "stop"
               Usage = UnifiedLlm.Usage.Zero
-              ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+              ResponseId = None
+              Raw = None
+              Warnings = []
+              RateLimit = None })
+
         let client = UnifiedLlm.Client()
         client.RegisterAdapter(mock)
 
         let handler = Handlers.CodingAgentHandler(client) :> IHandler
+
         let node =
             { Id = "agent"
               Attributes =
@@ -1141,14 +1367,17 @@ module HandlerTests =
                       "llm_model", AttrValue.String "claude-sonnet-4-6"
                       "prompt", AttrValue.String "Implement for: $goal"
                       "system_prompt", AttrValue.String "Follow project conventions." ] }
+
         let context = Context()
         context.Set("last_response", "Previous response")
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "goal", AttrValue.String "Build calculator" ] }
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
 
         let outcome = handler.Execute(node, context, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
@@ -1167,11 +1396,12 @@ module HandlerTests =
     [<Fact>]
     let ``CodingAgent handler surfaces session cost into context`` () =
         let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+
         mock.SetCompleteHandler(fun req ->
             { Id = "r1"
               Model = req.Model
               Provider = "test"
-              Message = UnifiedLlm.Message.assistant("Done.")
+              Message = UnifiedLlm.Message.assistant ("Done.")
               FinishReason = UnifiedLlm.FinishReason.Stop "stop"
               Usage =
                 { InputTokens = 1_000_000
@@ -1179,11 +1409,16 @@ module HandlerTests =
                   ReasoningTokens = None
                   CacheReadTokens = None
                   CacheWriteTokens = None }
-              ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+              ResponseId = None
+              Raw = None
+              Warnings = []
+              RateLimit = None })
+
         let client = UnifiedLlm.Client()
         client.RegisterAdapter(mock)
 
         let handler = Handlers.CodingAgentHandler(client) :> IHandler
+
         let node =
             { Id = "planner"
               Attributes =
@@ -1191,8 +1426,14 @@ module HandlerTests =
                     [ "shape", AttrValue.String "tab"
                       "llm_model", AttrValue.String "claude-opus-4-6"
                       "prompt", AttrValue.String "Plan the work." ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
         let context = Context()
 
         let outcome = handler.Execute(node, context, graph, logsRoot)
@@ -1211,17 +1452,20 @@ module HandlerTests =
 
     [<Fact>]
     let ``CodingAgent handler respects cwd attribute for file writes`` () =
-        let workDir = createTempDir()
+        let workDir = createTempDir ()
         let mutable callCount = 0
         let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+
         mock.SetCompleteHandler(fun req ->
             callCount <- callCount + 1
+
             if callCount = 1 then
                 let tc: UnifiedLlm.ToolCallData =
                     { Id = "call_1"
                       Name = "write_file"
                       Arguments = """{"file_path":"cwd-check.txt","content":"ok"}"""
                       Metadata = Map.empty }
+
                 { Id = "r1"
                   Model = req.Model
                   Provider = "test"
@@ -1232,19 +1476,27 @@ module HandlerTests =
                       ToolCallId = None }
                   FinishReason = UnifiedLlm.FinishReason.ToolCalls "tool_calls"
                   Usage = UnifiedLlm.Usage.Zero
-                  ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None }
             else
                 { Id = "r2"
                   Model = req.Model
                   Provider = "test"
-                  Message = UnifiedLlm.Message.assistant("done")
+                  Message = UnifiedLlm.Message.assistant ("done")
                   FinishReason = UnifiedLlm.FinishReason.Stop "stop"
                   Usage = UnifiedLlm.Usage.Zero
-                  ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None })
+
         let client = UnifiedLlm.Client()
         client.RegisterAdapter(mock)
 
         let handler = Handlers.CodingAgentHandler(client) :> IHandler
+
         let node =
             { Id = "agent"
               Attributes =
@@ -1253,8 +1505,14 @@ module HandlerTests =
                       "llm_model", AttrValue.String "claude-sonnet-4-6"
                       "cwd", AttrValue.String workDir
                       "prompt", AttrValue.String "Write a file." ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
 
         let outcome = handler.Execute(node, Context(), graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
@@ -1262,11 +1520,13 @@ module HandlerTests =
 
     [<Fact>]
     let ``CodingAgent handler creates nested directories via write_file`` () =
-        let workDir = createTempDir()
+        let workDir = createTempDir ()
         let mutable callCount = 0
         let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+
         mock.SetCompleteHandler(fun req ->
             callCount <- callCount + 1
+
             match callCount with
             | 1 ->
                 // First call: write calculator/__init__.py
@@ -1275,6 +1535,7 @@ module HandlerTests =
                       Name = "write_file"
                       Arguments = """{"file_path":"calculator/__init__.py","content":"from .math_ops import add\n"}"""
                       Metadata = Map.empty }
+
                 { Id = "r1"
                   Model = req.Model
                   Provider = "test"
@@ -1285,14 +1546,19 @@ module HandlerTests =
                       ToolCallId = None }
                   FinishReason = UnifiedLlm.FinishReason.ToolCalls "tool_calls"
                   Usage = UnifiedLlm.Usage.Zero
-                  ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None }
             | 2 ->
                 // Second call: write calculator/math_ops.py
                 let tc: UnifiedLlm.ToolCallData =
                     { Id = "call_2"
                       Name = "write_file"
-                      Arguments = """{"file_path":"calculator/math_ops.py","content":"def add(a, b):\n    return a + b\n"}"""
+                      Arguments =
+                        """{"file_path":"calculator/math_ops.py","content":"def add(a, b):\n    return a + b\n"}"""
                       Metadata = Map.empty }
+
                 { Id = "r2"
                   Model = req.Model
                   Provider = "test"
@@ -1303,19 +1569,27 @@ module HandlerTests =
                       ToolCallId = None }
                   FinishReason = UnifiedLlm.FinishReason.ToolCalls "tool_calls"
                   Usage = UnifiedLlm.Usage.Zero
-                  ResponseId = None; Raw = None; Warnings = []; RateLimit = None }
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None }
             | _ ->
                 { Id = "r3"
                   Model = req.Model
                   Provider = "test"
-                  Message = UnifiedLlm.Message.assistant("Files created.")
+                  Message = UnifiedLlm.Message.assistant ("Files created.")
                   FinishReason = UnifiedLlm.FinishReason.Stop "stop"
                   Usage = UnifiedLlm.Usage.Zero
-                  ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+                  ResponseId = None
+                  Raw = None
+                  Warnings = []
+                  RateLimit = None })
+
         let client = UnifiedLlm.Client()
         client.RegisterAdapter(mock)
 
         let handler = Handlers.CodingAgentHandler(client) :> IHandler
+
         let node =
             { Id = "agent"
               Attributes =
@@ -1324,31 +1598,52 @@ module HandlerTests =
                       "llm_model", AttrValue.String "claude-sonnet-4-6"
                       "cwd", AttrValue.String workDir
                       "prompt", AttrValue.String "Create a calculator package." ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
 
         let outcome = handler.Execute(node, Context(), graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
-        Assert.True(File.Exists(Path.Combine(workDir, "calculator", "__init__.py")), "calculator/__init__.py should exist")
-        Assert.True(File.Exists(Path.Combine(workDir, "calculator", "math_ops.py")), "calculator/math_ops.py should exist")
+
+        Assert.True(
+            File.Exists(Path.Combine(workDir, "calculator", "__init__.py")),
+            "calculator/__init__.py should exist"
+        )
+
+        Assert.True(
+            File.Exists(Path.Combine(workDir, "calculator", "math_ops.py")),
+            "calculator/math_ops.py should exist"
+        )
 
     [<Fact>]
     let ``CodingAgent handler fails when max turns limit is hit`` () =
         let mutable callCount = 0
         let mock = UnifiedLlm.ConfigurableMockAdapter("anthropic")
+
         mock.SetCompleteHandler(fun req ->
             callCount <- callCount + 1
+
             { Id = $"r{callCount}"
               Model = req.Model
               Provider = "test"
-              Message = UnifiedLlm.Message.assistant("This should never run")
+              Message = UnifiedLlm.Message.assistant ("This should never run")
               FinishReason = UnifiedLlm.FinishReason.Stop "stop"
               Usage = UnifiedLlm.Usage.Zero
-              ResponseId = None; Raw = None; Warnings = []; RateLimit = None })
+              ResponseId = None
+              Raw = None
+              Warnings = []
+              RateLimit = None })
+
         let client = UnifiedLlm.Client()
         client.RegisterAdapter(mock)
 
         let handler = Handlers.CodingAgentHandler(client) :> IHandler
+
         let node =
             { Id = "agent"
               Attributes =
@@ -1357,8 +1652,14 @@ module HandlerTests =
                       "llm_model", AttrValue.String "claude-sonnet-4-6"
                       "max_turns", AttrValue.Integer 1
                       "prompt", AttrValue.String "Will hit turn limit immediately." ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
 
         let outcome = handler.Execute(node, Context(), graph, logsRoot)
         Assert.Equal(StageStatus.Fail, outcome.Status)
@@ -1369,9 +1670,19 @@ module HandlerTests =
     [<Fact>]
     let ``Conditional handler passes through`` () =
         let handler = Handlers.ConditionalHandler() :> IHandler
-        let node = { Id = "gate"; Attributes = Map.ofList ["shape", AttrValue.String "diamond"] }
+
+        let node =
+            { Id = "gate"
+              Attributes = Map.ofList [ "shape", AttrValue.String "diamond" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
 
@@ -1379,24 +1690,36 @@ module HandlerTests =
     let ``WaitForHuman handler presents choices from outgoing edges`` () =
         let interviewer = AutoApproveInterviewer() :> IInterviewer
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "review"
               Attributes =
                 Map.ofList
                     [ "shape", AttrValue.String "hexagon"
                       "label", AttrValue.String "Review Changes" ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "review", node
-                      "approve", { Id = "approve"; Attributes = Map.empty }
-                      "reject", { Id = "reject"; Attributes = Map.empty } ]
+                      "approve",
+                      { Id = "approve"
+                        Attributes = Map.empty }
+                      "reject",
+                      { Id = "reject"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "review"; ToNode = "approve"; Attributes = Map.ofList ["label", AttrValue.String "[A] Approve"] }
-                  { FromNode = "review"; ToNode = "reject"; Attributes = Map.ofList ["label", AttrValue.String "[R] Reject"] } ]
+                [ { FromNode = "review"
+                    ToNode = "approve"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "review"
+                    ToNode = "reject"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
               GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
         // AutoApprove should select first option
@@ -1404,7 +1727,7 @@ module HandlerTests =
 
     [<Fact>]
     let ``Freeform gate writes prompt.md and response.md and stores input in context`` () =
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         // CallbackInterviewer that simulates writing to response.md then pressing Enter
         let interviewer =
             CallbackInterviewer(fun question ->
@@ -1415,9 +1738,11 @@ module HandlerTests =
                 // Simulate user writing to response.md
                 let responseFile = question.Metadata["response_file"]
                 File.WriteAllText(responseFile, "JSON")
-                Answer.FromText("")
-            ) :> IInterviewer
+                Answer.FromText(""))
+            :> IInterviewer
+
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "choose_lang"
               Attributes =
@@ -1425,16 +1750,23 @@ module HandlerTests =
                     [ "shape", AttrValue.String "hexagon"
                       "label", AttrValue.String "Choose Language"
                       "prompt", AttrValue.String "Pick a language to research." ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "choose_lang", node
-                      "research", { Id = "research"; Attributes = Map.empty } ]
+                      "research",
+                      { Id = "research"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "choose_lang"; ToNode = "research"; Attributes = Map.ofList ["label", AttrValue.String "research"] } ]
+                [ { FromNode = "choose_lang"
+                    ToNode = "research"
+                    Attributes = Map.ofList [ "label", AttrValue.String "research" ] } ]
               GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         Assert.True(outcome.SuggestedNextIds |> List.contains "research")
@@ -1450,9 +1782,10 @@ module HandlerTests =
 
     [<Fact>]
     let ``Multi-edge gate with prompt writes prompt.md and keeps MultipleChoice behavior`` () =
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let interviewer = AutoApproveInterviewer() :> IInterviewer
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "approve_design"
               Attributes =
@@ -1460,18 +1793,29 @@ module HandlerTests =
                     [ "shape", AttrValue.String "hexagon"
                       "label", AttrValue.String "Approve Design"
                       "prompt", AttrValue.String "Review the design at $ATTRACTOR_LOGS_ROOT/design/response.md" ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "approve_design", node
-                      "next_stage", { Id = "next_stage"; Attributes = Map.empty }
-                      "revise", { Id = "revise"; Attributes = Map.empty } ]
+                      "next_stage",
+                      { Id = "next_stage"
+                        Attributes = Map.empty }
+                      "revise",
+                      { Id = "revise"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "approve_design"; ToNode = "next_stage"; Attributes = Map.ofList ["label", AttrValue.String "[A] Approve"] }
-                  { FromNode = "approve_design"; ToNode = "revise"; Attributes = Map.ofList ["label", AttrValue.String "[R] Revise"] } ]
+                [ { FromNode = "approve_design"
+                    ToNode = "next_stage"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "approve_design"
+                    ToNode = "revise"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[R] Revise" ] } ]
               GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         // AutoApprove selects first option
@@ -1484,9 +1828,10 @@ module HandlerTests =
 
     [<Fact>]
     let ``Prompt variable ATTRACTOR_LOGS_ROOT is expanded in written prompt.md`` () =
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let interviewer = AutoApproveInterviewer() :> IInterviewer
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "gate"
               Attributes =
@@ -1494,18 +1839,29 @@ module HandlerTests =
                     [ "shape", AttrValue.String "hexagon"
                       "label", AttrValue.String "Gate"
                       "prompt", AttrValue.String "Review $ATTRACTOR_LOGS_ROOT/merge/response.md and decide." ] }
+
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "gate", node
-                      "approve", { Id = "approve"; Attributes = Map.empty }
-                      "reject", { Id = "reject"; Attributes = Map.empty } ]
+                      "approve",
+                      { Id = "approve"
+                        Attributes = Map.empty }
+                      "reject",
+                      { Id = "reject"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "gate"; ToNode = "approve"; Attributes = Map.ofList ["label", AttrValue.String "[A] Approve"] }
-                  { FromNode = "gate"; ToNode = "reject"; Attributes = Map.ofList ["label", AttrValue.String "[R] Reject"] } ]
+                [ { FromNode = "gate"
+                    ToNode = "approve"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "gate"
+                    ToNode = "reject"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
               GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         let promptPath = Path.Combine(logsRoot, "gate", "prompt.md")
@@ -1517,24 +1873,36 @@ module HandlerTests =
 
     [<Fact>]
     let ``wait_for_human falls back to first option when multiple_choice answer does not match any edge`` () =
-        let interviewer = QueueInterviewer([ Answer.FromText("not-a-real-choice") ]) :> IInterviewer
+        let interviewer =
+            QueueInterviewer([ Answer.FromText("not-a-real-choice") ]) :> IInterviewer
+
         let handler = Handlers.WaitForHumanHandler(interviewer) :> IHandler
+
         let node =
             { Id = "review"
               Attributes =
                 Map.ofList
                     [ "shape", AttrValue.String "hexagon"
                       "label", AttrValue.String "Review Changes" ] }
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "review", node
-                      "approve", { Id = "approve"; Attributes = Map.empty }
-                      "reject", { Id = "reject"; Attributes = Map.empty } ]
+                      "approve",
+                      { Id = "approve"
+                        Attributes = Map.empty }
+                      "reject",
+                      { Id = "reject"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "review"; ToNode = "approve"; Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
-                  { FromNode = "review"; ToNode = "reject"; Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
+                [ { FromNode = "review"
+                    ToNode = "approve"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[A] Approve" ] }
+                  { FromNode = "review"
+                    ToNode = "reject"
+                    Attributes = Map.ofList [ "label", AttrValue.String "[R] Reject" ] } ]
               GraphAttributes = Map.empty }
 
         let outcome = handler.Execute(node, Context(), graph, createTempDir ())
@@ -1545,15 +1913,18 @@ module HandlerTests =
     [<Fact>]
     let ``Custom handlers can be registered by type string`` () =
         let mutable executed = false
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     executed <- true
                     Outcome.Success(notes = "custom ran") }
+
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("my_custom", customHandler)
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -1561,9 +1932,14 @@ module HandlerTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+        let logsRoot = createTempDir ()
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         Assert.True(executed)
 
@@ -1587,17 +1963,20 @@ module ContextTests =
     [<Fact>]
     let ``Handlers can read context and return context_updates`` () =
         let mutable contextValue = ""
+
         let handler1 =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
-                    Outcome.Success(contextUpdates = Map.ofList ["test_key", "test_value"]) }
+                    Outcome.Success(contextUpdates = Map.ofList [ "test_key", "test_value" ]) }
+
         let handler2 =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
                     contextValue <- context.Get("test_key")
                     Outcome.Success() }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="full"]
             start [shape=Mdiamond]
@@ -1607,18 +1986,24 @@ module ContextTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("h1", handler1)
         registry.Register("h2", handler2)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         Assert.Equal("test_value", contextValue)
 
     [<Fact>]
     let ``Context updates are merged after each node execution`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -1626,8 +2011,9 @@ module ContextTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         // After execution, context should have "outcome" and "last_stage" set
@@ -1636,7 +2022,8 @@ module ContextTests =
 
     [<Fact>]
     let ``Checkpoint is saved after each node completion`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -1644,15 +2031,17 @@ module ContextTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
         Assert.True(File.Exists(Path.Combine(logsRoot, "checkpoint.json")))
 
     [<Fact>]
     let ``Artifacts are written to logs_root/node_id`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -1660,8 +2049,9 @@ module ContextTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
         Assert.True(File.Exists(Path.Combine(logsRoot, "A", "prompt.md")))
@@ -1679,7 +2069,7 @@ module ContextTests =
 
     [<Fact>]
     let ``Context offloads large values to artifact store and resolves on get`` () =
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let store = FileArtifactStore(logsRoot) :> IArtifactStore
         let ctx = Context(artifactStore = store)
         let large = String('x', 120 * 1024)
@@ -1700,6 +2090,7 @@ module InterviewerTests =
     [<Fact>]
     let ``AutoApproveInterviewer always selects first option`` () =
         let interviewer = AutoApproveInterviewer() :> IInterviewer
+
         let question =
             { Text = "Select an option"
               Type = QuestionType.MultipleChoice
@@ -1708,12 +2099,14 @@ module InterviewerTests =
               TimeoutSeconds = None
               Stage = "test"
               Metadata = Map.empty }
+
         let answer = interviewer.Ask(question)
         Assert.Equal("A", answer.Value)
 
     [<Fact>]
     let ``AutoApproveInterviewer selects YES for yes/no questions`` () =
         let interviewer = AutoApproveInterviewer() :> IInterviewer
+
         let question =
             { Text = "Continue?"
               Type = QuestionType.YesNo
@@ -1722,16 +2115,20 @@ module InterviewerTests =
               TimeoutSeconds = None
               Stage = "test"
               Metadata = Map.empty }
+
         let answer = interviewer.Ask(question)
         Assert.True(answer.IsYes)
 
     [<Fact>]
     let ``CallbackInterviewer delegates to provided function`` () =
         let mutable called = false
+
         let callback (q: Question) =
             called <- true
             Answer.FromText("custom answer")
+
         let interviewer = CallbackInterviewer(callback) :> IInterviewer
+
         let question =
             { Text = "Test"
               Type = QuestionType.Freeform
@@ -1740,6 +2137,7 @@ module InterviewerTests =
               TimeoutSeconds = None
               Stage = "test"
               Metadata = Map.empty }
+
         let answer = interviewer.Ask(question)
         Assert.True(called)
         Assert.Equal("custom answer", answer.Text)
@@ -1748,6 +2146,7 @@ module InterviewerTests =
     let ``QueueInterviewer reads from pre-filled answer queue`` () =
         let answers = [ Answer.Yes; Answer.No; Answer.FromText("hello") ]
         let interviewer = QueueInterviewer(answers) :> IInterviewer
+
         let question =
             { Text = "Test"
               Type = QuestionType.YesNo
@@ -1756,6 +2155,7 @@ module InterviewerTests =
               TimeoutSeconds = None
               Stage = "test"
               Metadata = Map.empty }
+
         let a1 = interviewer.Ask(question)
         let a2 = interviewer.Ask(question)
         let a3 = interviewer.Ask(question)
@@ -1770,6 +2170,7 @@ module InterviewerTests =
         let inner = AutoApproveInterviewer() :> IInterviewer
         let recording = RecordingInterviewer(inner)
         let interviewer = recording :> IInterviewer
+
         let question =
             { Text = "Test"
               Type = QuestionType.YesNo
@@ -1778,6 +2179,7 @@ module InterviewerTests =
               TimeoutSeconds = None
               Stage = "test"
               Metadata = Map.empty }
+
         interviewer.Ask(question) |> ignore
         interviewer.Ask(question) |> ignore
         Assert.Equal(2, recording.Recordings.Length)
@@ -1818,13 +2220,19 @@ module ConditionTests =
 
     [<Fact>]
     let ``Preferred_label resolves to outcome preferred label`` () =
-        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        let outcome =
+            { Outcome.Success() with
+                PreferredLabel = "Fix" }
+
         let context = Context()
         Assert.True(Conditions.evaluate "preferred_label=Fix" outcome context)
 
     [<Fact>]
     let ``Condition literals strip one pair of surrounding quotes`` () =
-        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        let outcome =
+            { Outcome.Success() with
+                PreferredLabel = "Fix" }
+
         let context = Context()
         context.Set("foo", "bar-baz")
         Assert.True(Conditions.evaluate "outcome=\"success\"" outcome context)
@@ -1865,6 +2273,7 @@ module StylesheetTests =
     [<Fact>]
     let ``Stylesheet is parsed from model_stylesheet attribute`` () =
         let source = "* { llm_model: claude-sonnet-4-5; llm_provider: anthropic; }"
+
         match Stylesheet.parse source with
         | Ok ss -> Assert.Equal(1, ss.Rules.Length)
         | Error msg -> Assert.Fail(msg)
@@ -1873,15 +2282,26 @@ module StylesheetTests =
     let ``Universal selector matches all nodes`` () =
         let source = "* { llm_model: claude-sonnet-4-5; }"
         let ss = (Stylesheet.parse source) |> Result.defaultWith failwith
-        let node = { Id = "test"; Attributes = Map.ofList ["shape", AttrValue.String "box"] }
+
+        let node =
+            { Id = "test"
+              Attributes = Map.ofList [ "shape", AttrValue.String "box" ] }
+
         Assert.True(ss.Rules[0].Selector.Matches(node))
 
     [<Fact>]
     let ``Class selector matches nodes with that class`` () =
         let source = ".code { llm_model: claude-opus-4-6; }"
         let ss = (Stylesheet.parse source) |> Result.defaultWith failwith
-        let node = { Id = "test"; Attributes = Map.ofList ["class", AttrValue.String "code"] }
-        let nodeNoClass = { Id = "test2"; Attributes = Map.ofList ["shape", AttrValue.String "box"] }
+
+        let node =
+            { Id = "test"
+              Attributes = Map.ofList [ "class", AttrValue.String "code" ] }
+
+        let nodeNoClass =
+            { Id = "test2"
+              Attributes = Map.ofList [ "shape", AttrValue.String "box" ] }
+
         Assert.True(ss.Rules[0].Selector.Matches(node))
         Assert.False(ss.Rules[0].Selector.Matches(nodeNoClass))
 
@@ -1889,19 +2309,25 @@ module StylesheetTests =
     let ``ID selector matches specific node`` () =
         let source = "#review { llm_model: gpt-5; }"
         let ss = (Stylesheet.parse source) |> Result.defaultWith failwith
-        let node = { Id = "review"; Attributes = Map.empty }
+
+        let node =
+            { Id = "review"
+              Attributes = Map.empty }
+
         let otherNode = { Id = "other"; Attributes = Map.empty }
         Assert.True(ss.Rules[0].Selector.Matches(node))
         Assert.False(ss.Rules[0].Selector.Matches(otherNode))
 
     [<Fact>]
     let ``Specificity order: universal < shape < class < ID`` () =
-        let source = """
+        let source =
+            """
             * { llm_model: default-model; }
             box { llm_model: shape-model; }
             .code { llm_model: code-model; }
             #special { llm_model: special-model; }
         """
+
         let ss = (Stylesheet.parse source) |> Result.defaultWith failwith
         Assert.Equal(0, ss.Rules[0].Selector.Specificity) // *
         Assert.Equal(1, ss.Rules[1].Selector.Specificity) // box (shape)
@@ -1912,14 +2338,22 @@ module StylesheetTests =
     let ``Shape selector matches nodes by shape`` () =
         let source = "box { llm_model: box-model; }"
         let ss = (Stylesheet.parse source) |> Result.defaultWith failwith
-        let boxNode = { Id = "test"; Attributes = Map.ofList ["shape", AttrValue.String "box"] }
-        let diamondNode = { Id = "test2"; Attributes = Map.ofList ["shape", AttrValue.String "diamond"] }
+
+        let boxNode =
+            { Id = "test"
+              Attributes = Map.ofList [ "shape", AttrValue.String "box" ] }
+
+        let diamondNode =
+            { Id = "test2"
+              Attributes = Map.ofList [ "shape", AttrValue.String "diamond" ] }
+
         Assert.True(ss.Rules[0].Selector.Matches(boxNode))
         Assert.False(ss.Rules[0].Selector.Matches(diamondNode))
 
     [<Fact>]
     let ``Stylesheet properties are overridden by explicit node attributes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [
                 goal="Test",
@@ -1931,6 +2365,7 @@ module StylesheetTests =
             start -> A -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let a = graph.Nodes["A"]
         Assert.Equal("explicit-model", a.LlmModel)
@@ -1943,7 +2378,8 @@ module TransformTests =
 
     [<Fact>]
     let ``Variable expansion replaces goal in prompts`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Build a feature"]
             start [shape=Mdiamond]
@@ -1952,6 +2388,7 @@ module TransformTests =
             start -> A -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         Assert.Equal("Plan for: Build a feature", graph.Nodes["A"].Prompt)
 
@@ -1965,29 +2402,36 @@ module TransformTests =
                         |> Map.map (fun _ node ->
                             let newAttrs = node.Attributes |> Map.add "custom_flag" (AttrValue.Boolean true)
                             { node with Attributes = newAttrs })
+
                     { graph with Nodes = updatedNodes } }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
             start -> exit
         }
         """
-        let (graph, _) = Transforms.preparePipeline dot (Some [customTransform])
+
+        let (graph, _) = Transforms.preparePipeline dot (Some [ customTransform ])
         let start = graph.Nodes["start"]
+
         Assert.True(
             start.Attributes
             |> Map.tryFind "custom_flag"
             |> Option.bind (fun v -> v.AsBool())
-            |> Option.defaultValue false)
+            |> Option.defaultValue false
+        )
 
     [<Fact>]
     let ``Transform interface apply works`` () =
         let graph =
             { Name = "test"
-              Nodes = Map.ofList ["A", { Id = "A"; Attributes = Map.empty }]
+              Nodes = Map.ofList [ "A", { Id = "A"; Attributes = Map.empty } ]
               Edges = []
-              GraphAttributes = Map.ofList ["goal", AttrValue.String "test goal"] }
+              GraphAttributes = Map.ofList [ "goal", AttrValue.String "test goal" ] }
+
         let transformed = Transforms.variableExpansion.Apply(graph)
         Assert.Equal("test", transformed.Name) // graph structure preserved
 
@@ -2004,7 +2448,8 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Parse a simple linear pipeline`` () =
-        let dot = """
+        let dot =
+            """
         digraph Simple {
             start [shape=Mdiamond]
             done [shape=Msquare]
@@ -2013,13 +2458,15 @@ module ParityMatrixTests =
             start -> A -> B -> done
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal(4, graph.Nodes.Count)
         Assert.Equal(3, graph.Edges.Length)
 
     [<Fact>]
     let ``Parse a pipeline with graph-level attributes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Test goal", label="Test Pipeline"]
             start [shape=Mdiamond]
@@ -2027,13 +2474,15 @@ module ParityMatrixTests =
             start -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("Test goal", graph.Goal)
         Assert.Equal("Test Pipeline", graph.GraphLabel)
 
     [<Fact>]
     let ``Parse multi-line node attributes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2047,6 +2496,7 @@ module ParityMatrixTests =
             start -> node_a -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let a = graph.Nodes["node_a"]
         Assert.Equal("Node A", a.Label)
@@ -2055,35 +2505,48 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Validate: missing start node produces error`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             exit [shape=Msquare]
             A [shape=box]
             A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        let errors = diags |> List.filter (fun d -> d.Severity = Severity.Error && d.Rule = "start_node")
+
+        let errors =
+            diags
+            |> List.filter (fun d -> d.Severity = Severity.Error && d.Rule = "start_node")
+
         Assert.True(errors.Length > 0)
 
     [<Fact>]
     let ``Validate: missing exit node produces error`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             A [shape=box]
             start -> A
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        let errors = diags |> List.filter (fun d -> d.Severity = Severity.Error && d.Rule = "terminal_node")
+
+        let errors =
+            diags
+            |> List.filter (fun d -> d.Severity = Severity.Error && d.Rule = "terminal_node")
+
         Assert.True(errors.Length > 0)
 
     [<Fact>]
     let ``Validate: orphan node produces error`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2092,13 +2555,15 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.True(diags |> List.exists (fun d -> d.Rule = "reachability" && d.NodeId = "orphan"))
 
     [<Fact>]
     let ``Execute a linear 3-node pipeline end-to-end`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Test pipeline"]
             start [shape=Mdiamond]
@@ -2109,16 +2574,18 @@ module ParityMatrixTests =
             start -> A -> B -> C -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
-        Assert.Equal<string list>(["start"; "A"; "B"; "C"], result.CompletedNodes)
+        Assert.Equal<string list>([ "start"; "A"; "B"; "C" ], result.CompletedNodes)
 
     [<Fact>]
     let ``Execute with conditional branching`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2129,8 +2596,9 @@ module ParityMatrixTests =
             gate -> A [condition="outcome=fail"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2139,13 +2607,19 @@ module ParityMatrixTests =
     [<Fact>]
     let ``Execute with retry on failure`` () =
         let mutable attempts = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     attempts <- attempts + 1
-                    if attempts < 3 then Outcome.Retry("not yet")
-                    else Outcome.Success() }
-        let dot = """
+
+                    if attempts < 3 then
+                        Outcome.Retry("not yet")
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2153,11 +2627,16 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("retrying", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, attempts)
@@ -2165,13 +2644,19 @@ module ParityMatrixTests =
     [<Fact>]
     let ``Goal gate blocks exit when unsatisfied`` () =
         let mutable callCount = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
-                    if callCount = 1 then Outcome.Fail("first attempt failed")
-                    else Outcome.Success() }
-        let dot = """
+
+                    if callCount = 1 then
+                        Outcome.Fail("first attempt failed")
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2179,11 +2664,16 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("gated", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         // First call fails, but since we have retry_target pointing back to A,
         // the goal gate enforcement should redirect back to A
@@ -2192,7 +2682,8 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Goal gate allows exit when all satisfied`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2200,15 +2691,17 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
 
     [<Fact>]
     let ``WaitForHuman presents choices and routes on selection`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2222,8 +2715,9 @@ module ParityMatrixTests =
             reject -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         // AutoApprove selects first option (Approve)
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
@@ -2232,7 +2726,8 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Edge selection: condition match wins over weight`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2244,8 +2739,9 @@ module ParityMatrixTests =
             gate -> wrong [weight=100]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         // Condition match should win even though wrong has higher weight
@@ -2256,6 +2752,7 @@ module ParityMatrixTests =
         let node = { Id = "A"; Attributes = Map.empty }
         let outcome = Outcome.Success()
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
@@ -2264,9 +2761,14 @@ module ParityMatrixTests =
                       "B", { Id = "B"; Attributes = Map.empty }
                       "C", { Id = "C"; Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList ["weight", AttrValue.Integer 5] }
-                  { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList ["weight", AttrValue.Integer 10] } ]
+                [ { FromNode = "A"
+                    ToNode = "B"
+                    Attributes = Map.ofList [ "weight", AttrValue.Integer 5 ] }
+                  { FromNode = "A"
+                    ToNode = "C"
+                    Attributes = Map.ofList [ "weight", AttrValue.Integer 10 ] } ]
               GraphAttributes = Map.empty }
+
         let edge = EdgeSelection.selectEdge node outcome ctx graph
         Assert.True(edge.IsSome)
         Assert.Equal("C", edge.Value.ToNode)
@@ -2276,17 +2778,27 @@ module ParityMatrixTests =
         let node = { Id = "A"; Attributes = Map.empty }
         let outcome = Outcome.Success()
         let ctx = Context()
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
                     [ "A", node
-                      "C_node", { Id = "C_node"; Attributes = Map.empty }
-                      "B_node", { Id = "B_node"; Attributes = Map.empty } ]
+                      "C_node",
+                      { Id = "C_node"
+                        Attributes = Map.empty }
+                      "B_node",
+                      { Id = "B_node"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "A"; ToNode = "C_node"; Attributes = Map.empty }
-                  { FromNode = "A"; ToNode = "B_node"; Attributes = Map.empty } ]
+                [ { FromNode = "A"
+                    ToNode = "C_node"
+                    Attributes = Map.empty }
+                  { FromNode = "A"
+                    ToNode = "B_node"
+                    Attributes = Map.empty } ]
               GraphAttributes = Map.empty }
+
         let edge = EdgeSelection.selectEdge node outcome ctx graph
         Assert.True(edge.IsSome)
         Assert.Equal("B_node", edge.Value.ToNode) // B comes before C lexically
@@ -2294,17 +2806,20 @@ module ParityMatrixTests =
     [<Fact>]
     let ``Context updates from one node are visible to the next`` () =
         let mutable valueFromB = ""
+
         let handlerA =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
-                    Outcome.Success(contextUpdates = Map.ofList ["shared_data", "from_A"]) }
+                    Outcome.Success(contextUpdates = Map.ofList [ "shared_data", "from_A" ]) }
+
         let handlerB =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
                     valueFromB <- context.Get("shared_data")
                     Outcome.Success() }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="full"]
             start [shape=Mdiamond]
@@ -2314,18 +2829,24 @@ module ParityMatrixTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("ha", handlerA)
         registry.Register("hb", handlerB)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         Assert.Equal("from_A", valueFromB)
 
     [<Fact>]
     let ``Checkpoint save and resume produces consistent state`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2334,8 +2855,9 @@ module ParityMatrixTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
         let checkpointPath = Path.Combine(logsRoot, "checkpoint.json")
@@ -2346,7 +2868,8 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Stylesheet applies model override to nodes by shape, class, and id`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [
                 goal="Test",
@@ -2361,6 +2884,7 @@ module ParityMatrixTests =
             start -> A -> B -> special -> gate -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         // A: shape=box matches box selector (specificity 1 > universal 0)
         Assert.Equal("box-shape", graph.Nodes["A"].LlmModel)
@@ -2373,7 +2897,8 @@ module ParityMatrixTests =
 
     [<Fact>]
     let ``Prompt variable expansion works`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Build amazing things"]
             start [shape=Mdiamond]
@@ -2382,18 +2907,22 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         Assert.Equal("Your goal is: Build amazing things", graph.Nodes["A"].Prompt)
 
     [<Fact>]
     let ``Custom handler registration and execution works`` () =
         let mutable ran = false
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     ran <- true
                     Outcome.Success(notes = "custom!") }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2401,11 +2930,16 @@ module ParityMatrixTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("my_type", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.True(ran)
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2414,15 +2948,18 @@ module ParityMatrixTests =
     let ``Pipeline with 10+ nodes completes without errors`` () =
         let nodes =
             [ for i in 1..12 do
-                $"    N{i} [shape=box, prompt=\"Step {i}\"]" ]
+                  $"    N{i} [shape=box, prompt=\"Step {i}\"]" ]
             |> String.concat "\n"
+
         let edges =
             [ "    start -> N1"
               for i in 1..11 do
-                $"    N{i} -> N{i+1}"
+                  $"    N{i} -> N{i + 1}"
               "    N12 -> exit" ]
             |> String.concat "\n"
-        let dot = $"""
+
+        let dot =
+            $"""
         digraph BigPipeline {{
             graph [goal="Big pipeline test"]
             start [shape=Mdiamond]
@@ -2431,8 +2968,9 @@ module ParityMatrixTests =
 {edges}
         }}
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2451,7 +2989,8 @@ module IntegrationTests =
 
     [<Fact>]
     let ``End-to-end smoke test with LLM callback`` () =
-        let dot = """
+        let dot =
+            """
         digraph test_pipeline {
             graph [goal="Create a hello world Python script"]
 
@@ -2481,8 +3020,9 @@ module IntegrationTests =
         Assert.Empty(errors)
 
         // 3. Execute with simulated backend
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let mutable llmCalls = 0
+
         let backend =
             { new ICodergenBackend with
                 member _.Run(node, prompt, context) =
@@ -2490,7 +3030,10 @@ module IntegrationTests =
                     Ok $"[LLM Response for {node.Id}] Completed: {prompt.Substring(0, min 50 prompt.Length)}" }
 
         let registry = HandlerRegistry.CreateDefault(backend = backend)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
 
         let (transformed, _) = Transforms.preparePipeline dot None
         let result = Engine.run transformed config
@@ -2538,10 +3081,14 @@ module EdgeCaseTests =
     [<Fact>]
     let ``Duration parsing works for all units`` () =
         let tokens = Lexer.tokenize "900s 15m 2h 250ms 1d"
-        let durations = tokens |> List.choose (fun t ->
-            match t with
-            | Token.DurationLit d -> Some d
-            | _ -> None)
+
+        let durations =
+            tokens
+            |> List.choose (fun t ->
+                match t with
+                | Token.DurationLit d -> Some d
+                | _ -> None)
+
         Assert.Equal(5, durations.Length)
         Assert.Equal(900000L, durations[0].Milliseconds)
         Assert.Equal(900000L, durations[1].Milliseconds)
@@ -2551,7 +3098,13 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``StageStatus parse and toString roundtrip`` () =
-        let statuses = [StageStatus.Success; StageStatus.Fail; StageStatus.Retry; StageStatus.PartialSuccess; StageStatus.Skipped]
+        let statuses =
+            [ StageStatus.Success
+              StageStatus.Fail
+              StageStatus.Retry
+              StageStatus.PartialSuccess
+              StageStatus.Skipped ]
+
         for s in statuses do
             let parsed = StageStatus.Parse(s.ToString())
             Assert.True(parsed.IsSome)
@@ -2573,7 +3126,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Events are emitted during pipeline execution`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2581,20 +3135,43 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let collector = EventCollector()
         let emitter = EventEmitter()
         emitter.AddObserver(collector)
-        let config = { RunConfig.Default(logsRoot) with EventEmitter = emitter }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                EventEmitter = emitter }
+
         Engine.run graph config |> ignore
         let events = collector.Events
-        Assert.True(events |> List.exists (fun e ->
-            match e with PipelineEvent.PipelineStarted _ -> true | _ -> false))
-        Assert.True(events |> List.exists (fun e ->
-            match e with PipelineEvent.StageStarted _ -> true | _ -> false))
-        Assert.True(events |> List.exists (fun e ->
-            match e with PipelineEvent.PipelineCompleted _ -> true | _ -> false))
+
+        Assert.True(
+            events
+            |> List.exists (fun e ->
+                match e with
+                | PipelineEvent.PipelineStarted _ -> true
+                | _ -> false)
+        )
+
+        Assert.True(
+            events
+            |> List.exists (fun e ->
+                match e with
+                | PipelineEvent.StageStarted _ -> true
+                | _ -> false)
+        )
+
+        Assert.True(
+            events
+            |> List.exists (fun e ->
+                match e with
+                | PipelineEvent.PipelineCompleted _ -> true
+                | _ -> false)
+        )
 
     [<Fact>]
     let ``FidelityMode parsing works`` () =
@@ -2608,7 +3185,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Graph outgoing and incoming edges work`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2618,6 +3196,7 @@ module EdgeCaseTests =
             A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let outgoing = graph.OutgoingEdges("A")
         Assert.Equal(2, outgoing.Length)
@@ -2626,7 +3205,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``RunFromSource parses validates and runs`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Quick test"]
             start [shape=Mdiamond]
@@ -2635,7 +3215,8 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.runFromSource dot config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2645,22 +3226,35 @@ module EdgeCaseTests =
         // The parser auto-creates nodes from edge refs, so this tests the lint rule directly
         let graph =
             { Name = "test"
-              Nodes = Map.ofList
-                [ "start", { Id = "start"; Attributes = Map.ofList ["shape", AttrValue.String "Mdiamond"] }
-                  "exit", { Id = "exit"; Attributes = Map.ofList ["shape", AttrValue.String "Msquare"] } ]
+              Nodes =
+                Map.ofList
+                    [ "start",
+                      { Id = "start"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Mdiamond" ] }
+                      "exit",
+                      { Id = "exit"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Msquare" ] } ]
               Edges =
-                [ { FromNode = "start"; ToNode = "nonexistent"; Attributes = Map.empty } ]
+                [ { FromNode = "start"
+                    ToNode = "nonexistent"
+                    Attributes = Map.empty } ]
               GraphAttributes = Map.empty }
+
         let diags = Validation.validate graph None
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "edge_target_exists" && d.Severity = Severity.Error))
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "edge_target_exists" && d.Severity = Severity.Error)
+        )
 
     [<Fact>]
     let ``Goal gate unsatisfied with no retry target produces fail`` () =
         let handler =
             { new IHandler with
-                member _.Execute(_, _, _, _) =
-                    Outcome.Fail("always fails") }
-        let dot = """
+                member _.Execute(_, _, _, _) = Outcome.Fail("always fails") }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2668,18 +3262,25 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("failing", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         // A fails, and since there's no retry_target, the goal gate is unsatisfied
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
 
     [<Fact>]
     let ``Jitter produces varied delay values`` () =
-        let config = { BackoffConfig.Default with Jitter = true }
+        let config =
+            { BackoffConfig.Default with
+                Jitter = true }
         // Run multiple times and verify we get different delays (statistical)
         let delays = [ for _ in 1..20 -> config.DelayForAttempt(1) ]
         // With jitter, delays should vary
@@ -2688,7 +3289,10 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Backoff without jitter produces consistent delays`` () =
-        let config = { BackoffConfig.Default with Jitter = false }
+        let config =
+            { BackoffConfig.Default with
+                Jitter = false }
+
         let delay1 = config.DelayForAttempt(1)
         let delay2 = config.DelayForAttempt(1)
         Assert.Equal(delay1, delay2)
@@ -2699,7 +3303,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Checkpoint load and resume works`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="Resume test"]
             start [shape=Mdiamond]
@@ -2710,10 +3315,11 @@ module EdgeCaseTests =
             start -> A -> B -> C -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
 
         // Run the full pipeline first to verify checkpoint file is written
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
 
@@ -2729,25 +3335,34 @@ module EdgeCaseTests =
         let midCheckpoint =
             { Timestamp = DateTimeOffset.UtcNow
               CurrentNode = "A"
-              CompletedNodes = ["start"; "A"]
+              CompletedNodes = [ "start"; "A" ]
               NodeRetries = Map.empty
               NodeOutcomes = Map.ofList [ "start", Outcome.Success(); "A", Outcome.Success() ]
-              ContextValues = Map.ofList ["outcome", "success"; "graph.goal", "Resume test"; "last_stage", "A"]
+              ContextValues = Map.ofList [ "outcome", "success"; "graph.goal", "Resume test"; "last_stage", "A" ]
               Logs = [] }
 
         // Resume from mid-pipeline checkpoint - should execute B and C
         let mutable nodesExecuted = ResizeArray<string>()
+
         let trackingHandler =
             { new IHandler with
                 member _.Execute(node, _, _, _) =
                     nodesExecuted.Add(node.Id)
-                    Outcome.Success(notes = $"Resumed: {node.Id}", contextUpdates = Map.ofList ["last_stage", node.Id]) }
 
-        let logsRoot2 = createTempDir()
+                    Outcome.Success(
+                        notes = $"Resumed: {node.Id}",
+                        contextUpdates = Map.ofList [ "last_stage", node.Id ]
+                    ) }
+
+        let logsRoot2 = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("codergen", trackingHandler)
         registry.SetDefault(trackingHandler)
-        let config2 = { RunConfig.Default(logsRoot2) with Registry = registry }
+
+        let config2 =
+            { RunConfig.Default(logsRoot2) with
+                Registry = registry }
+
         let result2 = Engine.resumeFromCheckpoint graph config2 midCheckpoint
         Assert.Equal(StageStatus.Success, result2.FinalOutcome.Status)
         // B and C should have been executed (not A, since it was already in the checkpoint)
@@ -2756,7 +3371,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Parallel fan-out and fan-in complete correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2772,8 +3388,9 @@ module EdgeCaseTests =
             fan_in -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2781,7 +3398,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Tool handler executes configured command`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2789,8 +3407,9 @@ module EdgeCaseTests =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2801,7 +3420,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Tool handler sets tool_stdout alias on success`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2809,8 +3429,9 @@ module EdgeCaseTests =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -2820,7 +3441,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Tool handler sets tool_stdout and tool_exit_code on failure`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_max_retry="0"]
             start [shape=Mdiamond]
@@ -2829,8 +3451,9 @@ module EdgeCaseTests =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         // Tool failed, but context should still have the output aliases
@@ -2840,8 +3463,10 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Tool handler honors graph cwd and sets ATTRACTOR_CWD`` () =
-        let workDir = createTempDir()
-        let dot = $"""
+        let workDir = createTempDir ()
+
+        let dot =
+            $"""
         digraph Test {{
             graph [cwd="{workDir}"]
             start [shape=Mdiamond]
@@ -2850,16 +3475,23 @@ module EdgeCaseTests =
             start -> tool_node -> exit
         }}
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         let pwd = File.ReadAllText(Path.Combine(workDir, "here.txt")).Trim()
         let envCwd = File.ReadAllText(Path.Combine(workDir, "env-cwd.txt")).Trim()
+
         let normalizePath (p: string) =
             let full = Path.GetFullPath(p)
-            if full.StartsWith("/private/") then full.Substring("/private".Length) else full
+
+            if full.StartsWith("/private/") then
+                full.Substring("/private".Length)
+            else
+                full
+
         Assert.Equal(normalizePath workDir, normalizePath pwd)
         Assert.Equal(normalizePath workDir, normalizePath envCwd)
 
@@ -2867,9 +3499,10 @@ module EdgeCaseTests =
     let ``CodergenBackend error outcome is properly handled`` () =
         let backend =
             { new ICodergenBackend with
-                member _.Run(_, _, _) =
-                    Error (Outcome.Fail("backend error")) }
-        let dot = """
+                member _.Run(_, _, _) = Error(Outcome.Fail("backend error")) }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2877,16 +3510,22 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault(backend = backend)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
 
     [<Fact>]
     let ``Stylesheet ID selector overrides class selector`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [
                 goal="Test",
@@ -2900,6 +3539,7 @@ module EdgeCaseTests =
             start -> normal -> code_node -> special -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         Assert.Equal("base", graph.Nodes["normal"].LlmModel)
         Assert.Equal("code-model", graph.Nodes["code_node"].LlmModel)
@@ -2908,29 +3548,34 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``runFromSource rejects invalid graph`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             A [shape=box]
         }
         """
+
         Assert.Throws<System.Exception>(fun () ->
-            let logsRoot = createTempDir()
+            let logsRoot = createTempDir ()
             let config = RunConfig.Default(logsRoot)
             Engine.runFromSource dot config |> ignore)
 
     [<Fact>]
     let ``Empty digraph parses correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Empty {
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("Empty", graph.Name)
         Assert.Equal(0, graph.Nodes.Count)
 
     [<Fact>]
     let ``Escaped strings in attributes are handled`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2938,6 +3583,7 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let prompt = graph.Nodes["A"].Prompt
         Assert.Contains("\n", prompt)
@@ -2946,7 +3592,8 @@ module EdgeCaseTests =
 
     [<Fact>]
     let ``Top-level graph attribute declarations work`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             rankdir=LR
             goal = "Top level goal"
@@ -2955,12 +3602,14 @@ module EdgeCaseTests =
             start -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         Assert.Equal("Top level goal", graph.Goal)
 
     [<Fact>]
     let ``Negative integer values parse correctly`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -2968,9 +3617,11 @@ module EdgeCaseTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
+
         match graph.Nodes["A"].GetAttr("weight") with
-        | Some (AttrValue.Integer i) -> Assert.Equal(-5, i)
+        | Some(AttrValue.Integer i) -> Assert.Equal(-5, i)
         | _ -> Assert.Fail("Expected negative integer")
 
     [<Fact>]
@@ -3053,43 +3704,82 @@ module FidelityTests =
 
     [<Fact>]
     let ``Fidelity precedence edge overrides node overrides graph`` () =
-        let edge = { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList ["fidelity", AttrValue.String "compact"] }
-        let node = { Id = "B"; Attributes = Map.ofList ["fidelity", AttrValue.String "truncate"] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.ofList ["default_fidelity", AttrValue.String "full"] }
+        let edge =
+            { FromNode = "A"
+              ToNode = "B"
+              Attributes = Map.ofList [ "fidelity", AttrValue.String "compact" ] }
+
+        let node =
+            { Id = "B"
+              Attributes = Map.ofList [ "fidelity", AttrValue.String "truncate" ] }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_fidelity", AttrValue.String "full" ] }
+
         let resolved = FidelityResolution.resolve (Some edge) node graph
         Assert.Equal(FidelityMode.Compact, resolved)
 
     [<Fact>]
     let ``Fidelity resolution falls back to node when no edge fidelity`` () =
-        let edge = { FromNode = "A"; ToNode = "B"; Attributes = Map.empty }
-        let node = { Id = "B"; Attributes = Map.ofList ["fidelity", AttrValue.String "truncate"] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+        let edge =
+            { FromNode = "A"
+              ToNode = "B"
+              Attributes = Map.empty }
+
+        let node =
+            { Id = "B"
+              Attributes = Map.ofList [ "fidelity", AttrValue.String "truncate" ] }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let resolved = FidelityResolution.resolve (Some edge) node graph
         Assert.Equal(FidelityMode.Truncate, resolved)
 
     [<Fact>]
     let ``Fidelity resolution falls back to graph default when no node fidelity`` () =
         let node = { Id = "B"; Attributes = Map.empty }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.ofList ["default_fidelity", AttrValue.String "compact"] }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.ofList [ "default_fidelity", AttrValue.String "compact" ] }
+
         let resolved = FidelityResolution.resolve None node graph
         Assert.Equal(FidelityMode.Compact, resolved)
 
     [<Fact>]
     let ``Fidelity resolution defaults to Compact when nothing specified`` () =
         let node = { Id = "B"; Attributes = Map.empty }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let resolved = FidelityResolution.resolve None node graph
         Assert.Equal(FidelityMode.Compact, resolved)
 
     [<Fact>]
     let ``Engine applies fidelity to handler context`` () =
         let mutable contextKeyCount = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
                     contextKeyCount <- context.Keys.Length
                     Outcome.Success() }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="compact"]
             start [shape=Mdiamond]
@@ -3098,12 +3788,20 @@ module FidelityTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
+        let logsRoot =
+            Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(logsRoot) |> ignore
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("counting", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         // Compact mode should only pass graph.*, current_node, outcome
         Assert.True(contextKeyCount < 10, $"Expected compact context but got {contextKeyCount} keys")
@@ -3122,12 +3820,15 @@ module LoopRestartTests =
     [<Fact>]
     let ``Loop restart creates fresh logs directory`` () =
         let mutable callCount = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, logsRoot) =
                     callCount <- callCount + 1
                     Outcome.Success() }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3144,15 +3845,21 @@ module LoopRestartTests =
             { new IHandler with
                 member _.Execute(node, context, _, logsRoot) =
                     callCount <- callCount + 1
+
                     if callCount >= 4 then
-                        Outcome.Success(contextUpdates = Map.ofList ["loop_done", "true"])
+                        Outcome.Success(contextUpdates = Map.ofList [ "loop_done", "true" ])
                     else
                         Outcome.Success() }
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", handler2)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         // Check that restart directory was created
@@ -3161,15 +3868,19 @@ module LoopRestartTests =
     [<Fact>]
     let ``Loop restart resets completed nodes`` () =
         let mutable callCount = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, context, _, _) =
                     callCount <- callCount + 1
+
                     if callCount >= 4 then
-                        Outcome.Success(contextUpdates = Map.ofList ["loop_done", "true"])
+                        Outcome.Success(contextUpdates = Map.ofList [ "loop_done", "true" ])
                     else
                         Outcome.Success() }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3180,11 +3891,16 @@ module LoopRestartTests =
             B -> exit [condition="context.loop_done=true"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("h", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
 
@@ -3203,9 +3919,10 @@ module GoalGateCycleTests =
     let ``Goal gate retry cycle detected produces fail`` () =
         let handler =
             { new IHandler with
-                member _.Execute(_, _, _, _) =
-                    Outcome.Fail("always fails") }
-        let dot = """
+                member _.Execute(_, _, _, _) = Outcome.Fail("always fails") }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3213,11 +3930,16 @@ module GoalGateCycleTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("failing", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
         let reason = result.FinalOutcome.FailureReason.ToLower()
@@ -3225,7 +3947,8 @@ module GoalGateCycleTests =
 
     [<Fact>]
     let ``Validation warns on retry target cycles`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3234,6 +3957,7 @@ module GoalGateCycleTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.True(diags |> List.exists (fun d -> d.Rule = "retry_target_cycle"))
@@ -3251,7 +3975,8 @@ module ParallelExecutionTests =
 
     [<Fact>]
     let ``Parallel branches execute and return Success`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="full"]
             start [shape=Mdiamond]
@@ -3271,8 +3996,9 @@ module ParallelExecutionTests =
             fan_in -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -3286,17 +4012,25 @@ module ParallelExecutionTests =
         let handler = Handlers.ParallelHandler() :> IHandler
         let ctx = Context()
         ctx.Set("shared", "original")
+
         let graph =
             { Name = "test"
               Nodes =
                 Map.ofList
-                    [ "fan", { Id = "fan"; Attributes = Map.ofList ["shape", AttrValue.String "component"] }
+                    [ "fan",
+                      { Id = "fan"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "component" ] }
                       "A", { Id = "A"; Attributes = Map.empty }
                       "B", { Id = "B"; Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "fan"; ToNode = "A"; Attributes = Map.empty }
-                  { FromNode = "fan"; ToNode = "B"; Attributes = Map.empty } ]
+                [ { FromNode = "fan"
+                    ToNode = "A"
+                    Attributes = Map.empty }
+                  { FromNode = "fan"
+                    ToNode = "B"
+                    Attributes = Map.empty } ]
               GraphAttributes = Map.empty }
+
         let node = graph.Nodes["fan"]
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
@@ -3305,7 +4039,8 @@ module ParallelExecutionTests =
 
     [<Fact>]
     let ``Fan-in reads parallel branch results`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="full"]
             start [shape=Mdiamond]
@@ -3319,8 +4054,9 @@ module ParallelExecutionTests =
             fan_in -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -3339,7 +4075,8 @@ module ToolHardeningTests =
 
     [<Fact>]
     let ``Tool handler captures stderr`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3347,8 +4084,9 @@ module ToolHardeningTests =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -3360,12 +4098,23 @@ module ToolHardeningTests =
     [<Fact>]
     let ``Tool handler truncates large output`` () =
         let handler = Handlers.ToolHandler(maxOutputBytes = 50) :> IHandler
+
         let node =
             { Id = "tool"
-              Attributes = Map.ofList ["tool_command", AttrValue.String "yes | head -100"; "shape", AttrValue.String "parallelogram"] }
+              Attributes =
+                Map.ofList
+                    [ "tool_command", AttrValue.String "yes | head -100"
+                      "shape", AttrValue.String "parallelogram" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
-        let logsRoot = createTempDir()
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
+        let logsRoot = createTempDir ()
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         let output = outcome.ContextUpdates["tool.output"]
@@ -3373,7 +4122,8 @@ module ToolHardeningTests =
 
     [<Fact>]
     let ``Tool handler enforces timeout`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3381,8 +4131,9 @@ module ToolHardeningTests =
             start -> slow_tool -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Fail, result.FinalOutcome.Status)
@@ -3390,7 +4141,8 @@ module ToolHardeningTests =
 
     [<Fact>]
     let ``Tool handler writes full output to artifact file`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3398,8 +4150,9 @@ module ToolHardeningTests =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
         Engine.run graph config |> ignore
         let outputPath = Path.Combine(logsRoot, "tool_node", "tool_output.txt")
@@ -3426,10 +4179,7 @@ module ManagerLoopTests =
 
     let private createManagerNode (attrs: (string * AttrValue) list) =
         { Id = "manager"
-          Attributes =
-            [ "shape", AttrValue.String "house" ]
-            @ attrs
-            |> Map.ofList }
+          Attributes = [ "shape", AttrValue.String "house" ] @ attrs |> Map.ofList }
 
     let private createGraphWithChild (childDotfile: string) (childWorkdir: string option) =
         let attrs =
@@ -3438,6 +4188,7 @@ module ManagerLoopTests =
               | Some workdir -> yield "stack.child_workdir", AttrValue.String workdir
               | None -> () ]
             |> Map.ofList
+
         { Name = "parent"
           Nodes = Map.empty
           Edges = []
@@ -3453,11 +4204,19 @@ module ManagerLoopTests =
     [<Fact>]
     let ``Manager loop exits after max_cycles`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
-              Attributes = Map.ofList ["max_cycles", AttrValue.Integer 3; "shape", AttrValue.String "house"] }
+              Attributes = Map.ofList [ "max_cycles", AttrValue.Integer 3; "shape", AttrValue.String "house" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Fail, outcome.Status)
         Assert.Contains("max_cycles", outcome.FailureReason)
@@ -3466,12 +4225,20 @@ module ManagerLoopTests =
     [<Fact>]
     let ``Manager loop exits on stop condition`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
-              Attributes = Map.ofList ["max_cycles", AttrValue.Integer 10; "shape", AttrValue.String "house"] }
+              Attributes = Map.ofList [ "max_cycles", AttrValue.Integer 10; "shape", AttrValue.String "house" ] }
+
         let ctx = Context()
         ctx.Set("manager.stop", "true")
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
         Assert.Equal("true", outcome.ContextUpdates["manager.stopped"])
@@ -3479,6 +4246,7 @@ module ManagerLoopTests =
     [<Fact>]
     let ``Manager loop exits success on cycle 2 when stop key is set during supervision`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
               Attributes =
@@ -3486,13 +4254,20 @@ module ManagerLoopTests =
                     [ "max_cycles", AttrValue.Integer 10
                       "wait_ms", AttrValue.Integer 100
                       "shape", AttrValue.String "house" ] }
+
         let ctx = Context()
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
 
         let setter =
             System.Threading.Thread(fun () ->
                 System.Threading.Thread.Sleep(10)
                 ctx.Set("manager.stop", "true"))
+
         setter.Start()
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         setter.Join()
@@ -3503,18 +4278,27 @@ module ManagerLoopTests =
     [<Fact>]
     let ``Manager loop exits on child complete`` () =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
+
         let node =
             { Id = "manager"
-              Attributes = Map.ofList ["max_cycles", AttrValue.Integer 10; "shape", AttrValue.String "house"] }
+              Attributes = Map.ofList [ "max_cycles", AttrValue.Integer 10; "shape", AttrValue.String "house" ] }
+
         let ctx = Context()
         ctx.Set("manager.child_complete", "true")
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, ctx, graph, "/tmp")
         Assert.Equal(StageStatus.Success, outcome.Status)
 
     [<Fact>]
     let ``Manager loop runs in pipeline`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3522,8 +4306,12 @@ module ManagerLoopTests =
             start -> supervisor -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
+        let logsRoot =
+            Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(logsRoot) |> ignore
         let config = RunConfig.Default(logsRoot)
         let result = Engine.run graph config
@@ -3531,7 +4319,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop runs child pipeline to success`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child {
             start [shape=Mdiamond]
             step [shape=parallelogram, tool_command="echo child_done", auto_status=true]
@@ -3539,6 +4328,7 @@ module ManagerLoopTests =
             start -> step -> done
         }
         """
+
         let childPath = writeChildDot "child.dot" childDot
         let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
         let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 3 ]
@@ -3549,6 +4339,7 @@ module ManagerLoopTests =
         Assert.Equal(StageStatus.Success, outcome.Status)
         Assert.Equal("1", outcome.ContextUpdates["manager.cycle_count"])
         Assert.Equal("success", outcome.ContextUpdates["manager.child_status"])
+
         Assert.True(
             outcome.ContextUpdates
             |> Map.toSeq
@@ -3557,7 +4348,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop retries failing child pipeline up to max_cycles`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child_fail {
             start [shape=Mdiamond]
             fail [shape=parallelogram, tool_command="exit 1"]
@@ -3565,12 +4357,15 @@ module ManagerLoopTests =
             start -> fail -> done
         }
         """
+
         let childPath = writeChildDot "child-fail.dot" childDot
         let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+
         let node =
             createManagerNode
                 [ "manager.max_cycles", AttrValue.Integer 2
                   "manager.poll_interval", AttrValue.Integer 0 ]
+
         let ctx = Context()
         let graph = createGraphWithChild childPath None
         let logsRoot = createManagerLoopLogsRoot ()
@@ -3594,7 +4389,13 @@ module ManagerLoopTests =
         let handler = Handlers.ManagerLoopHandler() :> IHandler
         let node = createManagerNode [ "max_cycles", AttrValue.Integer 1 ]
         let ctx = Context()
-        let graph = { Name = "parent"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "parent"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let logsRoot = createManagerLoopLogsRoot ()
         let outcome = handler.Execute(node, ctx, graph, logsRoot)
         Assert.Equal(StageStatus.Fail, outcome.Status)
@@ -3602,7 +4403,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop propagates child context with child. prefix`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child_context {
             graph [goal="child context"]
             start [shape=Mdiamond]
@@ -3611,6 +4413,7 @@ module ManagerLoopTests =
             start -> writer -> done
         }
         """
+
         let childPath = writeChildDot "child-context.dot" childDot
         let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
         let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 1 ]
@@ -3623,7 +4426,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop supports lane attribute`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child_lane {
             start [shape=Mdiamond]
             step [shape=parallelogram, tool_command="echo lane", auto_status=true]
@@ -3631,12 +4435,13 @@ module ManagerLoopTests =
             start -> step -> done
         }
         """
+
         let childPath = writeChildDot "child-lane.dot" childDot
         let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
+
         let node =
-            createManagerNode
-                [ "manager.max_cycles", AttrValue.Integer 1
-                  "lane", AttrValue.String "review" ]
+            createManagerNode [ "manager.max_cycles", AttrValue.Integer 1; "lane", AttrValue.String "review" ]
+
         let ctx = Context()
         let graph = createGraphWithChild childPath None
         let logsRoot = createManagerLoopLogsRoot ()
@@ -3646,7 +4451,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop resolves relative child dotfile with stack.child_workdir`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child_relative {
             start [shape=Mdiamond]
             step [shape=parallelogram, tool_command="echo relative", auto_status=true]
@@ -3654,6 +4460,7 @@ module ManagerLoopTests =
             start -> step -> done
         }
         """
+
         let workdir = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
         Directory.CreateDirectory(workdir) |> ignore
         let childFileName = "child.dot"
@@ -3670,7 +4477,8 @@ module ManagerLoopTests =
 
     [<Fact>]
     let ``Manager loop child context flows back to parent with child. prefix`` () =
-        let childDot = """
+        let childDot =
+            """
         digraph child_result {
             start [shape=Mdiamond]
             writer [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"result_key\":\"child_value\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
@@ -3678,6 +4486,7 @@ module ManagerLoopTests =
             start -> writer -> done
         }
         """
+
         let childPath = writeChildDot "child-result.dot" childDot
         let handler = Handlers.ManagerLoopHandler(runChildPipeline) :> IHandler
         let node = createManagerNode [ "manager.max_cycles", AttrValue.Integer 1 ]
@@ -3703,7 +4512,10 @@ module DefaultMaxRetryTests =
 
     [<Fact>]
     let ``Node MaxRetriesOption is Some when max_retries is present`` () =
-        let node = { Id = "A"; Attributes = Map.ofList [ "max_retries", AttrValue.Integer 3 ] }
+        let node =
+            { Id = "A"
+              Attributes = Map.ofList [ "max_retries", AttrValue.Integer 3 ] }
+
         Assert.Equal(Some 3, node.MaxRetriesOption)
         Assert.Equal(3, node.MaxRetries)
 
@@ -3717,6 +4529,7 @@ module DefaultMaxRetryTests =
                 Map.ofList
                     [ "default_max_retries", AttrValue.Integer 7
                       "default_max_retry", AttrValue.Integer 3 ] }
+
         Assert.Equal(Some 7, graph.DefaultMaxRetriesOption)
         Assert.Equal(7, graph.DefaultMaxRetry)
 
@@ -3727,19 +4540,26 @@ module DefaultMaxRetryTests =
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "default_max_retry", AttrValue.Integer 5 ] }
+
         Assert.Equal(Some 5, graph.DefaultMaxRetriesOption)
         Assert.Equal(5, graph.DefaultMaxRetry)
 
     [<Fact>]
     let ``Graph default_max_retry used when node has no max_retries`` () =
         let mutable callCount = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
-                    if callCount < 3 then Outcome.Retry("not yet")
-                    else Outcome.Success() }
-        let dot = """
+
+                    if callCount < 3 then
+                        Outcome.Retry("not yet")
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             graph [default_max_retry=5]
             start [shape=Mdiamond]
@@ -3748,12 +4568,20 @@ module DefaultMaxRetryTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
+        let logsRoot =
+            Path.Combine(Path.GetTempPath(), $"attractor-test-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(logsRoot) |> ignore
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("retrying", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(3, callCount)
@@ -3761,39 +4589,48 @@ module DefaultMaxRetryTests =
     [<Fact>]
     let ``RetryPolicy uses graph default_max_retries when node max_retries is absent`` () =
         let node = { Id = "A"; Attributes = Map.empty }
+
         let graph =
             { Name = "t"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "default_max_retries", AttrValue.Integer 5 ] }
+
         let policy = RetryPolicy.FromNode(node, graph)
         Assert.Equal(6, policy.MaxAttempts)
 
     [<Fact>]
     let ``RetryPolicy honors explicit node max_retries=0 over graph defaults`` () =
-        let node = { Id = "A"; Attributes = Map.ofList [ "max_retries", AttrValue.Integer 0 ] }
+        let node =
+            { Id = "A"
+              Attributes = Map.ofList [ "max_retries", AttrValue.Integer 0 ] }
+
         let graph =
             { Name = "t"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "default_max_retries", AttrValue.Integer 5 ] }
+
         let policy = RetryPolicy.FromNode(node, graph)
         Assert.Equal(1, policy.MaxAttempts)
 
     [<Fact>]
     let ``RetryPolicy still supports legacy default_max_retry alias`` () =
         let node = { Id = "A"; Attributes = Map.empty }
+
         let graph =
             { Name = "t"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "default_max_retry", AttrValue.Integer 5 ] }
+
         let policy = RetryPolicy.FromNode(node, graph)
         Assert.Equal(6, policy.MaxAttempts)
 
     [<Fact>]
     let ``RetryPolicy prefers default_max_retries when both graph keys exist`` () =
         let node = { Id = "A"; Attributes = Map.empty }
+
         let graph =
             { Name = "t"
               Nodes = Map.empty
@@ -3802,6 +4639,7 @@ module DefaultMaxRetryTests =
                 Map.ofList
                     [ "default_max_retries", AttrValue.Integer 2
                       "default_max_retry", AttrValue.Integer 9 ] }
+
         let policy = RetryPolicy.FromNode(node, graph)
         Assert.Equal(3, policy.MaxAttempts)
 
@@ -3839,8 +4677,10 @@ module FidelityProjectionTests =
         ctx.Set("current_node", "A")
         ctx.Set("outcome", "success")
         ctx.Set("last_stage", "Z")
+
         for i in 1..20 do
             ctx.Set($"tool.output.{i}", String.replicate 500 "x")
+
         let p = ctx.Project(FidelityMode.Compact)
         Assert.Equal("test", p.Get("graph.goal"))
         Assert.Equal("A", p.Get("current_node"))
@@ -3850,13 +4690,19 @@ module FidelityProjectionTests =
     [<Fact>]
     let ``SummaryLow is budget constrained`` () =
         let ctx = Context()
-        for i in 1..30 do ctx.Set($"k{i}", String.replicate 500 "x")
+
+        for i in 1..30 do
+            ctx.Set($"k{i}", String.replicate 500 "x")
+
         Assert.True(ctx.Project(FidelityMode.SummaryLow).Count < 30)
 
     [<Fact>]
     let ``SummaryMedium is budget constrained`` () =
         let ctx = Context()
-        for i in 1..30 do ctx.Set($"k{i}", String.replicate 500 "x")
+
+        for i in 1..30 do
+            ctx.Set($"k{i}", String.replicate 500 "x")
+
         Assert.True(ctx.Project(FidelityMode.SummaryMedium).Count < 30)
 
     [<Fact>]
@@ -3879,57 +4725,120 @@ module AdditionalValidationTests =
     let ``Dead end detected on non-terminal with no outgoing edges`` () =
         let graph =
             { Name = "test"
-              Nodes = Map.ofList
-                [ "start", { Id = "start"; Attributes = Map.ofList ["shape", AttrValue.String "Mdiamond"] }
-                  "exit", { Id = "exit"; Attributes = Map.ofList ["shape", AttrValue.String "Msquare"] }
-                  "dead", { Id = "dead"; Attributes = Map.empty } ]
-              Edges = [ { FromNode = "start"; ToNode = "dead"; Attributes = Map.empty } ]
+              Nodes =
+                Map.ofList
+                    [ "start",
+                      { Id = "start"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Mdiamond" ] }
+                      "exit",
+                      { Id = "exit"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Msquare" ] }
+                      "dead", { Id = "dead"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "start"
+                    ToNode = "dead"
+                    Attributes = Map.empty } ]
               GraphAttributes = Map.empty }
-        Assert.True(Validation.validate graph None |> List.exists (fun d -> d.Rule = "dead_end" && d.NodeId = "dead"))
+
+        Assert.True(
+            Validation.validate graph None
+            |> List.exists (fun d -> d.Rule = "dead_end" && d.NodeId = "dead")
+        )
 
     [<Fact>]
     let ``Terminal reachability flags node with no path to exit`` () =
         let graph =
             { Name = "test"
-              Nodes = Map.ofList
-                [ "start", { Id = "start"; Attributes = Map.ofList ["shape", AttrValue.String "Mdiamond"] }
-                  "exit", { Id = "exit"; Attributes = Map.ofList ["shape", AttrValue.String "Msquare"] }
-                  "trapped", { Id = "trapped"; Attributes = Map.empty } ]
+              Nodes =
+                Map.ofList
+                    [ "start",
+                      { Id = "start"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Mdiamond" ] }
+                      "exit",
+                      { Id = "exit"
+                        Attributes = Map.ofList [ "shape", AttrValue.String "Msquare" ] }
+                      "trapped",
+                      { Id = "trapped"
+                        Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "start"; ToNode = "trapped"; Attributes = Map.empty }
-                  { FromNode = "start"; ToNode = "exit"; Attributes = Map.empty } ]
+                [ { FromNode = "start"
+                    ToNode = "trapped"
+                    Attributes = Map.empty }
+                  { FromNode = "start"
+                    ToNode = "exit"
+                    Attributes = Map.empty } ]
               GraphAttributes = Map.empty }
-        Assert.True(Validation.validate graph None |> List.exists (fun d -> d.Rule = "terminal_reachability" && d.NodeId = "trapped"))
+
+        Assert.True(
+            Validation.validate graph None
+            |> List.exists (fun d -> d.Rule = "terminal_reachability" && d.NodeId = "trapped")
+        )
 
     [<Fact>]
     let ``Synopsis classifies PLANNING pipeline`` () =
-        let g = DotParser.parseOrRaise "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, prompt=\"Plan\"]\n start -> A -> exit }"
-        Assert.True(Validation.validate g None |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("PLANNING")))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, prompt=\"Plan\"]\n start -> A -> exit }"
+
+        Assert.True(
+            Validation.validate g None
+            |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("PLANNING"))
+        )
 
     [<Fact>]
     let ``Synopsis classifies EXECUTION pipeline`` () =
-        let g = DotParser.parseOrRaise "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=parallelogram, tool_command=\"claude --auto\"]\n start -> A -> exit }"
-        Assert.True(Validation.validate g None |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION")))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=parallelogram, tool_command=\"claude --auto\"]\n start -> A -> exit }"
+
+        Assert.True(
+            Validation.validate g None
+            |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION"))
+        )
 
     [<Fact>]
     let ``Synopsis classifies EXECUTION pipeline for codex LLM node`` () =
-        let g = DotParser.parseOrRaise "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, llm_model=\"gpt-5.3-codex\", prompt=\"Implement\"]\n start -> A -> exit }"
-        Assert.True(Validation.validate g None |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION")))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, llm_model=\"gpt-5.3-codex\", prompt=\"Implement\"]\n start -> A -> exit }"
+
+        Assert.True(
+            Validation.validate g None
+            |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION"))
+        )
 
     [<Fact>]
     let ``Synopsis classifies EXECUTION pipeline for tab coding_agent node`` () =
-        let g = DotParser.parseOrRaise "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=tab, llm_model=\"claude-sonnet-4-6\", prompt=\"Implement\"]\n start -> A -> exit }"
-        Assert.True(Validation.validate g None |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION")))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=tab, llm_model=\"claude-sonnet-4-6\", prompt=\"Implement\"]\n start -> A -> exit }"
+
+        Assert.True(
+            Validation.validate g None
+            |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("EXECUTION"))
+        )
 
     [<Fact>]
     let ``Synopsis classifies HYBRID pipeline`` () =
-        let g = DotParser.parseOrRaise "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=parallelogram, tool_command=\"dotnet test\"]\n start -> A -> exit }"
-        Assert.True(Validation.validate g None |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("HYBRID")))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=parallelogram, tool_command=\"dotnet test\"]\n start -> A -> exit }"
+
+        Assert.True(
+            Validation.validate g None
+            |> List.exists (fun d -> d.Rule = "synopsis" && d.Message.Contains("HYBRID"))
+        )
 
     [<Fact>]
     let ``Synopsis reports capability flags`` () =
-        let g = DotParser.parseOrRaise "digraph T { graph [model_stylesheet=\"* { llm_model: x; }\"]\n start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, prompt=\"t\", goal_gate=true]\n gate [shape=hexagon]\n start -> A -> gate\n gate -> exit [label=\"[A] Ok\"]\n gate -> A [label=\"[R] Redo\"] }"
-        let caps = Validation.validate g None |> List.tryFind (fun d -> d.Rule = "synopsis" && d.Message.Contains("Capabilities"))
+        let g =
+            DotParser.parseOrRaise
+                "digraph T { graph [model_stylesheet=\"* { llm_model: x; }\"]\n start [shape=Mdiamond]\n exit [shape=Msquare]\n A [shape=box, prompt=\"t\", goal_gate=true]\n gate [shape=hexagon]\n start -> A -> gate\n gate -> exit [label=\"[A] Ok\"]\n gate -> A [label=\"[R] Redo\"] }"
+
+        let caps =
+            Validation.validate g None
+            |> List.tryFind (fun d -> d.Rule = "synopsis" && d.Message.Contains("Capabilities"))
+
         Assert.True(caps.IsSome)
         Assert.True(caps.Value.Message.Contains("LLM"))
         Assert.True(caps.Value.Message.Contains("HUMAN_GATES"))
@@ -3949,12 +4858,15 @@ module ParallelRealExecutionTests =
     [<Fact>]
     let ``Parallel handler invokes real branch handlers`` () =
         let branches = ResizeArray<string>()
+
         let handler =
             { new IHandler with
                 member _.Execute(node, _, _, _) =
                     lock branches (fun () -> branches.Add(node.Id))
                     Outcome.Success() }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -3970,12 +4882,17 @@ module ParallelRealExecutionTests =
             fin -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("b", handler)
         registry.Register("parallel", Handlers.ParallelHandler(resolveHandler = registry.Resolve))
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         Assert.True(branches |> Seq.exists (fun id -> id = "A"), "Branch A not executed")
         Assert.True(branches |> Seq.exists (fun id -> id = "B"), "Branch B not executed")
@@ -3983,12 +4900,15 @@ module ParallelRealExecutionTests =
     [<Fact>]
     let ``Engine skips parallel-executed nodes`` () =
         let mutable count = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     count <- count + 1
                     Outcome.Success() }
-        let dot = """
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4001,12 +4921,17 @@ module ParallelRealExecutionTests =
             fin -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("c", handler)
         registry.Register("parallel", Handlers.ParallelHandler(resolveHandler = registry.Resolve))
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         Engine.run graph config |> ignore
         Assert.Equal(1, count)
 
@@ -4024,13 +4949,19 @@ module LoopRestartVerificationTests =
     [<Fact>]
     let ``Loop restart creates manifest and preserves graph attrs`` () =
         let mutable pass = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     pass <- pass + 1
-                    if pass >= 4 then Outcome.Success(contextUpdates = Map.ofList ["loop_done", "true"])
-                    else Outcome.Success() }
-        let dot = """
+
+                    if pass >= 4 then
+                        Outcome.Success(contextUpdates = Map.ofList [ "loop_done", "true" ])
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             graph [goal="restart test"]
             start [shape=Mdiamond]
@@ -4042,11 +4973,16 @@ module LoopRestartVerificationTests =
             B -> exit [condition="context.loop_done=true"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("h", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal("restart test", result.Context.Get("graph.goal"))
@@ -4062,18 +4998,7 @@ module EdgeSelectionAdditionalTests =
     [<Fact>]
     let ``Multiple condition matches use weight tiebreak`` () =
         let node = { Id = "A"; Attributes = Map.empty }
-        let graph =
-            { Name = "t"; Nodes = Map.ofList ["A", node; "B", { Id = "B"; Attributes = Map.empty }; "C", { Id = "C"; Attributes = Map.empty }]
-              Edges = [ { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList ["condition", AttrValue.String "outcome=success"; "weight", AttrValue.Integer 1] }
-                        { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList ["condition", AttrValue.String "outcome=success"; "weight", AttrValue.Integer 10] } ]
-              GraphAttributes = Map.empty }
-        let edge = EdgeSelection.selectEdge node (Outcome.Success()) (Context()) graph
-        Assert.Equal("C", edge.Value.ToNode)
 
-    [<Fact>]
-    let ``Preferred label cannot select a conditional edge`` () =
-        let node = { Id = "A"; Attributes = Map.empty }
-        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
         let graph =
             { Name = "t"
               Nodes =
@@ -4085,20 +5010,28 @@ module EdgeSelectionAdditionalTests =
                 [ { FromNode = "A"
                     ToNode = "B"
                     Attributes =
-                        Map.ofList
-                            [ "label", AttrValue.String "Fix"
-                              "condition", AttrValue.String "outcome=fail"
-                              "weight", AttrValue.Integer 100 ] }
-                  { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
+                      Map.ofList
+                          [ "condition", AttrValue.String "outcome=success"
+                            "weight", AttrValue.Integer 1 ] }
+                  { FromNode = "A"
+                    ToNode = "C"
+                    Attributes =
+                      Map.ofList
+                          [ "condition", AttrValue.String "outcome=success"
+                            "weight", AttrValue.Integer 10 ] } ]
               GraphAttributes = Map.empty }
-        let edge = EdgeSelection.selectEdge node outcome (Context()) graph
-        Assert.True(edge.IsSome)
+
+        let edge = EdgeSelection.selectEdge node (Outcome.Success()) (Context()) graph
         Assert.Equal("C", edge.Value.ToNode)
 
     [<Fact>]
-    let ``Suggested next ids cannot select a conditional edge`` () =
+    let ``Preferred label cannot select a conditional edge`` () =
         let node = { Id = "A"; Attributes = Map.empty }
-        let outcome = { Outcome.Success() with SuggestedNextIds = [ "B" ] }
+
+        let outcome =
+            { Outcome.Success() with
+                PreferredLabel = "Fix" }
+
         let graph =
             { Name = "t"
               Nodes =
@@ -4107,9 +5040,46 @@ module EdgeSelectionAdditionalTests =
                       "B", { Id = "B"; Attributes = Map.empty }
                       "C", { Id = "C"; Attributes = Map.empty } ]
               Edges =
-                [ { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList [ "condition", AttrValue.String "outcome=fail" ] }
-                  { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
+                [ { FromNode = "A"
+                    ToNode = "B"
+                    Attributes =
+                      Map.ofList
+                          [ "label", AttrValue.String "Fix"
+                            "condition", AttrValue.String "outcome=fail"
+                            "weight", AttrValue.Integer 100 ] }
+                  { FromNode = "A"
+                    ToNode = "C"
+                    Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
               GraphAttributes = Map.empty }
+
+        let edge = EdgeSelection.selectEdge node outcome (Context()) graph
+        Assert.True(edge.IsSome)
+        Assert.Equal("C", edge.Value.ToNode)
+
+    [<Fact>]
+    let ``Suggested next ids cannot select a conditional edge`` () =
+        let node = { Id = "A"; Attributes = Map.empty }
+
+        let outcome =
+            { Outcome.Success() with
+                SuggestedNextIds = [ "B" ] }
+
+        let graph =
+            { Name = "t"
+              Nodes =
+                Map.ofList
+                    [ "A", node
+                      "B", { Id = "B"; Attributes = Map.empty }
+                      "C", { Id = "C"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "A"
+                    ToNode = "B"
+                    Attributes = Map.ofList [ "condition", AttrValue.String "outcome=fail" ] }
+                  { FromNode = "A"
+                    ToNode = "C"
+                    Attributes = Map.ofList [ "weight", AttrValue.Integer 1 ] } ]
+              GraphAttributes = Map.empty }
+
         let edge = EdgeSelection.selectEdge node outcome (Context()) graph
         Assert.True(edge.IsSome)
         Assert.Equal("C", edge.Value.ToNode)
@@ -4134,6 +5104,7 @@ module Sprint004Coverage =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     aCalls <- aCalls + 1
+
                     if aCalls = 1 then
                         Outcome.Success(contextUpdates = Map.ofList [ "scratch", "from-pass-1" ])
                     else
@@ -4144,9 +5115,11 @@ module Sprint004Coverage =
                 member _.Execute(_, context, _, _) =
                     if aCalls >= 2 then
                         priorKeyCleared <- context.TryGet("scratch").IsNone
+
                     Outcome.Success() }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [goal="restart clear test"]
             start [shape=Mdiamond]
@@ -4160,11 +5133,15 @@ module Sprint004Coverage =
         """
 
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("ha", handlerA)
         registry.Register("hb", handlerB)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
 
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -4172,7 +5149,8 @@ module Sprint004Coverage =
 
     [<Fact>]
     let ``resume restores checkpointed node outcomes including PartialSuccess`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4180,9 +5158,11 @@ module Sprint004Coverage =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let config = RunConfig.Default(logsRoot)
+
         let checkpoint =
             { Timestamp = DateTimeOffset.UtcNow
               CurrentNode = "A"
@@ -4192,11 +5172,7 @@ module Sprint004Coverage =
                 Map.ofList
                     [ "start", Outcome.Success()
                       "A", Outcome.PartialSuccess(notes = "partially complete") ]
-              ContextValues =
-                Map.ofList
-                    [ "graph.goal", "resume"
-                      "last_stage", "A"
-                      "outcome", "partial_success" ]
+              ContextValues = Map.ofList [ "graph.goal", "resume"; "last_stage", "A"; "outcome", "partial_success" ]
               Logs = [] }
 
         let result = Engine.resumeFromCheckpoint graph config checkpoint
@@ -4206,14 +5182,19 @@ module Sprint004Coverage =
     [<Fact>]
     let ``Retry outcome applies backoff delay`` () =
         let mutable attempts = 0
+
         let handler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     attempts <- attempts + 1
-                    if attempts = 1 then Outcome.Retry("transient failure")
-                    else Outcome.Success() }
 
-        let dot = """
+                    if attempts = 1 then
+                        Outcome.Retry("transient failure")
+                    else
+                        Outcome.Success() }
+
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4221,11 +5202,15 @@ module Sprint004Coverage =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("retrying", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
 
         let sw = Diagnostics.Stopwatch.StartNew()
         let result = Engine.run graph config
@@ -4233,15 +5218,21 @@ module Sprint004Coverage =
 
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(2, attempts)
-        Assert.True(sw.ElapsedMilliseconds >= 90L, $"Expected backoff delay before retry, got {sw.ElapsedMilliseconds}ms")
+
+        Assert.True(
+            sw.ElapsedMilliseconds >= 90L,
+            $"Expected backoff delay before retry, got {sw.ElapsedMilliseconds}ms"
+        )
 
     [<Fact>]
     let ``auto_status=true synthesizes success for tool handler without status file`` () =
         let handler =
             { new IHandler with
-                member _.Execute(_, _, _, _) = Outcome.Fail("handler failed but no status file") }
+                member _.Execute(_, _, _, _) =
+                    Outcome.Fail("handler failed but no status file") }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4249,11 +5240,16 @@ module Sprint004Coverage =
             start -> tool_node -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("tool", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
 
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -4262,6 +5258,7 @@ module Sprint004Coverage =
     [<Fact>]
     let ``AutoApprove interviewer supports SingleSelect and MultiSelect question types`` () =
         let interviewer = AutoApproveInterviewer() :> IInterviewer
+
         let options =
             [ { Key = "a"; Label = "Alpha" }
               { Key = "b"; Label = "Beta" }
@@ -4275,7 +5272,9 @@ module Sprint004Coverage =
                   Default = None
                   TimeoutSeconds = None
                   Stage = "review"
-                  Metadata = Map.empty })
+                  Metadata = Map.empty }
+            )
+
         Assert.Equal("a", single.Value)
 
         let multi =
@@ -4286,17 +5285,33 @@ module Sprint004Coverage =
                   Default = None
                   TimeoutSeconds = None
                   Stage = "review"
-                  Metadata = Map.empty })
+                  Metadata = Map.empty }
+            )
+
         Assert.Equal("a,b,c", multi.Value)
 
     [<Fact>]
     let ``All conditions fail without unconditional edge returns none`` () =
         let node = { Id = "A"; Attributes = Map.empty }
+
         let graph =
-            { Name = "t"; Nodes = Map.ofList ["A", node; "B", { Id = "B"; Attributes = Map.empty }; "C", { Id = "C"; Attributes = Map.empty }]
-              Edges = [ { FromNode = "A"; ToNode = "B"; Attributes = Map.ofList ["condition", AttrValue.String "outcome=fail"; "weight", AttrValue.Integer 5] }
-                        { FromNode = "A"; ToNode = "C"; Attributes = Map.ofList ["condition", AttrValue.String "outcome=fail"; "weight", AttrValue.Integer 10] } ]
+            { Name = "t"
+              Nodes =
+                Map.ofList
+                    [ "A", node
+                      "B", { Id = "B"; Attributes = Map.empty }
+                      "C", { Id = "C"; Attributes = Map.empty } ]
+              Edges =
+                [ { FromNode = "A"
+                    ToNode = "B"
+                    Attributes =
+                      Map.ofList [ "condition", AttrValue.String "outcome=fail"; "weight", AttrValue.Integer 5 ] }
+                  { FromNode = "A"
+                    ToNode = "C"
+                    Attributes =
+                      Map.ofList [ "condition", AttrValue.String "outcome=fail"; "weight", AttrValue.Integer 10 ] } ]
               GraphAttributes = Map.empty }
+
         let edge = EdgeSelection.selectEdge node (Outcome.Success()) (Context()) graph
         Assert.True(edge.IsNone)
 
@@ -4310,13 +5325,15 @@ module NonRetriableErrorTests =
     [<Fact>]
     let ``non-retriable exception is NOT retried`` () =
         let mutable callCount = 0
+
         let customHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
                     raise (UnifiedLlm.NotFoundError("missing model")) }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4324,11 +5341,15 @@ module NonRetriableErrorTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
 
         let result = Engine.run graph config
         Assert.Equal(1, callCount)
@@ -4339,10 +5360,13 @@ module NonRetriableErrorTests =
         let customHandler =
             { new IHandler with
                 member _.Execute(node, _, _, _) =
-                    if node.Id = "A" then Outcome.Success()
-                    else Outcome.Success() }
+                    if node.Id = "A" then
+                        Outcome.Success()
+                    else
+                        Outcome.Success() }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4354,11 +5378,15 @@ module NonRetriableErrorTests =
             A -> C [condition="context.foo=baz", weight=10]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("custom", customHandler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
 
         let result = Engine.run graph config
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
@@ -4373,8 +5401,10 @@ module Sprint006Phase3Tests =
 
     [<Fact>]
     let ``Tool pre-hook failure skips tool execution`` () =
-        let workDir = createTempDir()
-        let dot = $"""
+        let workDir = createTempDir ()
+
+        let dot =
+            $"""
         digraph Test {{
             graph [cwd="{workDir}"]
             start [shape=Mdiamond]
@@ -4387,8 +5417,9 @@ module Sprint006Phase3Tests =
             start -> tool_node -> exit
         }}
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let result = Engine.run graph (RunConfig.Default(logsRoot))
 
         Assert.Equal(StageStatus.Skipped, result.NodeOutcomes["tool_node"].Status)
@@ -4397,8 +5428,12 @@ module Sprint006Phase3Tests =
 
     [<Fact>]
     let ``writeStatus serializes preferred_label key`` () =
-        let logsRoot = createTempDir()
-        let outcome = { Outcome.Success() with PreferredLabel = "Fix" }
+        let logsRoot = createTempDir ()
+
+        let outcome =
+            { Outcome.Success() with
+                PreferredLabel = "Fix" }
+
         Handlers.writeStatus logsRoot logsRoot outcome
         let statusJson = File.ReadAllText(Path.Combine(logsRoot, "status.json"))
         Assert.Contains("\"preferred_label\"", statusJson)
@@ -4411,12 +5446,16 @@ module Sprint006Phase3Tests =
                 member _.Execute(node, _, _, logsRoot) =
                     let stageDir = Path.Combine(logsRoot, node.Id)
                     Directory.CreateDirectory(stageDir) |> ignore
+
                     File.WriteAllText(
                         Path.Combine(stageDir, "status.json"),
-                        """{"outcome":"success","preferred_next_label":"LegacyFix"}""")
+                        """{"outcome":"success","preferred_next_label":"LegacyFix"}"""
+                    )
+
                     Outcome.Success() }
 
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4424,11 +5463,16 @@ module Sprint006Phase3Tests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("legacy", handler)
-        let config = { RunConfig.Default(logsRoot) with Registry = registry }
+
+        let config =
+            { RunConfig.Default(logsRoot) with
+                Registry = registry }
+
         let result = Engine.run graph config
 
         Assert.Equal("LegacyFix", result.Context.Get("preferred_label"))
@@ -4436,7 +5480,8 @@ module Sprint006Phase3Tests =
 
     [<Fact>]
     let ``Parallel deprecated attrs are ignored without parse or runtime errors`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [default_fidelity="full"]
             start [shape=Mdiamond]
@@ -4450,8 +5495,9 @@ module Sprint006Phase3Tests =
             fan_in -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
-        let logsRoot = createTempDir()
+        let logsRoot = createTempDir ()
         let result = Engine.run graph (RunConfig.Default(logsRoot))
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
 
@@ -4495,6 +5541,7 @@ module Sprint008McpHandlerTests =
     [<Fact>]
     let ``Handler registry resolves mcp tool via explicit type`` () =
         let registry = HandlerRegistry.CreateDefault()
+
         let node =
             { Id = "mcp"
               Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "shape", AttrValue.String "box" ] }
@@ -4505,10 +5552,20 @@ module Sprint008McpHandlerTests =
     [<Fact>]
     let ``Mcp handler fails when mcp server attribute is missing`` () =
         let handler = McpHandlers.McpToolHandler() :> IHandler
+
         let node =
             { Id = "mcp"
-              Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "mcp_tool", AttrValue.String "echo_upper" ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+              Attributes =
+                Map.ofList
+                    [ "type", AttrValue.String "mcp.tool"
+                      "mcp_tool", AttrValue.String "echo_upper" ] }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, Context(), graph, createTempDir ())
 
         Assert.Equal(StageStatus.Fail, outcome.Status)
@@ -4517,10 +5574,17 @@ module Sprint008McpHandlerTests =
     [<Fact>]
     let ``Mcp handler fails when mcp tool attribute is missing`` () =
         let handler = McpHandlers.McpToolHandler() :> IHandler
+
         let node =
             { Id = "mcp"
               Attributes = Map.ofList [ "type", AttrValue.String "mcp.tool"; "mcp_server", AttrValue.String "mock" ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let outcome = handler.Execute(node, Context(), graph, createTempDir ())
 
         Assert.Equal(StageStatus.Fail, outcome.Status)
@@ -4529,8 +5593,8 @@ module Sprint008McpHandlerTests =
     [<Fact>]
     let ``Mcp handler validates requested tool against discovered definitions`` () =
         let handler =
-            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config))
-            :> IHandler
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config)) :> IHandler
+
         let node =
             { Id = "mcp"
               Attributes =
@@ -4538,11 +5602,13 @@ module Sprint008McpHandlerTests =
                     [ "type", AttrValue.String "mcp.tool"
                       "mcp_server", AttrValue.String "mock"
                       "mcp_tool", AttrValue.String "missing" ] }
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+
         let logsRoot = createTempDir ()
         let outcome = handler.Execute(node, Context(), graph, logsRoot)
 
@@ -4557,8 +5623,7 @@ module Sprint008McpHandlerTests =
         File.WriteAllText(configPath, mockConfigJson)
 
         let handler =
-            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config))
-            :> IHandler
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(successfulServer config)) :> IHandler
 
         let node =
             { Id = "mcp"
@@ -4568,7 +5633,13 @@ module Sprint008McpHandlerTests =
                       "mcp_config_file", AttrValue.String configPath
                       "mcp_server", AttrValue.String "mock"
                       "mcp_tool", AttrValue.String "echo_upper" ] }
-        let graph = { Name = "test"; Nodes = Map.empty; Edges = []; GraphAttributes = Map.empty }
+
+        let graph =
+            { Name = "test"
+              Nodes = Map.empty
+              Edges = []
+              GraphAttributes = Map.empty }
+
         let context = Context()
         context.Set("tool.output", "hello")
         let logsRoot = createTempDir ()
@@ -4580,7 +5651,9 @@ module Sprint008McpHandlerTests =
         Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "mcp_response.json")))
         Assert.True(File.Exists(Path.Combine(logsRoot, "mcp", "status.json")))
 
-        let requestJson = File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+        let requestJson =
+            File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+
         Assert.Contains("initialize", requestJson)
         Assert.Contains("tools/list", requestJson)
         Assert.Contains("tools/call", requestJson)
@@ -4589,6 +5662,7 @@ module Sprint008McpHandlerTests =
     [<Fact>]
     let ``mcp handler prefers tool_output over last_response and wraps raw text arguments`` () =
         let mutable capturedArguments: System.Text.Json.JsonElement option = None
+
         let handler =
             McpHandlers.McpToolHandler(
                 serverFactory =
@@ -4600,12 +5674,14 @@ module Sprint008McpHandlerTests =
                                 fun _ arguments ->
                                     async {
                                         capturedArguments <- Some(arguments.Clone())
+
                                         return
                                             Ok
                                                 { Content = parseJson """[{"type":"text","text":"ok"}]"""
                                                   IsError = false }
                                     }
-                              Cleanup = fun () -> async { return () } })
+                              Cleanup = fun () -> async { return () } }
+            )
             :> IHandler
 
         let node =
@@ -4615,11 +5691,13 @@ module Sprint008McpHandlerTests =
                     [ "type", AttrValue.String "mcp.tool"
                       "mcp_server", AttrValue.String "mock"
                       "mcp_tool", AttrValue.String "echo_upper" ] }
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+
         let context = Context()
         context.Set("tool.output", "tool output wins")
         context.Set("last_response", "last response loses")
@@ -4627,6 +5705,7 @@ module Sprint008McpHandlerTests =
         let logsRoot = createTempDir ()
 
         let outcome = handler.Execute(node, context, graph, logsRoot)
+
         let captured =
             capturedArguments
             |> Option.defaultWith (fun () ->
@@ -4635,15 +5714,18 @@ module Sprint008McpHandlerTests =
 
         Assert.Equal(StageStatus.Success, outcome.Status)
         Assert.Equal("tool output wins", captured.GetProperty("text").GetString())
-        let requestJson = File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+
+        let requestJson =
+            File.ReadAllText(Path.Combine(logsRoot, "mcp", "mcp_request.json"))
+
         Assert.Contains("tool output wins", requestJson)
         Assert.DoesNotContain("last response loses", requestJson)
 
     [<Fact>]
     let ``Mcp handler returns failure when server call fails`` () =
         let handler =
-            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(failingServer config))
-            :> IHandler
+            McpHandlers.McpToolHandler(serverFactory = fun config _ -> Ok(failingServer config)) :> IHandler
+
         let node =
             { Id = "mcp"
               Attributes =
@@ -4651,11 +5733,13 @@ module Sprint008McpHandlerTests =
                     [ "type", AttrValue.String "mcp.tool"
                       "mcp_server", AttrValue.String "mock"
                       "mcp_tool", AttrValue.String "echo_upper" ] }
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+
         let logsRoot = createTempDir ()
         let outcome = handler.Execute(node, Context(), graph, logsRoot)
 
@@ -4668,6 +5752,7 @@ module Sprint008McpHandlerTests =
         let handler =
             McpHandlers.McpToolHandler(serverFactory = fun _ _ -> Error(McpClient.McpError.TransportClosed "boom"))
             :> IHandler
+
         let node =
             { Id = "mcp"
               Attributes =
@@ -4675,11 +5760,13 @@ module Sprint008McpHandlerTests =
                     [ "type", AttrValue.String "mcp.tool"
                       "mcp_server", AttrValue.String "mock"
                       "mcp_tool", AttrValue.String "echo_upper" ] }
+
         let graph =
             { Name = "test"
               Nodes = Map.empty
               Edges = []
               GraphAttributes = Map.ofList [ "mcp_servers", AttrValue.String mockConfigJson ] }
+
         let outcome = handler.Execute(node, Context(), graph, createTempDir ())
 
         Assert.Equal(StageStatus.Fail, outcome.Status)
@@ -4728,7 +5815,9 @@ module Sprint013AttributeValidationTests =
         for attr in expectedNode do
             Assert.True(KnownAttributes.node.Contains(attr), $"Missing known node attribute '{attr}'")
 
-        let expectedEdge = [ "label"; "condition"; "weight"; "fidelity"; "thread_id"; "loop_restart" ]
+        let expectedEdge =
+            [ "label"; "condition"; "weight"; "fidelity"; "thread_id"; "loop_restart" ]
+
         for attr in expectedEdge do
             Assert.True(KnownAttributes.edge.Contains(attr), $"Missing known edge attribute '{attr}'")
 
@@ -4749,7 +5838,8 @@ module Sprint013AttributeValidationTests =
 
     [<Fact>]
     let ``attribute_known suggests prompt for llm_prompt typo`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4757,17 +5847,21 @@ module Sprint013AttributeValidationTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
+
         let diags =
             Validation.validate graph None
             |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "A")
+
         let diag = diags |> List.tryFind (fun d -> d.Message.Contains("llm_prompt"))
         Assert.True(diag.IsSome)
         Assert.Contains("prompt", diag.Value.Message)
 
     [<Fact>]
     let ``attribute_known suggests max_turns for max_agent_turns typo`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4775,17 +5869,21 @@ module Sprint013AttributeValidationTests =
             start -> agent -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
+
         let diags =
             Validation.validate graph None
             |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "agent")
+
         let diag = diags |> List.tryFind (fun d -> d.Message.Contains("max_agent_turns"))
         Assert.True(diag.IsSome)
         Assert.Contains("max_turns", diag.Value.Message)
 
     [<Fact>]
     let ``attribute_known suggests type for node_type typo`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4793,17 +5891,21 @@ module Sprint013AttributeValidationTests =
             start -> A -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
+
         let diags =
             Validation.validate graph None
             |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "A")
+
         let diag = diags |> List.tryFind (fun d -> d.Message.Contains("node_type"))
         Assert.True(diag.IsSome)
         Assert.Contains("type", diag.Value.Message)
 
     [<Fact>]
     let ``attribute_known does not warn for graphviz passthrough attributes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [rankdir=LR, bgcolor=lightgray, fontname="Menlo"]
             start [shape=Mdiamond, color=green, fillcolor=white, fontname="Menlo", fontsize=12, style=filled, penwidth=2, margin=0.2, fontcolor=black, width=1.2, height=0.8, fixedsize=true]
@@ -4811,13 +5913,15 @@ module Sprint013AttributeValidationTests =
             start -> exit [color=gray, style=dashed, penwidth=2, label="Done"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))
 
     [<Fact>]
     let ``attribute_known does not warn for recognized attributes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             graph [
                 goal="Ship feature",
@@ -4882,6 +5986,7 @@ module Sprint013AttributeValidationTests =
             agent -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))
@@ -4890,7 +5995,8 @@ module CumulativeTurnsValidationTests =
 
     [<Fact>]
     let ``cumulative_turns warns when tab nodes share default thread and exceed threshold`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4900,16 +6006,23 @@ module CumulativeTurnsValidationTests =
             start -> Plan -> Implement -> Review -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "cumulative_turns" && d.Severity = Severity.Warning && d.NodeId = "Review"),
-            "expected cumulative_turns warning on Review node")
+            diags
+            |> List.exists (fun d ->
+                d.Rule = "cumulative_turns"
+                && d.Severity = Severity.Warning
+                && d.NodeId = "Review"),
+            "expected cumulative_turns warning on Review node"
+        )
 
     [<Fact>]
     let ``cumulative_turns does not warn when late nodes have their own thread_id`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4919,15 +6032,20 @@ module CumulativeTurnsValidationTests =
             start -> Plan -> Implement -> Review -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
-            diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "Review"),
-            "should not warn on Review node with its own thread_id")
+            diags
+            |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "Review"),
+            "should not warn on Review node with its own thread_id"
+        )
 
     [<Fact>]
     let ``cumulative_turns does not warn when total is below threshold`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4936,16 +6054,20 @@ module CumulativeTurnsValidationTests =
             start -> A -> B -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "cumulative_turns"),
-            "should not warn when cumulative turns are below threshold")
+            "should not warn when cumulative turns are below threshold"
+        )
 
     [<Fact>]
     let ``cumulative_turns uses default max_turns of 20 when not specified`` () =
         // 4 nodes * 20 default = 80 cumulative, 4th node starts at 60
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4956,15 +6078,19 @@ module CumulativeTurnsValidationTests =
             start -> A -> B -> C -> D -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
             diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "D"),
-            "expected cumulative_turns warning on D with default max_turns")
+            "expected cumulative_turns warning on D with default max_turns"
+        )
 
     [<Fact>]
     let ``cumulative_turns resets accumulation when thread_id changes mid-chain`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4974,19 +6100,22 @@ module CumulativeTurnsValidationTests =
             start -> A -> B -> C -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
         // B has its own thread_id so it resets; C starts fresh from B's thread
         // B(40) + C(40) = 80 cumulative on B's thread, C starts at 40 < 60
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "C"),
-            "C should not warn because B reset the accumulation")
+            "C should not warn because B reset the accumulation"
+        )
 
 module LowMaxTurnsValidationTests =
 
     [<Fact>]
     let ``low_max_turns warns when coding_agent node has very low max_turns`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -4994,16 +6123,20 @@ module LowMaxTurnsValidationTests =
             start -> Build -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "low_max_turns" && d.Severity = Severity.Warning && d.NodeId = "Build"),
-            "expected low_max_turns warning on Build node")
+            diags
+            |> List.exists (fun d -> d.Rule = "low_max_turns" && d.Severity = Severity.Warning && d.NodeId = "Build"),
+            "expected low_max_turns warning on Build node"
+        )
 
     [<Fact>]
     let ``low_max_turns does not warn when max_turns is adequate`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5011,15 +6144,19 @@ module LowMaxTurnsValidationTests =
             start -> Build -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "low_max_turns" && d.NodeId = "Build"),
-            "should not warn when max_turns is adequate")
+            "should not warn when max_turns is adequate"
+        )
 
     [<Fact>]
     let ``low_max_turns does not warn on non-agent node shapes`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5027,17 +6164,21 @@ module LowMaxTurnsValidationTests =
             start -> LLM -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "low_max_turns"),
-            "should not warn on codergen (box) nodes")
+            "should not warn on codergen (box) nodes"
+        )
 
 module ParallelogramOutcomeRoutingTests =
 
     [<Fact>]
     let ``parallelogram_outcome_routing warns when only success edge exists`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5048,16 +6189,23 @@ module ParallelogramOutcomeRoutingTests =
             Next -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "parallelogram_outcome_routing" && d.Severity = Severity.Warning && d.NodeId = "Check"),
-            "expected warning when parallelogram has only success edge")
+            diags
+            |> List.exists (fun d ->
+                d.Rule = "parallelogram_outcome_routing"
+                && d.Severity = Severity.Warning
+                && d.NodeId = "Check"),
+            "expected warning when parallelogram has only success edge"
+        )
 
     [<Fact>]
     let ``parallelogram_outcome_routing warns when only fail edge exists`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5066,16 +6214,20 @@ module ParallelogramOutcomeRoutingTests =
             Check -> exit [condition="outcome=fail"]
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "parallelogram_outcome_routing" && d.NodeId = "Check"),
-            "expected warning when parallelogram has only fail edge")
+            diags
+            |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing" && d.NodeId = "Check"),
+            "expected warning when parallelogram has only fail edge"
+        )
 
     [<Fact>]
     let ``parallelogram_outcome_routing does not warn when both outcomes are wired`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5087,16 +6239,20 @@ module ParallelogramOutcomeRoutingTests =
             Next -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
-            "should not warn when both outcomes are routed")
+            "should not warn when both outcomes are routed"
+        )
 
     [<Fact>]
     let ``parallelogram_outcome_routing does not warn when no condition edges exist`` () =
         // A single unconditional edge means the tool result is ignored (fire-and-forget)
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5104,15 +6260,19 @@ module ParallelogramOutcomeRoutingTests =
             start -> Run -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
-            "should not warn on fire-and-forget tool nodes")
+            "should not warn on fire-and-forget tool nodes"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation warns when parallelogram invokes claude`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5120,16 +6280,23 @@ module ParallelogramOutcomeRoutingTests =
             start -> Impl -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "tool_node_llm_invocation" && d.Severity = Severity.Warning && d.NodeId = "Impl"),
-            "expected warning when parallelogram invokes claude CLI")
+            diags
+            |> List.exists (fun d ->
+                d.Rule = "tool_node_llm_invocation"
+                && d.Severity = Severity.Warning
+                && d.NodeId = "Impl"),
+            "expected warning when parallelogram invokes claude CLI"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation warns when parallelogram invokes codex`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5137,16 +6304,20 @@ module ParallelogramOutcomeRoutingTests =
             start -> Build -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "tool_node_llm_invocation" && d.NodeId = "Build"),
-            "expected warning when parallelogram invokes codex CLI")
+            diags
+            |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Build"),
+            "expected warning when parallelogram invokes codex CLI"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation warns when parallelogram invokes gemini`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5154,16 +6325,20 @@ module ParallelogramOutcomeRoutingTests =
             start -> Gen -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.True(
-            diags |> List.exists (fun d ->
-                d.Rule = "tool_node_llm_invocation" && d.NodeId = "Gen"),
-            "expected warning when parallelogram invokes gemini CLI")
+            diags
+            |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Gen"),
+            "expected warning when parallelogram invokes gemini CLI"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation does not warn for non-LLM tool commands`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5171,15 +6346,19 @@ module ParallelogramOutcomeRoutingTests =
             start -> Test -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation"),
-            "should not warn for regular shell commands")
+            "should not warn for regular shell commands"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation does not warn for codergen nodes using LLM models`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5187,15 +6366,19 @@ module ParallelogramOutcomeRoutingTests =
             start -> Plan -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
+
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "tool_node_llm_invocation"),
-            "should not warn for box/codergen nodes — those are the correct shape for LLM work")
+            "should not warn for box/codergen nodes — those are the correct shape for LLM work"
+        )
 
     [<Fact>]
     let ``tool_node_llm_invocation fix suggests acp_preset`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5203,16 +6386,22 @@ module ParallelogramOutcomeRoutingTests =
             start -> Bad -> exit
         }
         """
+
         let graph = DotParser.parseOrRaise dot
         let diags = Validation.validate graph None
-        let diag = diags |> List.find (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Bad")
+
+        let diag =
+            diags
+            |> List.find (fun d -> d.Rule = "tool_node_llm_invocation" && d.NodeId = "Bad")
+
         Assert.Contains("acp_preset=\"gemini\"", diag.Fix)
 
 module CodergenAutoPromotionTests =
 
     [<Fact>]
     let ``box node with max_turns is promoted to coding_agent`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5220,13 +6409,15 @@ module CodergenAutoPromotionTests =
             start -> Plan -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let plan = graph.Nodes |> Map.find "Plan"
         Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType plan)
 
     [<Fact>]
     let ``box node with cwd is promoted to coding_agent`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5234,13 +6425,15 @@ module CodergenAutoPromotionTests =
             start -> Impl -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let impl = graph.Nodes |> Map.find "Impl"
         Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType impl)
 
     [<Fact>]
     let ``box node with thread_id is promoted to coding_agent`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5248,13 +6441,15 @@ module CodergenAutoPromotionTests =
             start -> Review -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let review = graph.Nodes |> Map.find "Review"
         Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType review)
 
     [<Fact>]
     let ``plain box node stays codergen`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5262,13 +6457,15 @@ module CodergenAutoPromotionTests =
             start -> Summarize -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let summarize = graph.Nodes |> Map.find "Summarize"
         Assert.Equal("codergen", ShapeMapping.resolveHandlerType summarize)
 
     [<Fact>]
     let ``tab node is not affected by auto-promotion`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5276,13 +6473,15 @@ module CodergenAutoPromotionTests =
             start -> Agent -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let agent = graph.Nodes |> Map.find "Agent"
         Assert.Equal("coding_agent", ShapeMapping.resolveHandlerType agent)
 
     [<Fact>]
     let ``box node with explicit type attribute is not overridden`` () =
-        let dot = """
+        let dot =
+            """
         digraph Test {
             start [shape=Mdiamond]
             exit [shape=Msquare]
@@ -5290,6 +6489,7 @@ module CodergenAutoPromotionTests =
             start -> Custom -> exit
         }
         """
+
         let (graph, _) = Transforms.preparePipeline dot None
         let custom = graph.Nodes |> Map.find "Custom"
         // Node already has explicit type="codergen", auto-promotion skips it
@@ -5312,7 +6512,8 @@ module ToolGateEventTests =
                     Outcome.Fail("Tool failed with exit code 1") }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -5324,12 +6525,14 @@ module ToolGateEventTests =
                 Next -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("tool", failHandler)
         let emitter = EventEmitter()
         let collector = EventCollector()
         emitter.AddObserver(collector :> IEventObserver)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -5345,14 +6548,16 @@ module ToolGateEventTests =
             |> List.exists (function
                 | PipelineEvent.StageFailed("Check", _, _, _) -> true
                 | _ -> false),
-            "gate check should not emit StageFailed when conditional edges handle the outcome")
+            "gate check should not emit StageFailed when conditional edges handle the outcome"
+        )
         // Should emit StageCompleted instead
         Assert.True(
             collector.Events
             |> List.exists (function
                 | PipelineEvent.StageCompleted("Check", _, _) -> true
                 | _ -> false),
-            "gate check should emit StageCompleted")
+            "gate check should emit StageCompleted"
+        )
 
     [<Fact>]
     let ``tool node without conditional edges still emits StageFailed on failure`` () =
@@ -5363,7 +6568,8 @@ module ToolGateEventTests =
                     Outcome.Fail("Tool failed with exit code 1") }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -5371,12 +6577,14 @@ module ToolGateEventTests =
                 start -> Run -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("tool", failHandler)
         let emitter = EventEmitter()
         let collector = EventCollector()
         emitter.AddObserver(collector :> IEventObserver)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -5390,7 +6598,8 @@ module ToolGateEventTests =
             |> List.exists (function
                 | PipelineEvent.StageFailed("Run", _, _, _) -> true
                 | _ -> false),
-            "non-gate tool node should emit StageFailed on failure")
+            "non-gate tool node should emit StageFailed on failure"
+        )
 
 module CodingAgentRetryTests =
 
@@ -5402,17 +6611,20 @@ module CodingAgentRetryTests =
     [<Fact>]
     let ``coding agent retries on retryable ProviderError`` () =
         let mutable callCount = 0
+
         let retryableHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
+
                     if callCount = 1 then
                         raise (UnifiedLlm.ServerError("server error", 503))
                     else
                         Outcome.Success(notes = "recovered") }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -5420,12 +6632,14 @@ module CodingAgentRetryTests =
                 start -> Agent -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("retryable_agent", retryableHandler)
         let emitter = EventEmitter()
         let collector = EventCollector()
         emitter.AddObserver(collector :> IEventObserver)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -5435,27 +6649,32 @@ module CodingAgentRetryTests =
 
         Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
         Assert.Equal(2, callCount)
+
         Assert.True(
             collector.Events
             |> List.exists (function
                 | PipelineEvent.StageRetrying("Agent", _, 1, _) -> true
                 | _ -> false),
-            "should emit StageRetrying for the retried attempt")
+            "should emit StageRetrying for the retried attempt"
+        )
 
     [<Fact>]
     let ``coding agent retries on HttpRequestException`` () =
         let mutable callCount = 0
+
         let networkFailHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
                     callCount <- callCount + 1
+
                     if callCount = 1 then
                         raise (System.Net.Http.HttpRequestException("An error occurred while sending the request."))
                     else
                         Outcome.Success(notes = "recovered") }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -5463,12 +6682,14 @@ module CodingAgentRetryTests =
                 start -> Agent -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("http_fail_agent", networkFailHandler)
         let emitter = EventEmitter()
         let collector = EventCollector()
         emitter.AddObserver(collector :> IEventObserver)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry
@@ -5482,6 +6703,7 @@ module CodingAgentRetryTests =
     [<Fact>]
     let ``coding agent does not retry on non-retryable ProviderError`` () =
         let mutable callCount = 0
+
         let nonRetryableHandler =
             { new IHandler with
                 member _.Execute(_, _, _, _) =
@@ -5489,7 +6711,8 @@ module CodingAgentRetryTests =
                     raise (UnifiedLlm.AuthenticationError("invalid api key")) }
 
         let graph =
-            DotParser.parseOrRaise """
+            DotParser.parseOrRaise
+                """
             digraph Test {
                 start [shape=Mdiamond]
                 exit [shape=Msquare]
@@ -5497,9 +6720,11 @@ module CodingAgentRetryTests =
                 start -> Agent -> exit
             }
             """
-        let logsRoot = createTempDir()
+
+        let logsRoot = createTempDir ()
         let registry = HandlerRegistry.CreateDefault()
         registry.Register("auth_fail_agent", nonRetryableHandler)
+
         let config =
             { RunConfig.Default(logsRoot) with
                 Registry = registry }

@@ -8,6 +8,7 @@ module Config =
 
     let private tryGetProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
+
         if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
             Some value
         else
@@ -52,7 +53,7 @@ module Config =
             |> Seq.fold
                 (fun state next ->
                     match state, next with
-                    | Ok acc, Ok (key, item) -> Ok(Map.add key item acc)
+                    | Ok acc, Ok(key, item) -> Ok(Map.add key item acc)
                     | Error error, _
                     | _, Error error -> Error error)
                 (Ok Map.empty)
@@ -63,7 +64,12 @@ module Config =
         | Error error, _
         | _, Error error -> Error error
         | Ok name, Ok transportRaw ->
-            match McpTransportKind.Parse transportRaw, parseStringList "args" element, parseStringMap "env" element, parseStringMap "headers" element with
+            match
+                McpTransportKind.Parse transportRaw,
+                parseStringList "args" element,
+                parseStringMap "env" element,
+                parseStringMap "headers" element
+            with
             | None, _, _, _ -> Error(McpError.InvalidConfiguration $"Unknown transport '{transportRaw}'")
             | _, Error error, _, _
             | _, _, Error error, _
@@ -132,5 +138,5 @@ module Config =
     let parseConfigFile path =
         try
             parseConfigText (File.ReadAllText(path))
-        with
-        | :? IOException as ex -> Error(McpError.InvalidConfiguration ex.Message)
+        with :? IOException as ex ->
+            Error(McpError.InvalidConfiguration ex.Message)

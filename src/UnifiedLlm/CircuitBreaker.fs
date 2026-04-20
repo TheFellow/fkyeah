@@ -7,6 +7,7 @@ type CircuitBreakerConfig =
     { FailureThreshold: int
       CooldownPeriod: TimeSpan
       ProbeSuccessThreshold: int }
+
     static member Default =
         { FailureThreshold = 5
           CooldownPeriod = TimeSpan.FromSeconds(30.0)
@@ -24,15 +25,16 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
             let rec closed consecutiveFailures =
                 async {
                     let! message = inbox.Receive()
+
                     match message with
                     | Check reply ->
-                        reply.Reply(Result.Ok ())
+                        reply.Reply(Result.Ok())
                         return! closed consecutiveFailures
-                    | RecordSuccess ->
-                        return! closed 0
+                    | RecordSuccess -> return! closed 0
                     | RecordFailure kind ->
                         if CircuitFailureClassification.isTransient kind then
                             let nextFailures = consecutiveFailures + 1
+
                             if nextFailures >= config.FailureThreshold then
                                 let openedAt = DateTimeOffset.UtcNow
                                 let retryAt = openedAt + config.CooldownPeriod
@@ -49,17 +51,17 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
             and opened openedAt retryAt =
                 async {
                     let! message = inbox.Receive()
+
                     match message with
                     | Check reply ->
                         if DateTimeOffset.UtcNow >= retryAt then
-                            reply.Reply(Result.Ok ())
+                            reply.Reply(Result.Ok())
                             return! halfOpen DateTimeOffset.UtcNow 0
                         else
-                            reply.Reply(Result.Error (CircuitOpenError(provider, retryAt) :> ProviderError))
+                            reply.Reply(Result.Error(CircuitOpenError(provider, retryAt) :> ProviderError))
                             return! opened openedAt retryAt
                     | RecordSuccess
-                    | RecordFailure _ ->
-                        return! opened openedAt retryAt
+                    | RecordFailure _ -> return! opened openedAt retryAt
                     | GetState reply ->
                         reply.Reply(CircuitState.Open(openedAt, retryAt))
                         return! opened openedAt retryAt
@@ -68,12 +70,14 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
             and halfOpen probeStartedAt successCount =
                 async {
                     let! message = inbox.Receive()
+
                     match message with
                     | Check reply ->
-                        reply.Reply(Result.Ok ())
+                        reply.Reply(Result.Ok())
                         return! halfOpen probeStartedAt successCount
                     | RecordSuccess ->
                         let nextSuccessCount = successCount + 1
+
                         if nextSuccessCount >= config.ProbeSuccessThreshold then
                             return! closed 0
                         else
@@ -105,8 +109,7 @@ module CircuitBreakerRegistry =
     let getOrCreate (provider: string) (config: CircuitBreakerConfig) =
         breakers.GetOrAdd(provider, fun _ -> CircuitBreaker(provider, config))
 
-    let reset () =
-        breakers.Clear()
+    let reset () = breakers.Clear()
 
     let snapshot () =
         async {

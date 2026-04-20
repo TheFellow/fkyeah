@@ -66,8 +66,7 @@ type AcpEndpoint =
 
 [<CLIMutable>]
 type ServerInfo =
-    { Name: string
-      Version: string option }
+    { Name: string; Version: string option }
 
 type ContentBlock =
     | Text of string
@@ -87,8 +86,7 @@ type PromptResult =
       Metadata: JsonElement option }
 
 [<CLIMutable>]
-type PromptMetadata =
-    { McpServersJson: string option }
+type PromptMetadata = { McpServersJson: string option }
 
 type NotificationObserver = string -> JsonElement option -> unit
 
@@ -116,6 +114,7 @@ module Json =
 
     let tryGetProperty (name: string) (element: JsonElement) =
         let mutable value = Unchecked.defaultof<JsonElement>
+
         if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
             Some(value.Clone())
         else

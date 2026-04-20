@@ -23,10 +23,12 @@ module McpClientTransportAndServerTests =
                 let rec readNext () =
                     task {
                         let! canRead = reader.WaitToReadAsync(cancellationToken).AsTask()
+
                         if not canRead then
                             return false
                         else
                             let mutable item = Unchecked.defaultof<byte array>
+
                             if reader.TryRead(&item) then
                                 current <- item
                                 return true
@@ -69,34 +71,47 @@ module McpClientTransportAndServerTests =
         use document = JsonDocument.Parse(payload)
         let root = document.RootElement
         let idElement = root.GetProperty("id")
+
         let id =
             match idElement.ValueKind with
             | JsonValueKind.String -> JsonRpc.StringId(idElement.GetString())
             | _ -> JsonRpc.NumberId(idElement.GetInt32())
+
         let methodName = root.GetProperty("method").GetString()
+
         let parameters =
             let mutable value = Unchecked.defaultof<JsonElement>
-            if root.TryGetProperty("params", &value) then Some(value.Clone()) else None
+
+            if root.TryGetProperty("params", &value) then
+                Some(value.Clone())
+            else
+                None
+
         id, methodName, parameters
 
     let private collectAsync (source: IAsyncEnumerable<'T>) =
         let enumerator = source.GetAsyncEnumerator(CancellationToken.None)
         let results = ResizeArray<'T>()
         let mutable keepReading = true
+
         while keepReading do
             let hasNext = enumerator.MoveNextAsync().AsTask().Result
+
             if hasNext then
                 results.Add(enumerator.Current)
             else
                 keepReading <- false
+
         enumerator.DisposeAsync().AsTask().Wait()
         results |> Seq.toList
 
     let private firstItem (source: IAsyncEnumerable<byte array>) =
         task {
             let enumerator = source.GetAsyncEnumerator(CancellationToken.None)
+
             try
                 let! hasNext = enumerator.MoveNextAsync().AsTask()
+
                 if hasNext then
                     return Some enumerator.Current
                 else
@@ -106,7 +121,9 @@ module McpClientTransportAndServerTests =
         }
 
     let private killCheck pid =
-        use proc = Process.Start(ProcessStartInfo("/bin/kill", $"-0 {pid}", UseShellExecute = false))
+        use proc =
+            Process.Start(ProcessStartInfo("/bin/kill", $"-0 {pid}", UseShellExecute = false))
+
         proc.WaitForExit()
         proc.ExitCode = 0
 
@@ -131,16 +148,15 @@ module McpClientTransportAndServerTests =
     let ``stdio transport connects and disconnect kills process`` () =
         let workDir = createTempDir ()
         let pidFile = Path.Combine(workDir, "pid.txt")
+
         let transport =
-            Transport.createStdioTransport
-                "/bin/sh"
-                [ "-c"; $"echo $$ > '{pidFile}'; cat" ]
-                Map.empty
+            Transport.createStdioTransport "/bin/sh" [ "-c"; $"echo $$ > '{pidFile}'; cat" ] Map.empty
 
         let connectResult = transport.Connect() |> Async.RunSynchronously
         Assert.True(Result.isOk connectResult)
 
         let deadline = DateTime.UtcNow.AddSeconds(3.0)
+
         while not (File.Exists(pidFile)) && DateTime.UtcNow < deadline do
             Thread.Sleep(25)
 
@@ -154,10 +170,12 @@ module McpClientTransportAndServerTests =
 
     [<Fact>]
     let ``stdio transport connect with nonexistent command returns invalid configuration`` () =
-        let transport = Transport.createStdioTransport "/definitely/missing/mcp-server" [] Map.empty
+        let transport =
+            Transport.createStdioTransport "/definitely/missing/mcp-server" [] Map.empty
 
         match transport.Connect() |> Async.RunSynchronously with
-        | Error(McpError.InvalidConfiguration message) -> Assert.Contains("No such file", message, StringComparison.OrdinalIgnoreCase)
+        | Error(McpError.InvalidConfiguration message) ->
+            Assert.Contains("No such file", message, StringComparison.OrdinalIgnoreCase)
         | other -> Assert.Fail($"Unexpected connect result: {other}")
 
     [<Fact>]
@@ -176,7 +194,9 @@ module McpClientTransportAndServerTests =
 
     [<Fact>]
     let ``stdio transport disconnect after process exit is idempotent`` () =
-        let transport = Transport.createStdioTransport "/bin/sh" [ "-c"; "sleep 0.3" ] Map.empty
+        let transport =
+            Transport.createStdioTransport "/bin/sh" [ "-c"; "sleep 0.3" ] Map.empty
+
         transport.Connect() |> Async.RunSynchronously |> resultOrFail |> ignore
         Thread.Sleep(500)
         transport.Disconnect() |> Async.RunSynchronously
@@ -198,9 +218,11 @@ module McpClientTransportAndServerTests =
             Task.Run(fun () ->
                 task {
                     let mutable handled = 0
+
                     while handled < 2 do
                         let context = listener.GetContext()
                         handled <- handled + 1
+
                         if context.Request.HttpMethod = "GET" then
                             getHeader.TrySetResult(context.Request.Headers["X-Test"]) |> ignore
                             context.Response.StatusCode <- 200
@@ -210,7 +232,9 @@ module McpClientTransportAndServerTests =
                             writer.Flush()
                             context.Response.Close()
                         else
-                            use reader = new StreamReader(context.Request.InputStream, context.Request.ContentEncoding)
+                            use reader =
+                                new StreamReader(context.Request.InputStream, context.Request.ContentEncoding)
+
                             let body = reader.ReadToEnd()
                             postHeader.TrySetResult(context.Request.Headers["X-Test"]) |> ignore
                             postPath.TrySetResult(context.Request.Url.AbsolutePath) |> ignore
@@ -220,6 +244,7 @@ module McpClientTransportAndServerTests =
                             let bytes = Encoding.UTF8.GetBytes("""{"accepted":true}""")
                             context.Response.OutputStream.Write(bytes, 0, bytes.Length)
                             context.Response.Close()
+
                     listener.Stop()
                 }
                 :> Task)
@@ -232,7 +257,11 @@ module McpClientTransportAndServerTests =
 
         transport.Connect() |> Async.RunSynchronously |> resultOrFail |> ignore
         let receiveTask = firstItem (transport.Receive CancellationToken.None)
-        transport.Send(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0"}""")) |> Async.RunSynchronously |> resultOrFail |> ignore
+
+        transport.Send(Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0"}"""))
+        |> Async.RunSynchronously
+        |> resultOrFail
+        |> ignore
 
         let received = receiveTask.Result |> Option.map Encoding.UTF8.GetString
         Assert.Equal(Some """{"ok":true}""", received)
@@ -269,7 +298,9 @@ module McpClientTransportAndServerTests =
 
     [<Fact>]
     let ``sse parser captures retry field`` () =
-        use stream = new MemoryStream(Encoding.UTF8.GetBytes("retry: 1500\ndata: hello\n\n"))
+        use stream =
+            new MemoryStream(Encoding.UTF8.GetBytes("retry: 1500\ndata: hello\n\n"))
+
         let events = Transport.parseSseStream stream CancellationToken.None |> collectAsync
 
         Assert.Equal(Some 1500, events.Head.RetryMs)
@@ -286,8 +317,8 @@ module McpClientTransportAndServerTests =
     let ``sse parser captures event_type and last_event_id and resets them per event`` () =
         use stream =
             new MemoryStream(
-                Encoding.UTF8.GetBytes(
-                    "event: tool\nid: evt-1\ndata: first\n\nid: evt-2\ndata: second\n\n"))
+                Encoding.UTF8.GetBytes("event: tool\nid: evt-1\ndata: first\n\nid: evt-2\ndata: second\n\n")
+            )
 
         let events = Transport.parseSseStream stream CancellationToken.None |> collectAsync
 
@@ -300,7 +331,13 @@ module McpClientTransportAndServerTests =
         Assert.Equal("second", Encoding.UTF8.GetString(events.[1].Data))
 
     let private createFakeTransport
-        (handler: int -> ChannelWriter<byte array> -> JsonRpc.JsonRpcId -> string -> JsonElement option -> Async<Result<unit, McpError>>)
+        (handler:
+            int
+                -> ChannelWriter<byte array>
+                -> JsonRpc.JsonRpcId
+                -> string
+                -> JsonElement option
+                -> Async<Result<unit, McpError>>)
         =
         let methods = ResizeArray<string>()
         let mutable connectCount = 0
@@ -329,9 +366,7 @@ module McpClientTransportAndServerTests =
                         methods.Add(methodName)
                         return! handler connectCount writer id methodName parameters
                     }
-              Receive =
-                fun _ ->
-                    ChannelAsyncEnumerable(reader) :> IAsyncEnumerable<byte array>
+              Receive = fun _ -> ChannelAsyncEnumerable(reader) :> IAsyncEnumerable<byte array>
               Disconnect =
                 fun () ->
                     async {
@@ -344,6 +379,7 @@ module McpClientTransportAndServerTests =
     [<Fact>]
     let ``server factory validates stdio and sse configs`` () =
         let stdio = stdioConfig "/bin/cat" []
+
         let sse =
             { Name = "remote"
               Transport = McpTransportKind.HttpSse
@@ -356,19 +392,24 @@ module McpClientTransportAndServerTests =
 
         Assert.True(Result.isOk (Server.createServer stdio McpConnectionPolicy.NoRetry))
         Assert.True(Result.isOk (Server.createServer sse McpConnectionPolicy.NoRetry))
+
         Assert.True(
             match Server.createServer { stdio with Command = None } McpConnectionPolicy.NoRetry with
             | Error(McpError.InvalidConfiguration _) -> true
-            | _ -> false)
+            | _ -> false
+        )
+
         Assert.True(
             match Server.createServer { sse with Url = None } McpConnectionPolicy.NoRetry with
             | Error(McpError.InvalidConfiguration _) -> true
-            | _ -> false)
+            | _ -> false
+        )
 
     [<Fact>]
     let ``config parser handles valid invalid and missing field cases`` () =
         let valid =
             """{"servers":[{"name":"mock","transport":"stdio","command":"/bin/cat","args":[]},{"name":"remote","transport":"sse","url":"https://example.com/events"}]}"""
+
         let missing = """{"servers":[{"name":"mock","transport":"stdio"}]}"""
         let invalid = """{"servers": ["""
 
@@ -391,16 +432,31 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/list" ->
-                        do! writer.WriteAsync(responseBytes id """{"tools":[{"name":"echo","description":"Echoes","input_schema":{"type":"object"}}]}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer
+                                .WriteAsync(
+                                    responseBytes
+                                        id
+                                        """{"tools":[{"name":"echo","description":"Echoes","input_schema":{"type":"object"}}]}"""
+                                )
+                                .AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
 
         let config = stdioConfig "/bin/cat" []
-        let server = Server.createServerWithTransport config transport McpConnectionPolicy.NoRetry |> resultOrFail
+
+        let server =
+            Server.createServerWithTransport config transport McpConnectionPolicy.NoRetry
+            |> resultOrFail
 
         match server.ListTools() |> Async.RunSynchronously with
         | Ok tools ->
@@ -418,15 +474,23 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/list" ->
-                        do! writer.WriteAsync(responseBytes id """{"tools":[]}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"tools":[]}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
 
-        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+        let server =
+            Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry
+            |> resultOrFail
 
         match server.ListTools() |> Async.RunSynchronously with
         | Ok tools -> Assert.Empty(tools)
@@ -441,15 +505,29 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/list" ->
-                        do! writer.WriteAsync(responseBytes id """{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer
+                                .WriteAsync(
+                                    responseBytes
+                                        id
+                                        """{"tools":[{"name":"echo","description":"Echo","inputSchema":{"type":"object"}}]}"""
+                                )
+                                .AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
 
-        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+        let server =
+            Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry
+            |> resultOrFail
 
         let first = server.ListTools() |> Async.RunSynchronously |> resultOrFail
         let second = server.ListTools() |> Async.RunSynchronously |> resultOrFail
@@ -467,17 +545,28 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/call" ->
-                        do! writer.WriteAsync(errorBytes id -32601 "Tool not found").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(errorBytes id -32601 "Tool not found").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
 
-        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+        let server =
+            Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry
+            |> resultOrFail
 
-        match server.CallTool "missing" (parseJson """{"text":"hello"}""") |> Async.RunSynchronously with
+        match
+            server.CallTool "missing" (parseJson """{"text":"hello"}""")
+            |> Async.RunSynchronously
+        with
         | Error(McpError.RpcError(code, message)) ->
             Assert.Equal(-32601, code)
             Assert.Equal("Tool not found", message)
@@ -492,20 +581,41 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/call" ->
-                        do! writer.WriteAsync(responseBytes id """{"content":[{"type":"text","text":"bad"}],"is_error":true}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer
+                                .WriteAsync(
+                                    responseBytes id """{"content":[{"type":"text","text":"bad"}],"is_error":true}"""
+                                )
+                                .AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
 
-        let server = Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry |> resultOrFail
+        let server =
+            Server.createServerWithTransport (stdioConfig "/bin/cat" []) transport McpConnectionPolicy.NoRetry
+            |> resultOrFail
 
-        match server.CallTool "echo" (parseJson """{"text":"hello"}""") |> Async.RunSynchronously with
+        match
+            server.CallTool "echo" (parseJson """{"text":"hello"}""")
+            |> Async.RunSynchronously
+        with
         | Ok result ->
             Assert.True(result.IsError)
-            Assert.Equal("bad", result.Content.EnumerateArray() |> Seq.head |> fun item -> item.GetProperty("text").GetString())
+
+            Assert.Equal(
+                "bad",
+                result.Content.EnumerateArray()
+                |> Seq.head
+                |> fun item -> item.GetProperty("text").GetString()
+            )
         | Error error -> Assert.Fail(McpError.describe error)
 
         server.Cleanup() |> Async.RunSynchronously
@@ -519,16 +629,35 @@ module McpClientTransportAndServerTests =
                 async {
                     match methodName with
                     | "initialize" ->
-                        do! writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer.WriteAsync(responseBytes id """{"protocolVersion":"2025-03-26"}""").AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/list" ->
-                        do! writer.WriteAsync(responseBytes id """{"tools":[{"name":"echo_upper","description":"Echo","inputSchema":{"type":"object"}}]}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer
+                                .WriteAsync(
+                                    responseBytes
+                                        id
+                                        """{"tools":[{"name":"echo_upper","description":"Echo","inputSchema":{"type":"object"}}]}"""
+                                )
+                                .AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | "tools/call" when firstCall ->
                         firstCall <- false
                         return Error(McpError.TransportClosed "simulated drop")
                     | "tools/call" ->
-                        do! writer.WriteAsync(responseBytes id """{"content":[{"type":"text","text":"OK"}],"isError":false}""").AsTask() |> Async.AwaitTask
+                        do!
+                            writer
+                                .WriteAsync(
+                                    responseBytes id """{"content":[{"type":"text","text":"OK"}],"isError":false}"""
+                                )
+                                .AsTask()
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Ok()
                 })
@@ -545,7 +674,10 @@ module McpClientTransportAndServerTests =
 
         server.ListTools() |> Async.RunSynchronously |> resultOrFail |> ignore
 
-        match server.CallTool "echo_upper" (parseJson """{"text":"hello"}""") |> Async.RunSynchronously with
+        match
+            server.CallTool "echo_upper" (parseJson """{"text":"hello"}""")
+            |> Async.RunSynchronously
+        with
         | Ok result ->
             Assert.False(result.IsError)
             Assert.Equal(2, methods |> Seq.filter ((=) "tools/list") |> Seq.length)
@@ -567,13 +699,17 @@ module McpClientTransportAndServerTests =
               InputSchema = parseJson """{"type":"object"}""" }
 
         let serverA =
-            { Config = { stdioConfig "/bin/cat" [] with Name = "alpha" }
+            { Config =
+                { stdioConfig "/bin/cat" [] with
+                    Name = "alpha" }
               ListTools = fun () -> async { return Ok [ tool ] }
               CallTool = fun _ _ -> async { return Error McpError.NotConnected }
               Cleanup = fun () -> async { return () } }
 
         let serverB =
-            { Config = { stdioConfig "/bin/cat" [] with Name = "beta" }
+            { Config =
+                { stdioConfig "/bin/cat" [] with
+                    Name = "beta" }
               ListTools = fun () -> async { return Ok [ tool ] }
               CallTool = fun _ _ -> async { return Error McpError.NotConnected }
               Cleanup = fun () -> async { return () } }

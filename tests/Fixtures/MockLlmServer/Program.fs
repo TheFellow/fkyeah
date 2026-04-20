@@ -15,9 +15,21 @@ let parseArgs (args: string array) =
             config
         else
             match args[index] with
-            | "--port" -> loop (index + 2) { config with Port = int args[index + 1] }
-            | "--record-dir" -> loop (index + 2) { config with RecordDir = args[index + 1] }
-            | "--scenario" -> loop (index + 2) { config with Scenario = args[index + 1] }
+            | "--port" ->
+                loop
+                    (index + 2)
+                    { config with
+                        Port = int args[index + 1] }
+            | "--record-dir" ->
+                loop
+                    (index + 2)
+                    { config with
+                        RecordDir = args[index + 1] }
+            | "--scenario" ->
+                loop
+                    (index + 2)
+                    { config with
+                        Scenario = args[index + 1] }
             | arg -> failwith $"Unknown argument: {arg}"
 
     loop
@@ -39,12 +51,19 @@ let nextRequestIndex () =
 
 let tryGetProperty (name: string) (element: JsonElement) =
     let mutable value = Unchecked.defaultof<JsonElement>
-    if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then Some value else None
+
+    if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
+        Some value
+    else
+        None
 
 let tryGetString (name: string) (element: JsonElement) =
     tryGetProperty name element
     |> Option.bind (fun value ->
-        if value.ValueKind = JsonValueKind.String then Some(value.GetString()) else None)
+        if value.ValueKind = JsonValueKind.String then
+            Some(value.GetString())
+        else
+            None)
 
 let readBody (request: HttpListenerRequest) =
     use reader = new StreamReader(request.InputStream, request.ContentEncoding)
@@ -53,6 +72,7 @@ let readBody (request: HttpListenerRequest) =
 let hasStreamFlag (body: string) =
     try
         use doc = JsonDocument.Parse(body)
+
         match tryGetProperty "stream" doc.RootElement with
         | Some value when value.ValueKind = JsonValueKind.True -> true
         | _ -> false
@@ -74,18 +94,20 @@ let writeSse (response: HttpListenerResponse) (events: (string * string) list) =
     response.ContentEncoding <- Encoding.UTF8
     response.SendChunked <- true
     use writer = new StreamWriter(response.OutputStream, Encoding.UTF8)
+
     for (eventName, payload) in events do
         if eventName <> "" then
             writer.Write("event: ")
             writer.WriteLine(eventName)
+
         writer.Write("data: ")
         writer.WriteLine(payload)
         writer.WriteLine()
         writer.Flush()
+
     response.OutputStream.Close()
 
-let largeText seed count =
-    String.replicate count seed
+let largeText seed count = String.replicate count seed
 
 let openAiCompleteResponse (scenario: string) (requestIndex: int) (requestBody: string) =
     let model =
@@ -106,8 +128,16 @@ let openAiCompleteResponse (scenario: string) (requestIndex: int) (requestBody: 
         {| id = $"resp_{requestIndex}"
            model = model
            status = "completed"
-           output = [| box {| ``type`` = "message"; content = [| box {| ``type`` = "output_text"; text = text |} |] |} |]
-           usage = {| input_tokens = 10; output_tokens = 20 |} |}
+           output =
+            [| box
+                   {| ``type`` = "message"
+                      content =
+                       [| box
+                              {| ``type`` = "output_text"
+                                 text = text |} |] |} |]
+           usage =
+            {| input_tokens = 10
+               output_tokens = 20 |} |}
 
 let anthropicCompleteResponse (requestIndex: int) (requestBody: string) =
     let model =
@@ -128,7 +158,9 @@ let anthropicCompleteResponse (requestIndex: int) (requestBody: string) =
            model = model
            content = [| box {| ``type`` = "text"; text = text |} |]
            stop_reason = "end_turn"
-           usage = {| input_tokens = 12; output_tokens = 18 |} |}
+           usage =
+            {| input_tokens = 12
+               output_tokens = 18 |} |}
 
 let anthropicStreamEvents requestIndex =
     match requestIndex with
@@ -138,9 +170,12 @@ let anthropicStreamEvents requestIndex =
           "content_block_delta", """{"index":0,"delta":{"type":"thinking_delta","thinking":"reason-1 "}}"""
           "content_block_delta", """{"index":0,"delta":{"type":"thinking_delta","thinking":"reason-2"}}"""
           "content_block_stop", """{"index":0}"""
-          "content_block_start", """{"index":1,"content_block":{"type":"tool_use","id":"call_1","name":"write_file","input":{}}}"""
-          "content_block_delta", """{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":\"notes.txt\""}}"""
-          "content_block_delta", """{"index":1,"delta":{"type":"input_json_delta","partial_json":",\"content\":\"hello\"}"}}"""
+          "content_block_start",
+          """{"index":1,"content_block":{"type":"tool_use","id":"call_1","name":"write_file","input":{}}}"""
+          "content_block_delta",
+          """{"index":1,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":\"notes.txt\""}}"""
+          "content_block_delta",
+          """{"index":1,"delta":{"type":"input_json_delta","partial_json":",\"content\":\"hello\"}"}}"""
           "content_block_stop", """{"index":1}"""
           "message_delta", """{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":8}}"""
           "message_stop", "{}" ]
@@ -163,7 +198,8 @@ let openAiStreamEvents requestIndex =
     [ "response.created", $"{{\"id\":\"resp_{requestIndex}\",\"model\":\"gpt-5.4\"}}"
       "response.output_text.delta", """{"delta":"streamed "}"""
       "response.output_text.delta", """{"delta":"response"}"""
-      "response.completed", $"{{\"response\":{{\"id\":\"resp_{requestIndex}\",\"model\":\"gpt-5.4\",\"status\":\"completed\",\"usage\":{{\"input_tokens\":5,\"output_tokens\":2}}}}}}" ]
+      "response.completed",
+      $"{{\"response\":{{\"id\":\"resp_{requestIndex}\",\"model\":\"gpt-5.4\",\"status\":\"completed\",\"usage\":{{\"input_tokens\":5,\"output_tokens\":2}}}}}}" ]
 
 let listener = new HttpListener()
 listener.Prefixes.Add($"http://127.0.0.1:{config.Port}/")
@@ -174,10 +210,15 @@ while true do
     let context = listener.GetContext()
     let requestIndex = nextRequestIndex ()
     let body = readBody context.Request
+
     let kind =
-        if context.Request.Url.AbsolutePath.Contains("/v1/responses") then "openai"
-        elif context.Request.Url.AbsolutePath.Contains("/v1/messages") then "anthropic"
-        else "unknown"
+        if context.Request.Url.AbsolutePath.Contains("/v1/responses") then
+            "openai"
+        elif context.Request.Url.AbsolutePath.Contains("/v1/messages") then
+            "anthropic"
+        else
+            "unknown"
+
     File.WriteAllText(Path.Combine(config.RecordDir, sprintf "%03d-%s.json" requestIndex kind), body)
 
     match context.Request.Url.AbsolutePath with
@@ -191,5 +232,4 @@ while true do
             writeSse context.Response (anthropicStreamEvents requestIndex)
         else
             writeJson context.Response 200 (anthropicCompleteResponse requestIndex body)
-    | _ ->
-        writeJson context.Response 404 (box {| error = "not found" |})
+    | _ -> writeJson context.Response 404 (box {| error = "not found" |})

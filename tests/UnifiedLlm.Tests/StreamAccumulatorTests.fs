@@ -12,9 +12,13 @@ module StreamAccumulatorSprint007 =
         interface IAsyncEnumerable<'T> with
             member _.GetAsyncEnumerator(_cancellationToken: CancellationToken) =
                 let enumerator: IEnumerator<'T> = (source :> seq<'T>).GetEnumerator()
+
                 { new IAsyncEnumerator<'T> with
                     member _.Current = enumerator.Current
-                    member _.MoveNextAsync() = ValueTask<bool>(Task.FromResult(enumerator.MoveNext()))
+
+                    member _.MoveNextAsync() =
+                        ValueTask<bool>(Task.FromResult(enumerator.MoveNext()))
+
                     member _.DisposeAsync() =
                         enumerator.Dispose()
                         ValueTask() }
@@ -22,10 +26,13 @@ module StreamAccumulatorSprint007 =
     let private consumeAll (source: IAsyncEnumerable<'T>) =
         let enumerator = source.GetAsyncEnumerator(CancellationToken.None)
         let mutable keepReading = true
+
         while keepReading do
             let hasNext = enumerator.MoveNextAsync().AsTask().Result
+
             if not hasNext then
                 keepReading <- false
+
         enumerator.DisposeAsync().AsTask().Wait()
 
     [<Fact>]
@@ -42,7 +49,12 @@ module StreamAccumulatorSprint007 =
               Finish(Stop "stop", Some Usage.Zero, None) ]
 
         let accumulator =
-            Generation.StreamAccumulator(TestAsyncEnumerable(events) :> IAsyncEnumerable<_>, model = "m", provider = "test")
+            Generation.StreamAccumulator(
+                TestAsyncEnumerable(events) :> IAsyncEnumerable<_>,
+                model = "m",
+                provider = "test"
+            )
+
         consumeAll accumulator.Events
 
         let partial = accumulator.PartialResponse()
@@ -54,13 +66,22 @@ module StreamAccumulatorSprint007 =
     let ``stream accumulator marks balanced tool call json as complete`` () =
         let events =
             [ StreamStart
-              ToolCallStart { Id = "tool-1"; Name = "write_file"; Arguments = ""; Metadata = Map.empty }
+              ToolCallStart
+                  { Id = "tool-1"
+                    Name = "write_file"
+                    Arguments = ""
+                    Metadata = Map.empty }
               ToolCallDelta("tool-1", """{"name":""")
               ToolCallDelta("tool-1", """"test","payload":{"ok":true}}""")
               Finish(Stop "tool_calls", Some Usage.Zero, None) ]
 
         let accumulator =
-            Generation.StreamAccumulator(TestAsyncEnumerable(events) :> IAsyncEnumerable<_>, model = "m", provider = "test")
+            Generation.StreamAccumulator(
+                TestAsyncEnumerable(events) :> IAsyncEnumerable<_>,
+                model = "m",
+                provider = "test"
+            )
+
         consumeAll accumulator.Events
 
         let toolCall = accumulator.PartialResponse().ToolCalls |> List.head
@@ -82,7 +103,12 @@ module StreamAccumulatorSprint007 =
               Finish(Stop "tool_calls", Some Usage.Zero, None) ]
 
         let accumulator =
-            Generation.StreamAccumulator(TestAsyncEnumerable(events) :> IAsyncEnumerable<_>, model = "m", provider = "test")
+            Generation.StreamAccumulator(
+                TestAsyncEnumerable(events) :> IAsyncEnumerable<_>,
+                model = "m",
+                provider = "test"
+            )
+
         consumeAll accumulator.Events
 
         let toolCall = accumulator.PartialResponse().ToolCalls |> List.head
@@ -100,7 +126,12 @@ module StreamAccumulatorSprint007 =
               Finish(Stop "stop", Some Usage.Zero, None) ]
 
         let accumulator =
-            Generation.StreamAccumulator(TestAsyncEnumerable(events) :> IAsyncEnumerable<_>, model = "m", provider = "test")
+            Generation.StreamAccumulator(
+                TestAsyncEnumerable(events) :> IAsyncEnumerable<_>,
+                model = "m",
+                provider = "test"
+            )
+
         consumeAll accumulator.Events
 
         Assert.Equal(None, accumulator.ReasoningText)

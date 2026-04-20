@@ -16,6 +16,7 @@ let ``B4 abort between tool rounds raises AbortError`` () =
 
     mock.SetCompleteHandler(fun _ ->
         calls <- calls + 1
+
         if calls = 1 then
             let tc =
                 { Id = "call_1"
@@ -28,7 +29,11 @@ let ``B4 abort between tool rounds raises AbortError`` () =
             { Id = "r1"
               Model = "m"
               Provider = "test"
-              Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+              Message =
+                { Role = Assistant
+                  Content = [ ToolCall tc ]
+                  Name = None
+                  ToolCallId = None }
               FinishReason = ToolCalls "tool_calls"
               Usage = Usage.Zero
               ResponseId = None
@@ -41,8 +46,11 @@ let ``B4 abort between tool rounds raises AbortError`` () =
     let client = Client()
     client.RegisterAdapter(mock)
 
-    let tool : Tool =
-        { Definition = { Name = "test_tool"; Description = "test"; Parameters = """{"type":"object"}""" }
+    let tool: Tool =
+        { Definition =
+            { Name = "test_tool"
+              Description = "test"
+              Parameters = """{"type":"object"}""" }
           Execute = Some(fun _ -> "ok") }
 
     let ex =
@@ -75,6 +83,7 @@ let ``B4 abort between stream tool rounds raises AbortError`` () =
 
     mock.SetStreamHandler(fun _ ->
         streamCalls <- streamCalls + 1
+
         if streamCalls = 1 then
             let tc =
                 { Id = "call_1"
@@ -86,7 +95,11 @@ let ``B4 abort between stream tool rounds raises AbortError`` () =
                 { Id = "r1"
                   Model = "m"
                   Provider = "test"
-                  Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+                  Message =
+                    { Role = Assistant
+                      Content = [ ToolCall tc ]
+                      Name = None
+                      ToolCallId = None }
                   FinishReason = ToolCalls "tool_calls"
                   Usage = Usage.Zero
                   ResponseId = None
@@ -106,11 +119,15 @@ let ``B4 abort between stream tool rounds raises AbortError`` () =
     let client = Client()
     client.RegisterAdapter(mock)
 
-    let tool : Tool =
-        { Definition = { Name = "test_tool"; Description = "test"; Parameters = """{"type":"object"}""" }
-          Execute = Some(fun _ ->
-              signal.Cancel()
-              "ok") }
+    let tool: Tool =
+        { Definition =
+            { Name = "test_tool"
+              Description = "test"
+              Parameters = """{"type":"object"}""" }
+          Execute =
+            Some(fun _ ->
+                signal.Cancel()
+                "ok") }
 
     let ex =
         Assert.Throws<AbortError>(fun () ->
@@ -151,7 +168,11 @@ let ``B5 total timeout raises RequestTimeoutError when generation exceeds budget
             { Id = $"r{calls}"
               Model = "m"
               Provider = "test"
-              Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+              Message =
+                { Role = Assistant
+                  Content = [ ToolCall tc ]
+                  Name = None
+                  ToolCallId = None }
               FinishReason = ToolCalls "tool_calls"
               Usage = Usage.Zero
               ResponseId = None
@@ -162,7 +183,7 @@ let ``B5 total timeout raises RequestTimeoutError when generation exceeds budget
             { Id = "r_final"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant("done")
+              Message = Message.assistant ("done")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -173,8 +194,11 @@ let ``B5 total timeout raises RequestTimeoutError when generation exceeds budget
     let client = Client()
     client.RegisterAdapter(mock)
 
-    let tool : Tool =
-        { Definition = { Name = "test_tool"; Description = "test"; Parameters = """{"type":"object"}""" }
+    let tool: Tool =
+        { Definition =
+            { Name = "test_tool"
+              Description = "test"
+              Parameters = """{"type":"object"}""" }
           Execute = Some(fun _ -> "ok") }
 
     let ex =

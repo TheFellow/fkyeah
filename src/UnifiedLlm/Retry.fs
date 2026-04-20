@@ -3,20 +3,19 @@ namespace UnifiedLlm
 open System
 
 /// Configuration for retry behavior
-type RetryConfig = {
-    MaxRetries: int
-    InitialDelayMs: int
-    MaxDelayMs: int
-    BackoffFactor: float
-    Jitter: bool
-} with
-    static member Default = {
-        MaxRetries = 2
-        InitialDelayMs = 1000
-        MaxDelayMs = 60000
-        BackoffFactor = 2.0
-        Jitter = true
-    }
+type RetryConfig =
+    { MaxRetries: int
+      InitialDelayMs: int
+      MaxDelayMs: int
+      BackoffFactor: float
+      Jitter: bool }
+
+    static member Default =
+        { MaxRetries = 2
+          InitialDelayMs = 1000
+          MaxDelayMs = 60000
+          BackoffFactor = 2.0
+          Jitter = true }
 
 type RetryHooks =
     { BeforeAttempt: int -> Result<unit, exn>
@@ -27,7 +26,7 @@ type RetryHooks =
 module RetryHooks =
 
     let none =
-        { BeforeAttempt = fun _ -> Result.Ok ()
+        { BeforeAttempt = fun _ -> Result.Ok()
           OnSuccess = fun _ -> ()
           OnFailure = fun _ -> ()
           OnGiveUp = fun _ -> () }
@@ -42,10 +41,8 @@ module RetryHooks =
           OnFailure =
             fun (_, exn) ->
                 match exn with
-                | :? ProviderError as providerError ->
-                    breaker.RecordFailure providerError.Kind
-                | _ ->
-                    ()
+                | :? ProviderError as providerError -> breaker.RecordFailure providerError.Kind
+                | _ -> ()
           OnGiveUp = fun _ -> () }
 
 /// Retry logic helpers
@@ -57,7 +54,9 @@ module Retry =
     let calculateDelay (config: RetryConfig) (attempt: int) : int =
         let baseDelay =
             float config.InitialDelayMs * Math.Pow(config.BackoffFactor, float attempt)
+
         let capped = Math.Min(baseDelay, float config.MaxDelayMs)
+
         if config.Jitter then
             let jitterFactor = 0.5 + rng.NextDouble() // 0.5 to 1.5
             int (capped * jitterFactor)
@@ -69,12 +68,12 @@ module Retry =
         match retryAfter with
         | Some ra ->
             let raMs = int (ra * 1000.0)
+
             if raMs > config.MaxDelayMs then
                 Option.None // Do not retry if Retry-After exceeds max
             else
                 Some raMs
-        | Option.None ->
-            Some (calculateDelay config attempt)
+        | Option.None -> Some(calculateDelay config attempt)
 
     /// Check if an error is retryable.
     /// NetworkError and TimeoutError inherit from ProviderError, so they are covered by the first case.
@@ -94,18 +93,20 @@ module Retry =
             | Result.Error ex ->
                 lastError <- Some ex
                 attempt <- config.MaxRetries + 1
-            | Result.Ok () ->
+            | Result.Ok() ->
                 try
-                    result <- Some (fn())
+                    result <- Some(fn ())
                     hooks.OnSuccess attempt
                 with ex ->
                     hooks.OnFailure(attempt, ex)
                     lastError <- Some ex
+
                     if attempt < config.MaxRetries && isRetryable ex then
                         let retryAfter =
                             match ex with
                             | :? ProviderError as pe -> pe.RetryAfter
                             | _ -> Option.None
+
                         match effectiveDelay config attempt retryAfter with
                         | Some delayMs ->
                             System.Threading.Thread.Sleep(delayMs)
@@ -119,8 +120,7 @@ module Retry =
 
         match result with
         | Some r -> r
-        | Option.None ->
-            raise (lastError |> Option.defaultWith (fun () -> SDKError("Retry failed") :> exn))
+        | Option.None -> raise (lastError |> Option.defaultWith (fun () -> SDKError("Retry failed") :> exn))
 
     /// Execute a function with retry logic. Returns the result or the last error.
     let execute (config: RetryConfig) (fn: unit -> 'T) : 'T =

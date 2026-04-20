@@ -2,15 +2,14 @@ namespace UnifiedLlm
 
 open System.Collections.Generic
 
-type ClientConfig = {
-    Timeout: AdapterTimeout option
-} with
+type ClientConfig =
+    { Timeout: AdapterTimeout option }
+
     static member Default = { Timeout = None }
 
-type private RegisteredAdapter = {
-    Adapter: IProviderAdapter
-    Timeout: AdapterTimeout option
-}
+type private RegisteredAdapter =
+    { Adapter: IProviderAdapter
+      Timeout: AdapterTimeout option }
 
 /// The core client that routes requests to provider adapters
 type Client(?config: ClientConfig) =
@@ -23,9 +22,10 @@ type Client(?config: ClientConfig) =
         if request.AdapterTimeout.IsSome then
             request
         else
-            let effectiveTimeout =
-                adapterTimeout |> Option.orElse config.Timeout
-            { request with AdapterTimeout = effectiveTimeout }
+            let effectiveTimeout = adapterTimeout |> Option.orElse config.Timeout
+
+            { request with
+                AdapterTimeout = effectiveTimeout }
 
     /// Register a provider adapter
     member _.RegisterAdapter(adapter: IProviderAdapter, ?timeout: AdapterTimeout) =
@@ -43,12 +43,10 @@ type Client(?config: ClientConfig) =
             raise (ConfigurationError(sprintf "Provider '%s' is not registered" providerId))
 
     /// Add middleware
-    member _.AddMiddleware(middleware: IMiddleware) =
-        middlewareChain.Add(middleware)
+    member _.AddMiddleware(middleware: IMiddleware) = middlewareChain.Add(middleware)
 
     /// Add functional middleware
-    member _.AddMiddlewareFn(middleware: Middleware) =
-        middlewareChain.AddFn(middleware)
+    member _.AddMiddlewareFn(middleware: Middleware) = middlewareChain.AddFn(middleware)
 
     /// Get the default provider id
     member _.DefaultProvider = defaultProvider
@@ -61,12 +59,11 @@ type Client(?config: ClientConfig) =
             | Option.None ->
                 match defaultProvider with
                 | Some p -> p
-                | Option.None ->
-                    raise (ConfigurationError("No provider specified and no default provider is set"))
+                | Option.None -> raise (ConfigurationError("No provider specified and no default provider is set"))
+
         match adapters.TryGetValue(providerId) with
         | true, registered -> registered.Adapter, registered.Timeout
-        | false, _ ->
-            raise (ConfigurationError(sprintf "Provider '%s' is not registered" providerId))
+        | false, _ -> raise (ConfigurationError(sprintf "Provider '%s' is not registered" providerId))
 
     /// Send a blocking request through middleware chain to the provider
     member this.Complete(request: Request) : Response =
@@ -74,6 +71,7 @@ type Client(?config: ClientConfig) =
             let adapter, timeout = this.ResolveAdapter(req)
             let reqWithTimeout = applyAdapterTimeout req timeout
             adapter.Complete(reqWithTimeout)
+
         middlewareChain.Execute(request, handler)
 
     /// Send a streaming request to the provider
@@ -82,6 +80,7 @@ type Client(?config: ClientConfig) =
             let adapter, timeout = this.ResolveAdapter(req)
             let reqWithTimeout = applyAdapterTimeout req timeout
             adapter.Stream(reqWithTimeout)
+
         middlewareChain.ExecuteStream(request, handler)
 
     /// Close all adapters.
@@ -94,14 +93,17 @@ type Client(?config: ClientConfig) =
         let client = Client()
 
         let anthropicKey = System.Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+
         if not (System.String.IsNullOrEmpty(anthropicKey)) then
             client.RegisterAdapter(AnthropicAdapter(anthropicKey))
 
         let openaiKey = System.Environment.GetEnvironmentVariable("OPENAI_API_KEY")
+
         if not (System.String.IsNullOrEmpty(openaiKey)) then
             client.RegisterAdapter(OpenAIAdapter(openaiKey))
 
         let geminiKey = System.Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+
         if not (System.String.IsNullOrEmpty(geminiKey)) then
             client.RegisterAdapter(GeminiAdapter(geminiKey))
 
@@ -112,8 +114,7 @@ module DefaultClient =
     let mutable private defaultClient: Client option = Option.None
 
     /// Set the module-level default client
-    let setDefaultClient (client: Client) =
-        defaultClient <- Some client
+    let setDefaultClient (client: Client) = defaultClient <- Some client
 
     /// Get the module-level default client. Creates from env if not set.
     let getDefaultClient () : Client =

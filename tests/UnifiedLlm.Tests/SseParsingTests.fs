@@ -15,10 +15,12 @@ open UnifiedLlm
 type private TestPipe() =
     let pipe = Pipe()
     member _.ReadStream() = pipe.Reader.AsStream()
+
     member _.WriteText(text: string) =
         let bytes = Encoding.UTF8.GetBytes(text: string)
         let vt = pipe.Writer.WriteAsync(ReadOnlyMemory(bytes))
         vt.AsTask().GetAwaiter().GetResult() |> ignore
+
     member _.Complete() = pipe.Writer.Complete()
 
 [<Fact>]
@@ -37,10 +39,16 @@ let ``parseSse ping events do not refresh idle timer`` () =
     use reader = new StreamReader(tp.ReadStream(), Encoding.UTF8)
 
     use stopPings = new CancellationTokenSource()
-    let pinger = Task.Run(fun () ->
-        while not stopPings.IsCancellationRequested do
-            try tp.WriteText("event: ping\ndata: {}\n\n") with _ -> ()
-            Thread.Sleep(50))
+
+    let pinger =
+        Task.Run(fun () ->
+            while not stopPings.IsCancellationRequested do
+                try
+                    tp.WriteText("event: ping\ndata: {}\n\n")
+                with _ ->
+                    ()
+
+                Thread.Sleep(50))
 
     try
         let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 300
@@ -51,7 +59,12 @@ let ``parseSse ping events do not refresh idle timer`` () =
         Assert.InRange(sw.ElapsedMilliseconds, 200L, 3000L)
     finally
         stopPings.Cancel()
-        try tp.Complete() with _ -> ()
+
+        try
+            tp.Complete()
+        with _ ->
+            ()
+
         pinger.Wait(TimeSpan.FromSeconds(2.0)) |> ignore
 
 [<Fact>]
@@ -60,10 +73,16 @@ let ``parseSse SSE comment lines do not refresh idle timer`` () =
     use reader = new StreamReader(tp.ReadStream(), Encoding.UTF8)
 
     use stopPings = new CancellationTokenSource()
-    let pinger = Task.Run(fun () ->
-        while not stopPings.IsCancellationRequested do
-            try tp.WriteText(":keepalive\n") with _ -> ()
-            Thread.Sleep(50))
+
+    let pinger =
+        Task.Run(fun () ->
+            while not stopPings.IsCancellationRequested do
+                try
+                    tp.WriteText(":keepalive\n")
+                with _ ->
+                    ()
+
+                Thread.Sleep(50))
 
     try
         let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 300
@@ -73,7 +92,12 @@ let ``parseSse SSE comment lines do not refresh idle timer`` () =
         Assert.InRange(sw.ElapsedMilliseconds, 200L, 3000L)
     finally
         stopPings.Cancel()
-        try tp.Complete() with _ -> ()
+
+        try
+            tp.Complete()
+        with _ ->
+            ()
+
         pinger.Wait(TimeSpan.FromSeconds(2.0)) |> ignore
 
 [<Fact>]
@@ -81,11 +105,13 @@ let ``parseSse real events refresh idle timer and stream completes`` () =
     let tp = TestPipe()
     use reader = new StreamReader(tp.ReadStream(), Encoding.UTF8)
 
-    let producer = Task.Run(fun () ->
-        for i in 1..3 do
-            tp.WriteText(sprintf "event: message\ndata: e%d\n\n" i)
-            Thread.Sleep(100)
-        tp.Complete())
+    let producer =
+        Task.Run(fun () ->
+            for i in 1..3 do
+                tp.WriteText(sprintf "event: message\ndata: e%d\n\n" i)
+                Thread.Sleep(100)
+
+            tp.Complete())
 
     let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 5000
     let collected = events |> Seq.toList
@@ -99,9 +125,11 @@ let ``parseSse outer cancellation raises AbortError`` () =
     use reader = new StreamReader(tp.ReadStream(), Encoding.UTF8)
 
     use outer = new CancellationTokenSource()
-    let _trigger = Task.Run(fun () ->
-        Thread.Sleep(150)
-        outer.Cancel())
+
+    let _trigger =
+        Task.Run(fun () ->
+            Thread.Sleep(150)
+            outer.Cancel())
 
     let events = SseParsing.parseWithIdleTimeout reader outer.Token 5000
     Assert.Throws<AbortError>(fun () -> events |> Seq.iter (fun _ -> ())) |> ignore

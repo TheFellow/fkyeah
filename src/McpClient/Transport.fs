@@ -47,8 +47,10 @@ module Transport =
         Task.Run(fun () ->
             task {
                 let mutable keepReading = true
+
                 while keepReading do
                     let! line = proc.StandardError.ReadLineAsync()
+
                     if isNull line then
                         keepReading <- false
                     else
@@ -62,7 +64,9 @@ module Transport =
     let private terminateProcess (proc: Process) =
         async {
             try
-                use killer = Process.Start(ProcessStartInfo("/bin/kill", $"-TERM {proc.Id}", UseShellExecute = false))
+                use killer =
+                    Process.Start(ProcessStartInfo("/bin/kill", $"-TERM {proc.Id}", UseShellExecute = false))
+
                 if not (isNull killer) then
                     do! killer.WaitForExitAsync() |> Async.AwaitTask
             with _ ->
@@ -83,7 +87,11 @@ module Transport =
         | "heartbeat" -> true
         | _ -> false
 
-    let parseSseStreamWithIdleTimeout (stream: Stream) (cancellationToken: CancellationToken) (idleTimeoutMs: int) : IAsyncEnumerable<ParsedSseEvent> =
+    let parseSseStreamWithIdleTimeout
+        (stream: Stream)
+        (cancellationToken: CancellationToken)
+        (idleTimeoutMs: int)
+        : IAsyncEnumerable<ParsedSseEvent> =
         taskSeq {
             use reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true)
 
@@ -97,6 +105,7 @@ module Transport =
             let emitEvent () =
                 if seenField then
                     let payload = String.concat "\n" (dataLines |> Seq.toList)
+
                     let emitted =
                         { Data = Encoding.UTF8.GetBytes(payload)
                           EventType = eventType
@@ -109,39 +118,48 @@ module Transport =
                     retryMs <- None
                     lastEventId <- None
                     seenField <- false
+
                     if not wasHeartbeat then
                         progress.Restart()
+
                     Some emitted
                 else
                     None
 
             let parseField (line: string) =
                 let index = line.IndexOf(':')
+
                 if index < 0 then
                     line, ""
                 else
-                    let value = line[(index + 1)..]
+                    let value = line[(index + 1) ..]
+
                     let normalized =
                         if value.StartsWith(" ", StringComparison.Ordinal) then
                             value.Substring(1)
                         else
                             value
-                    line[..(index - 1)], normalized
+
+                    line[.. (index - 1)], normalized
 
             let mutable keepReading = true
 
             while keepReading && not cancellationToken.IsCancellationRequested do
                 let elapsed = int progress.ElapsedMilliseconds
                 let remaining = idleTimeoutMs - elapsed
+
                 if remaining <= 0 then
                     raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
 
                 let idleCts = new CancellationTokenSource()
                 idleCts.CancelAfter(remaining)
-                use linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, idleCts.Token)
+
+                use linked =
+                    CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, idleCts.Token)
 
                 let mutable line: string = null
                 let mutable idleFired = false
+
                 try
                     let! read = reader.ReadLineAsync(linked.Token).AsTask()
                     line <- read
@@ -150,6 +168,7 @@ module Transport =
                         keepReading <- false
                     else
                         idleFired <- true
+
                 idleCts.Dispose()
 
                 if idleFired then
@@ -158,6 +177,7 @@ module Transport =
                 if keepReading then
                     if isNull line then
                         keepReading <- false
+
                         match emitEvent () with
                         | Some eventData -> yield eventData
                         | None -> ()
@@ -199,8 +219,7 @@ module Transport =
         let mutable activeProcess: Process option = None
         let mutable stderrDrain: Task option = None
 
-        let currentProcess () =
-            lock syncRoot (fun () -> activeProcess)
+        let currentProcess () = lock syncRoot (fun () -> activeProcess)
 
         let clearState () =
             lock syncRoot (fun () ->
@@ -224,7 +243,13 @@ module Transport =
 
                                 if proc.WaitForExit(200) then
                                     let details = stderrText stderrBuffer
-                                    let reason = if details = "" then $"Command '{command}' exited during startup" else details
+
+                                    let reason =
+                                        if details = "" then
+                                            $"Command '{command}' exited during startup"
+                                        else
+                                            details
+
                                     clearState ()
                                     proc.Dispose()
                                     return Error(McpError.InvalidConfiguration reason)
@@ -232,6 +257,7 @@ module Transport =
                                     lock syncRoot (fun () ->
                                         activeProcess <- Some proc
                                         stderrDrain <- Some drainTask)
+
                                     return Ok()
                         with ex ->
                             return Error(McpError.InvalidConfiguration ex.Message)
@@ -257,8 +283,10 @@ module Transport =
                     match currentProcess () with
                     | Some proc ->
                         let mutable keepReading = true
+
                         while keepReading && not cancellationToken.IsCancellationRequested do
                             let! line = proc.StandardOutput.ReadLineAsync()
+
                             if isNull line then
                                 keepReading <- false
                             else
@@ -293,6 +321,7 @@ module Transport =
                             proc.Dispose()
                         with _ ->
                             ()
+
                         clearState ()
                 } }
 
@@ -312,7 +341,8 @@ module Transport =
 
         let applyHeaders (request: HttpRequestMessage) =
             for KeyValue(key, value) in headers do
-                request.Headers.TryAddWithoutValidation((key: string), (value: string)) |> ignore
+                request.Headers.TryAddWithoutValidation((key: string), (value: string))
+                |> ignore
 
         let contentTypeEquals mediaType (value: string) =
             String.Equals(mediaType, value, StringComparison.OrdinalIgnoreCase)
@@ -334,16 +364,20 @@ module Transport =
                         request.Content.Headers.ContentType <- MediaTypeHeaderValue("application/json")
                         let! response = httpClient.SendAsync(request) |> Async.AwaitTask
                         use response = response
+
                         if response.IsSuccessStatusCode then
                             return Ok()
                         else
                             let! body = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                            return Error(McpError.TransportClosed $"HTTP {(int response.StatusCode)} {response.ReasonPhrase}: {body}")
+
+                            return
+                                Error(
+                                    McpError.TransportClosed
+                                        $"HTTP {(int response.StatusCode)} {response.ReasonPhrase}: {body}"
+                                )
                     with
-                    | :? TaskCanceledException as ex ->
-                        return Error(McpError.Timeout ex.Message)
-                    | ex ->
-                        return Error(McpError.TransportClosed ex.Message)
+                    | :? TaskCanceledException as ex -> return Error(McpError.Timeout ex.Message)
+                    | ex -> return Error(McpError.TransportClosed ex.Message)
                 }
           Receive =
             fun cancellationToken ->
@@ -353,12 +387,15 @@ module Transport =
                         use request = new HttpRequestMessage(HttpMethod.Get, (url: string))
                         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue("text/event-stream"))
                         applyHeaders request
+
                         match lastEventId with
-                        | Some value when value <> "" -> request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
+                        | Some value when value <> "" ->
+                            request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
                         | _ -> ()
 
                         let! response =
                             httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+
                         use response = response
 
                         response.EnsureSuccessStatusCode() |> ignore
@@ -367,8 +404,10 @@ module Transport =
                         use stream = stream
 
                         let mediaType =
-                            if isNull response.Content.Headers.ContentType then ""
-                            else response.Content.Headers.ContentType.MediaType
+                            if isNull response.Content.Headers.ContentType then
+                                ""
+                            else
+                                response.Content.Headers.ContentType.MediaType
 
                         if contentTypeEquals mediaType "application/json" then
                             use memory = new MemoryStream()

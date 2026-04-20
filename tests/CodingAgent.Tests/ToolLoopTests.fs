@@ -18,7 +18,11 @@ let private toolCallResponse callId toolName arguments =
         { Id = "r_" + callId
           Model = "m"
           Provider = "test"
-          Message = { Role = Assistant; Content = [ ToolCall tc ]; Name = None; ToolCallId = None }
+          Message =
+            { Role = Assistant
+              Content = [ ToolCall tc ]
+              Name = None
+              ToolCallId = None }
           FinishReason = ToolCalls "tool_calls"
           Usage = Usage.Zero
           ResponseId = None
@@ -40,7 +44,8 @@ let ``C3 read edit verify tool loop updates file and records tool turns`` () =
             JsonSerializer.Serialize(
                 {| file_path = "target.txt"
                    old_string = "original content"
-                   new_string = "updated content" |})
+                   new_string = "updated content" |}
+            )
 
         let mock =
             CodingAgent.Tests.makeMockAdapter
@@ -51,7 +56,7 @@ let ``C3 read edit verify tool loop updates file and records tool turns`` () =
                       { Id = "r4"
                         Model = "m"
                         Provider = "test"
-                        Message = Message.assistant("Edit verified.")
+                        Message = Message.assistant ("Edit verified.")
                         FinishReason = Stop "stop"
                         Usage = Usage.Zero
                         ResponseId = None
@@ -91,7 +96,12 @@ let ``mutating tool clears cached read results before subsequent cacheable tool 
 
         let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
         let readArgs = JsonSerializer.Serialize({| file_path = "target.txt" |})
-        let writeArgs = JsonSerializer.Serialize({| file_path = "target.txt"; content = "new content" |})
+
+        let writeArgs =
+            JsonSerializer.Serialize(
+                {| file_path = "target.txt"
+                   content = "new content" |}
+            )
 
         let mock =
             CodingAgent.Tests.makeMockAdapter
@@ -102,7 +112,7 @@ let ``mutating tool clears cached read results before subsequent cacheable tool 
                       { Id = "r4"
                         Model = "m"
                         Provider = "test"
-                        Message = Message.assistant("Cache refreshed.")
+                        Message = Message.assistant ("Cache refreshed.")
                         FinishReason = Stop "stop"
                         Usage = Usage.Zero
                         ResponseId = None

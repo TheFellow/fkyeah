@@ -105,22 +105,24 @@ type CircuitState =
 
 module CircuitFailureClassification =
 
-    let isTransient = function
+    let isTransient =
+        function
         | ProviderFailureKind.RateLimited
         | ProviderFailureKind.ServerFailure _
         | ProviderFailureKind.Network
         | ProviderFailureKind.Timeout -> true
         | _ -> false
 
-    let isNonTransient kind =
-        not (isTransient kind)
+    let isNonTransient kind = not (isTransient kind)
 
 type CircuitOpenError(provider: string, retryAt: DateTimeOffset) =
-    inherit ProviderError(
-        $"Circuit open for provider '{provider}' until {retryAt:O}",
-        Some 503,
-        true,
-        ?retryAfter = Option.None)
+    inherit
+        ProviderError(
+            $"Circuit open for provider '{provider}' until {retryAt:O}",
+            Some 503,
+            true,
+            ?retryAfter = Option.None
+        )
 
     member _.Provider = provider
     member _.RetryAt = retryAt
@@ -130,18 +132,16 @@ type CircuitOpenError(provider: string, retryAt: DateTimeOffset) =
         if remaining > 0.0 then Some remaining else Some 0.0
 
 type ProviderError with
-    member this.Kind : ProviderFailureKind =
+    member this.Kind: ProviderFailureKind =
         match this with
         | :? AuthenticationError -> ProviderFailureKind.Authentication
         | :? AccessDeniedError -> ProviderFailureKind.AccessDenied
         | :? ContextLengthError -> ProviderFailureKind.ContextLength
         | :? QuotaExceededError -> ProviderFailureKind.QuotaExceeded
-        | :? InvalidRequestError as error ->
-            ProviderFailureKind.InvalidRequest(defaultArg error.StatusCode 400)
+        | :? InvalidRequestError as error -> ProviderFailureKind.InvalidRequest(defaultArg error.StatusCode 400)
         | :? NotFoundError -> ProviderFailureKind.NotFound
         | :? RateLimitError -> ProviderFailureKind.RateLimited
-        | :? ServerError as error ->
-            ProviderFailureKind.ServerFailure(defaultArg error.StatusCode 500)
+        | :? ServerError as error -> ProviderFailureKind.ServerFailure(defaultArg error.StatusCode 500)
         | :? NetworkError -> ProviderFailureKind.Network
         | :? TimeoutError
         | :? RequestTimeoutError -> ProviderFailureKind.Timeout
@@ -163,7 +163,9 @@ module RetryAfterParsing =
             match Double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture) with
             | true, seconds when seconds >= 0.0 -> Some seconds
             | _ ->
-                match DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal) with
+                match
+                    DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal)
+                with
                 | true, timestamp ->
                     let delta = (timestamp.ToUniversalTime() - DateTimeOffset.UtcNow).TotalSeconds
                     if delta > 0.0 then Some delta else Some 0.0
@@ -181,6 +183,7 @@ module ErrorMapping =
 
     let private isQuotaMessage (message: string) =
         let lower = message.ToLowerInvariant()
+
         lower.Contains("quota")
         || lower.Contains("insufficient_quota")
         || lower.Contains("billing hard limit")
@@ -204,22 +207,27 @@ module ErrorMapping =
             | Some ra -> ServerError(message, code, ra) :> ProviderError
             | None -> ServerError(message, code) :> ProviderError
         | 408 -> TimeoutError(message) :> ProviderError
-        | 400 | 422 -> InvalidRequestError(message, statusCode) :> ProviderError
+        | 400
+        | 422 -> InvalidRequestError(message, statusCode) :> ProviderError
         | _ -> ProviderError(message, Some statusCode, true, ?retryAfter = retryAfter) // unknown defaults to retryable
 
     /// Classify an HTTP response using both status code and response headers.
     let classifyHttpResponse (httpResp: System.Net.Http.HttpResponseMessage) (body: string) : ProviderError =
-        let mutable values = Unchecked.defaultof<System.Collections.Generic.IEnumerable<string>>
+        let mutable values =
+            Unchecked.defaultof<System.Collections.Generic.IEnumerable<string>>
+
         let retryAfter =
             if httpResp.Headers.TryGetValues("Retry-After", &values) then
                 values |> Seq.tryHead |> Option.bind RetryAfterParsing.parse
             else
                 None
+
         fromStatusCode (int httpResp.StatusCode) body retryAfter
 
     /// Classify error by message content for ambiguous cases
     let classifyByMessage (message: string) (statusCode: int) : ProviderError =
         let lower = message.ToLowerInvariant()
+
         if lower.Contains("not found") || lower.Contains("does not exist") then
             NotFoundError(message) :> ProviderError
         elif lower.Contains("unauthorized") || lower.Contains("invalid key") then

@@ -14,9 +14,7 @@ type QuestionType =
     | Confirmation
 
 /// An option in a multiple choice question
-type QuestionOption =
-    { Key: string
-      Label: string }
+type QuestionOption = { Key: string; Label: string }
 
 /// A question presented to a human
 type Question =
@@ -42,22 +40,34 @@ and Answer =
       Text: string }
 
     static member Yes =
-        { Value = "yes"; SelectedOption = None; Text = "" }
+        { Value = "yes"
+          SelectedOption = None
+          Text = "" }
 
     static member No =
-        { Value = "no"; SelectedOption = None; Text = "" }
+        { Value = "no"
+          SelectedOption = None
+          Text = "" }
 
     static member Skipped =
-        { Value = "skipped"; SelectedOption = None; Text = "" }
+        { Value = "skipped"
+          SelectedOption = None
+          Text = "" }
 
     static member Timeout =
-        { Value = "timeout"; SelectedOption = None; Text = "" }
+        { Value = "timeout"
+          SelectedOption = None
+          Text = "" }
 
     static member FromOption(opt: QuestionOption) =
-        { Value = opt.Key; SelectedOption = Some opt; Text = opt.Label }
+        { Value = opt.Key
+          SelectedOption = Some opt
+          Text = opt.Label }
 
     static member FromText(text: string) =
-        { Value = text; SelectedOption = None; Text = text }
+        { Value = text
+          SelectedOption = None
+          Text = text }
 
     member this.IsTimeout = this.Value = "timeout"
     member this.IsSkipped = this.Value = "skipped"
@@ -75,19 +85,19 @@ type AutoApproveInterviewer() =
     interface IInterviewer with
         member _.Ask(question) =
             match question.Type with
-            | QuestionType.YesNo | QuestionType.Confirmation ->
-                Answer.Yes
+            | QuestionType.YesNo
+            | QuestionType.Confirmation -> Answer.Yes
             | QuestionType.SingleSelect
-            | QuestionType.MultipleChoice when question.Options.Length > 0 ->
-                Answer.FromOption(question.Options[0])
+            | QuestionType.MultipleChoice when question.Options.Length > 0 -> Answer.FromOption(question.Options[0])
             | QuestionType.MultiSelect when question.Options.Length > 0 ->
                 let selectedKeys =
-                    question.Options
-                    |> List.map (fun opt -> opt.Key)
-                    |> String.concat ","
+                    question.Options |> List.map (fun opt -> opt.Key) |> String.concat ","
+
                 Answer.FromText(selectedKeys)
             | _ ->
-                { Value = "auto-approved"; SelectedOption = None; Text = "auto-approved" }
+                { Value = "auto-approved"
+                  SelectedOption = None
+                  Text = "auto-approved" }
 
         member this.AskMultiple(questions) =
             questions |> List.map (this :> IInterviewer).Ask
@@ -98,8 +108,10 @@ type AutoApproveInterviewer() =
 type CallbackInterviewer(callback: Question -> Answer) =
     interface IInterviewer with
         member _.Ask(question) = callback question
+
         member this.AskMultiple(questions) =
             questions |> List.map (this :> IInterviewer).Ask
+
         member _.Inform(_, _) = ()
 
 /// Console interviewer that reads from standard input
@@ -112,8 +124,12 @@ type ConsoleInterviewer() =
             printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
             // Show context: where to look
-            let logsRoot = question.Metadata |> Map.tryFind "logs_root" |> Option.defaultValue ""
-            let lastStage = question.Metadata |> Map.tryFind "last_stage" |> Option.defaultValue ""
+            let logsRoot =
+                question.Metadata |> Map.tryFind "logs_root" |> Option.defaultValue ""
+
+            let lastStage =
+                question.Metadata |> Map.tryFind "last_stage" |> Option.defaultValue ""
+
             let goal = question.Metadata |> Map.tryFind "goal" |> Option.defaultValue ""
 
             if goal <> "" then
@@ -138,39 +154,50 @@ type ConsoleInterviewer() =
             | Some pf ->
                 printfn ""
                 printfn "  Prompt:   %s" pf
+
                 match responseFile with
                 | Some rf -> printfn "  Response: %s" rf
                 | None -> ()
             | None -> ()
 
             printfn ""
+
             match question.Type with
             | QuestionType.Freeform ->
                 match responseFile with
                 | Some _ ->
                     printfn "  Edit the response file, then press Enter to continue."
                     printf "  > [Enter] "
-                | None ->
-                    printf "  > "
+                | None -> printf "  > "
+
                 let response = Console.ReadLine()
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled() then
+
+                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
-                else Answer.FromText(response.Trim())
+                else
+                    Answer.FromText(response.Trim())
             | QuestionType.SingleSelect
             | QuestionType.MultipleChoice ->
                 printfn "  Options:"
+
                 for opt in question.Options do
                     printfn "    [%s] %s" opt.Key opt.Label
+
                 printfn ""
                 printf "  Enter key or label > "
                 let response = Console.ReadLine()
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled() then
+
+                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 else
                     let response = response.Trim()
-                    match question.Options |> List.tryFind (fun o ->
-                        o.Key.Equals(response, StringComparison.OrdinalIgnoreCase)
-                        || o.Label.Equals(response, StringComparison.OrdinalIgnoreCase)) with
+
+                    match
+                        question.Options
+                        |> List.tryFind (fun o ->
+                            o.Key.Equals(response, StringComparison.OrdinalIgnoreCase)
+                            || o.Label.Equals(response, StringComparison.OrdinalIgnoreCase))
+                    with
                     | Some opt -> Answer.FromOption(opt)
                     | None ->
                         match question.Options |> List.tryHead with
@@ -178,12 +205,15 @@ type ConsoleInterviewer() =
                         | None -> Answer.FromText(response)
             | QuestionType.MultiSelect ->
                 printfn "  Options (comma-separated keys):"
+
                 for opt in question.Options do
                     printfn "    [%s] %s" opt.Key opt.Label
+
                 printfn ""
                 printf "  Enter keys > "
                 let response = Console.ReadLine()
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled() then
+
+                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 else
                     let selected =
@@ -195,6 +225,7 @@ type ConsoleInterviewer() =
                                 opt.Key.Equals(key, StringComparison.OrdinalIgnoreCase)
                                 || opt.Label.Equals(key, StringComparison.OrdinalIgnoreCase)))
                         |> List.map (fun opt -> opt.Key)
+
                     if selected.IsEmpty then
                         Answer.FromText(response.Trim())
                     else
@@ -202,7 +233,8 @@ type ConsoleInterviewer() =
             | QuestionType.YesNo ->
                 printf "  [Y/N] > "
                 let response = Console.ReadLine()
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled() then
+
+                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 elif response.Trim().ToLower().StartsWith("y") then
                     Answer.Yes
@@ -211,7 +243,8 @@ type ConsoleInterviewer() =
             | QuestionType.Confirmation ->
                 printf "  [Y/N] > "
                 let response = Console.ReadLine()
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled() then
+
+                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 elif response.Trim().ToLower().StartsWith("y") then
                     Answer.Yes
@@ -221,8 +254,7 @@ type ConsoleInterviewer() =
         member this.AskMultiple(questions) =
             questions |> List.map (this :> IInterviewer).Ask
 
-        member _.Inform(message, stage) =
-            printfn "[%s] %s" stage message
+        member _.Inform(message, stage) = printfn "[%s] %s" stage message
 
 /// Queue interviewer that reads from pre-filled answers
 type QueueInterviewer(answers: Answer list) =
@@ -230,10 +262,7 @@ type QueueInterviewer(answers: Answer list) =
 
     interface IInterviewer with
         member _.Ask(_) =
-            if queue.Count > 0 then
-                queue.Dequeue()
-            else
-                Answer.Skipped
+            if queue.Count > 0 then queue.Dequeue() else Answer.Skipped
 
         member this.AskMultiple(questions) =
             questions |> List.map (this :> IInterviewer).Ask
@@ -255,8 +284,7 @@ type RecordingInterviewer(inner: IInterviewer) =
         member this.AskMultiple(questions) =
             questions |> List.map (this :> IInterviewer).Ask
 
-        member _.Inform(message, stage) =
-            inner.Inform(message, stage)
+        member _.Inform(message, stage) = inner.Inform(message, stage)
 
 /// Helper to parse accelerator keys from edge labels
 module AcceleratorKey =
@@ -268,15 +296,21 @@ module AcceleratorKey =
         else
             // Pattern: [K] Label
             let m1 = Regex.Match(label, @"^\[(\w)\]\s+")
-            if m1.Success then m1.Groups[1].Value
+
+            if m1.Success then
+                m1.Groups[1].Value
             else
                 // Pattern: K) Label
                 let m2 = Regex.Match(label, @"^(\w)\)\s+")
-                if m2.Success then m2.Groups[1].Value
+
+                if m2.Success then
+                    m2.Groups[1].Value
                 else
                     // Pattern: K - Label
                     let m3 = Regex.Match(label, @"^(\w)\s*-\s+")
-                    if m3.Success then m3.Groups[1].Value
+
+                    if m3.Success then
+                        m3.Groups[1].Value
                     else
                         // First character
                         string label[0]
@@ -288,14 +322,17 @@ module AcceleratorKey =
         else
             let l = label.Trim()
             let m1 = Regex.Match(l, @"^\[\w\]\s+(.+)")
-            if m1.Success then m1.Groups[1].Value
+
+            if m1.Success then
+                m1.Groups[1].Value
             else
                 let m2 = Regex.Match(l, @"^\w\)\s+(.+)")
-                if m2.Success then m2.Groups[1].Value
+
+                if m2.Success then
+                    m2.Groups[1].Value
                 else
                     let m3 = Regex.Match(l, @"^\w\s*-\s+(.+)")
-                    if m3.Success then m3.Groups[1].Value
-                    else l
+                    if m3.Success then m3.Groups[1].Value else l
 
     /// Normalize a label for matching (lowercase, trim, strip accelerator prefix)
     let normalizeLabel (label: string) : string =
@@ -306,14 +343,18 @@ module AcceleratorKey =
                 let l = label.Trim()
                 // Strip [K] prefix
                 let m1 = Regex.Match(l, @"^\[\w\]\s+(.+)")
-                if m1.Success then m1.Groups[1].Value
+
+                if m1.Success then
+                    m1.Groups[1].Value
                 else
                     // Strip K) prefix
                     let m2 = Regex.Match(l, @"^\w\)\s+(.+)")
-                    if m2.Success then m2.Groups[1].Value
+
+                    if m2.Success then
+                        m2.Groups[1].Value
                     else
                         // Strip K - prefix
                         let m3 = Regex.Match(l, @"^\w\s*-\s+(.+)")
-                        if m3.Success then m3.Groups[1].Value
-                        else l
+                        if m3.Success then m3.Groups[1].Value else l
+
             stripped.Trim().ToLowerInvariant()

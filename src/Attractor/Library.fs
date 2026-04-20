@@ -29,12 +29,13 @@ module Pipeline =
     do
         if Handlers.childPipelineRunner.IsNone then
             Handlers.childPipelineRunner <-
-                Some (fun (dotSource: string) (logsRoot: string) ->
+                Some(fun (dotSource: string) (logsRoot: string) ->
                     let config =
                         { LogsRoot = logsRoot
                           Registry = HandlerRegistry.CreateDefault()
                           EventEmitter = EventEmitter()
                           ExtraTransforms = []
                           InitialContextValues = Map.empty }
+
                     let result = Engine.runFromSource dotSource config
                     (result.FinalOutcome, result.Context.Snapshot()))

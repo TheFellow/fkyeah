@@ -11,21 +11,30 @@ open UnifiedLlm
 module Handlers =
 
     let private truncate (maxChars: int) (text: string) =
-        if String.IsNullOrEmpty(text) then ""
-        elif text.Length > maxChars then text.Substring(0, maxChars) + "\n[truncated]"
-        else text
+        if String.IsNullOrEmpty(text) then
+            ""
+        elif text.Length > maxChars then
+            text.Substring(0, maxChars) + "\n[truncated]"
+        else
+            text
 
     let private inferProviderFromModel (model: string) =
         let lower = model.ToLowerInvariant()
-        if lower.StartsWith("claude") then "anthropic"
-        elif lower.StartsWith("gpt")
-             || lower.StartsWith("o1")
-             || lower.StartsWith("o3")
-             || lower.StartsWith("o4")
-             || lower.Contains("codex") then
+
+        if lower.StartsWith("claude") then
+            "anthropic"
+        elif
+            lower.StartsWith("gpt")
+            || lower.StartsWith("o1")
+            || lower.StartsWith("o3")
+            || lower.StartsWith("o4")
+            || lower.Contains("codex")
+        then
             "openai"
-        elif lower.StartsWith("gemini") then "gemini"
-        else "anthropic"
+        elif lower.StartsWith("gemini") then
+            "gemini"
+        else
+            "anthropic"
 
     let private profileForProvider (provider: string) (model: string) : IProviderProfile option =
         match provider.Trim().ToLowerInvariant() with
@@ -48,7 +57,10 @@ module Handlers =
         |> List.map (fun turn ->
             match turn with
             | UserTurn(content, timestamp) ->
-                box {| kind = "user"; content = content; timestamp = timestamp |}
+                box
+                    {| kind = "user"
+                       content = content
+                       timestamp = timestamp |}
             | AssistantTurn(content, toolCalls, reasoning, usage, timestamp) ->
                 let toolCallsData =
                     toolCalls
@@ -56,12 +68,14 @@ module Handlers =
                         {| id = tc.Id
                            name = tc.Name
                            arguments = tc.Arguments |})
+
                 let usageData =
                     {| input_tokens = usage.InputTokens
                        output_tokens = usage.OutputTokens
                        reasoning_tokens = usage.ReasoningTokens
                        cache_read_tokens = usage.CacheReadTokens
                        cache_write_tokens = usage.CacheWriteTokens |}
+
                 box
                     {| kind = "assistant"
                        content = content
@@ -76,16 +90,24 @@ module Handlers =
                         {| tool_call_id = r.ToolCallId
                            content = r.Content
                            is_error = r.IsError |})
-                box {| kind = "tool_results"; results = resultsData; timestamp = timestamp |}
+
+                box
+                    {| kind = "tool_results"
+                       results = resultsData
+                       timestamp = timestamp |}
             | SteeringTurn(content, timestamp) ->
-                box {| kind = "steering"; content = content; timestamp = timestamp |}
+                box
+                    {| kind = "steering"
+                       content = content
+                       timestamp = timestamp |}
             | SystemTurn(content, timestamp) ->
-                box {| kind = "system"; content = content; timestamp = timestamp |})
+                box
+                    {| kind = "system"
+                       content = content
+                       timestamp = timestamp |})
 
     let buildCodingAgentInput (node: Node) (context: Context) (graph: Graph) =
-        let promptBase =
-            if node.Prompt <> "" then node.Prompt
-            else node.Label
+        let promptBase = if node.Prompt <> "" then node.Prompt else node.Label
         let prompt = promptBase.Replace("$goal", graph.Goal)
         let snapshot = context.Snapshot()
         let sb = StringBuilder()
@@ -132,6 +154,7 @@ module Handlers =
     let private writeStageFile (stageDir: string) (rootDir: string) (fileName: string) (content: string) =
         ensureDir stageDir
         File.WriteAllText(Path.Combine(stageDir, fileName), content)
+
         if stageDir <> rootDir then
             ensureDir rootDir
             File.WriteAllText(Path.Combine(rootDir, fileName), content)
@@ -158,12 +181,14 @@ module Handlers =
     let private resolvePreparedContext (node: Node) (context: Context) (graph: Graph) =
         let fidelity =
             let resolved = node.GetAttrString("__resolved_fidelity", "").Trim()
+
             if resolved <> "" then
                 FidelityMode.Parse(resolved) |> Option.defaultValue FidelityMode.Compact
             elif node.Fidelity <> "" then
                 FidelityMode.Parse(node.Fidelity) |> Option.defaultValue FidelityMode.Compact
             elif graph.DefaultFidelity <> "" then
-                FidelityMode.Parse(graph.DefaultFidelity) |> Option.defaultValue FidelityMode.Compact
+                FidelityMode.Parse(graph.DefaultFidelity)
+                |> Option.defaultValue FidelityMode.Compact
             else
                 FidelityMode.Compact
 
@@ -172,13 +197,17 @@ module Handlers =
     let resolveWorkingDir (node: Node) (graph: Graph) (defaultWorkingDir: string) =
         let nodeCwd = node.GetAttrString("cwd", "")
         let graphCwd = graph.GetGraphAttrString("cwd", "")
+
         let configuredWorkingDir =
             if nodeCwd <> "" then nodeCwd
             elif graphCwd <> "" then graphCwd
             elif defaultWorkingDir <> "" then defaultWorkingDir
             else Environment.CurrentDirectory
-        if Path.IsPathRooted(configuredWorkingDir) then configuredWorkingDir
-        else Path.GetFullPath(configuredWorkingDir)
+
+        if Path.IsPathRooted(configuredWorkingDir) then
+            configuredWorkingDir
+        else
+            Path.GetFullPath(configuredWorkingDir)
 
     let private parseOutcomeFailPatterns (node: Node) =
         node.OutcomeFailPattern.Split('|', StringSplitOptions.RemoveEmptyEntries ||| StringSplitOptions.TrimEntries)
@@ -186,9 +215,9 @@ module Handlers =
 
     let private tryOutcomeFailFromPattern (node: Node) (responseText: string) (contextUpdates: Map<string, string>) =
         let patterns = parseOutcomeFailPatterns node
+
         patterns
-        |> List.tryFind (fun pattern ->
-            responseText.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
+        |> List.tryFind (fun pattern -> responseText.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0)
         |> Option.map (fun pattern ->
             { Outcome.Fail($"Matched outcome_fail_pattern '{pattern}'") with
                 Notes = $"Response matched fail pattern '{pattern}'"
@@ -216,6 +245,7 @@ module Handlers =
             psi.EnvironmentVariables["ATTRACTOR_STAGE_DIR"] <- stageDir
             psi.EnvironmentVariables["ATTRACTOR_LOGS_ROOT"] <- logsRoot
             psi.EnvironmentVariables["ATTRACTOR_CWD"] <- workingDir
+
             for (k, v) in extraEnv do
                 psi.EnvironmentVariables[k] <- v
 
@@ -230,9 +260,13 @@ module Handlers =
                 Result.Ok stdout
             else
                 let details =
-                    if not (String.IsNullOrWhiteSpace(stderr)) then stderr.Trim()
-                    elif not (String.IsNullOrWhiteSpace(stdout)) then stdout.Trim()
-                    else "(no output)"
+                    if not (String.IsNullOrWhiteSpace(stderr)) then
+                        stderr.Trim()
+                    elif not (String.IsNullOrWhiteSpace(stdout)) then
+                        stdout.Trim()
+                    else
+                        "(no output)"
+
                 Result.Error $"Hook failed with exit code {proc.ExitCode}: {details}"
 
     /// Write a status.json file for a node outcome
@@ -242,38 +276,41 @@ module Handlers =
     /// Start handler: no-op, returns SUCCESS
     type StartHandler() =
         interface IHandler with
-            member _.Execute(_, _, _, _) =
-                Outcome.Success()
+            member _.Execute(_, _, _, _) = Outcome.Success()
 
     /// Exit handler: no-op, returns SUCCESS
     type ExitHandler() =
         interface IHandler with
-            member _.Execute(_, _, _, _) =
-                Outcome.Success()
+            member _.Execute(_, _, _, _) = Outcome.Success()
 
     /// Codergen handler: LLM task execution
     type CodergenHandler(?backend: ICodergenBackend) =
         interface IHandler with
             member _.Execute(node, context, graph, logsRoot) =
                 // 1. Build prompt
-                let prompt =
-                    if node.Prompt <> "" then node.Prompt
-                    else node.Label
+                let prompt = if node.Prompt <> "" then node.Prompt else node.Label
                 let prompt = prompt.Replace("$goal", graph.Goal)
 
                 // 2. Write prompt and context snapshot to logs
                 let stageDir, rootDir = resolveStageDirs logsRoot node context
                 writeStageFile stageDir rootDir "prompt.md" prompt
                 let contextSnapshot = context.Snapshot()
+
                 if not contextSnapshot.IsEmpty then
                     let contextJson =
                         contextSnapshot
                         |> Map.toList
-                        |> List.map (fun (k, v) -> sprintf "  %s: %s" (System.Text.Json.JsonSerializer.Serialize(k)) (System.Text.Json.JsonSerializer.Serialize(v)))
+                        |> List.map (fun (k, v) ->
+                            sprintf
+                                "  %s: %s"
+                                (System.Text.Json.JsonSerializer.Serialize(k))
+                                (System.Text.Json.JsonSerializer.Serialize(v)))
                         |> String.concat ",\n"
+
                     writeStageFile stageDir rootDir "context.json" (sprintf "{\n%s\n}" contextJson)
 
                 let preparedContext = resolvePreparedContext node context graph
+
                 let contextBudgetJson =
                     JsonSerializer.Serialize(
                         {| fidelity_mode = preparedContext.FidelityMode.ToString()
@@ -284,7 +321,9 @@ module Handlers =
                            included_keys = preparedContext.IncludedKeys
                            truncated_keys = preparedContext.TruncatedKeys
                            excluded_keys = preparedContext.ExcludedKeys |},
-                        JsonSerializerOptions(WriteIndented = true))
+                        JsonSerializerOptions(WriteIndented = true)
+                    )
+
                 writeStageFile stageDir rootDir "context_budget.json" contextBudgetJson
 
                 // 3. Call backend (once!)
@@ -298,31 +337,36 @@ module Handlers =
                         writeStageFile stageDir rootDir "response.md" responseText
                         // Store up to 10K of response in context so subsequent stages can see it
                         let contextResponse =
-                            if responseText.Length > 10000 then responseText.Substring(0, 10000) + "\n[response truncated for context — full text in logs]"
-                            else responseText
+                            if responseText.Length > 10000 then
+                                responseText.Substring(0, 10000)
+                                + "\n[response truncated for context — full text in logs]"
+                            else
+                                responseText
+
                         let contextUpdates =
                             appendKnownLlmContext context [ "last_stage", node.Id; "last_response", contextResponse ]
+
                         let outcome =
                             match tryOutcomeFailFromPattern node responseText contextUpdates with
                             | Some failOutcome -> failOutcome
                             | None ->
-                                Outcome.Success(
-                                    notes = $"Stage completed: {node.Id}",
-                                    contextUpdates = contextUpdates)
+                                Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
+
                         writeStatus stageDir rootDir outcome
                         outcome
                 | None ->
                     let responseText = $"[Simulated] Response for stage: {node.Id}"
                     writeStageFile stageDir rootDir "response.md" responseText
+
                     let contextUpdates =
                         appendKnownLlmContext context [ "last_stage", node.Id; "last_response", responseText ]
+
                     let outcome =
                         match tryOutcomeFailFromPattern node responseText contextUpdates with
                         | Some failOutcome -> failOutcome
                         | None ->
-                            Outcome.Success(
-                                notes = $"Stage completed: {node.Id}",
-                                contextUpdates = contextUpdates)
+                            Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
+
                     writeStatus stageDir rootDir outcome
                     outcome
 
@@ -335,14 +379,17 @@ module Handlers =
                 let stageDir, rootDir = resolveStageDirs logsRoot node context
 
                 let model =
-                    if node.LlmModel <> "" then node.LlmModel
+                    if node.LlmModel <> "" then
+                        node.LlmModel
                     else
                         let graphModel = graph.GetGraphAttrString("llm_model", "")
                         if graphModel <> "" then graphModel else "claude-sonnet-4-6"
 
                 let providerId =
-                    if node.LlmProvider <> "" then node.LlmProvider
-                    else inferProviderFromModel model
+                    if node.LlmProvider <> "" then
+                        node.LlmProvider
+                    else
+                        inferProviderFromModel model
 
                 match profileForProvider providerId model with
                 | None ->
@@ -362,62 +409,71 @@ module Handlers =
                         node.GetAttr("max_turns")
                         |> Option.bind (fun v -> v.AsInt())
                         |> Option.defaultValue 20
+
                     let maxToolRounds =
                         node.GetAttr("max_tool_rounds")
                         |> Option.bind (fun v -> v.AsInt())
                         |> Option.defaultValue 25
+
                     let commandTimeout =
                         node.GetAttr("command_timeout")
                         |> Option.bind (fun v -> v.AsInt())
                         |> Option.defaultValue 120000
+
                     let reasoningEffort =
                         let raw = node.GetAttrString("reasoning_effort", "high").Trim()
                         if raw = "" then None else Some raw
+
                     let preHook = node.ToolHooksPre
                     let postHook = node.ToolHooksPost
+
                     let toolCallHook =
                         if preHook = "" && postHook = "" then
                             None
                         else
-                            Some(fun kind (toolCall: UnifiedLlm.ToolCallData) (toolResult: UnifiedLlm.ToolResultData option) ->
-                                if kind = CodingAgent.ToolCallHookPhase.Pre then
-                                    runHook
-                                        preHook
-                                        workingDir
-                                        node.Id
-                                        stageDir
-                                        logsRoot
-                                        [ "TOOL_NAME", toolCall.Name
-                                          "TOOL_ARGS", toolCall.Arguments
-                                          "NODE_ID", node.Id ]
-                                    |> Result.map (fun _ -> ())
-                                elif kind = CodingAgent.ToolCallHookPhase.Post then
-                                    let resultContent =
-                                        toolResult
-                                        |> Option.map (fun r -> r.Content)
-                                        |> Option.defaultValue ""
-                                    let exitCode =
-                                        toolResult
-                                        |> Option.map (fun r -> if r.IsError then "1" else "0")
-                                        |> Option.defaultValue "1"
-                                    match
+                            Some
+                                (fun
+                                    kind
+                                    (toolCall: UnifiedLlm.ToolCallData)
+                                    (toolResult: UnifiedLlm.ToolResultData option) ->
+                                    if kind = CodingAgent.ToolCallHookPhase.Pre then
                                         runHook
-                                        postHook
-                                        workingDir
-                                        node.Id
-                                        stageDir
-                                        logsRoot
-                                        [ "TOOL_NAME", toolCall.Name
-                                          "TOOL_RESULT", resultContent
-                                          "EXIT_CODE", exitCode
-                                          "NODE_ID", node.Id ]
-                                    with
-                                    | Result.Ok _ -> Result.Ok()
-                                    | Result.Error err ->
-                                        eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
-                                        Result.Ok()
-                                else
-                                    Result.Ok())
+                                            preHook
+                                            workingDir
+                                            node.Id
+                                            stageDir
+                                            logsRoot
+                                            [ "TOOL_NAME", toolCall.Name
+                                              "TOOL_ARGS", toolCall.Arguments
+                                              "NODE_ID", node.Id ]
+                                        |> Result.map (fun _ -> ())
+                                    elif kind = CodingAgent.ToolCallHookPhase.Post then
+                                        let resultContent =
+                                            toolResult |> Option.map (fun r -> r.Content) |> Option.defaultValue ""
+
+                                        let exitCode =
+                                            toolResult
+                                            |> Option.map (fun r -> if r.IsError then "1" else "0")
+                                            |> Option.defaultValue "1"
+
+                                        match
+                                            runHook
+                                                postHook
+                                                workingDir
+                                                node.Id
+                                                stageDir
+                                                logsRoot
+                                                [ "TOOL_NAME", toolCall.Name
+                                                  "TOOL_RESULT", resultContent
+                                                  "EXIT_CODE", exitCode
+                                                  "NODE_ID", node.Id ]
+                                        with
+                                        | Result.Ok _ -> Result.Ok()
+                                        | Result.Error err ->
+                                            eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
+                                            Result.Ok()
+                                    else
+                                        Result.Ok())
 
                     let sessionConfig =
                         { SessionConfig.Default with
@@ -431,6 +487,7 @@ module Handlers =
                     env.Initialize()
                     let checkpointPath = Path.Combine(rootDir, SessionPersistence.checkpointFileName)
                     let threadId = node.ThreadId
+
                     let sharedCheckpointPath =
                         if threadId <> "" then
                             let threadDir = Path.Combine(logsRoot, $"thread-{threadId}")
@@ -441,6 +498,7 @@ module Handlers =
 
                     let saveCheckpoint (session: Session) =
                         session.SaveCheckpoint(checkpointPath)
+
                         if not (String.Equals(sharedCheckpointPath, checkpointPath, StringComparison.Ordinal)) then
                             session.SaveCheckpoint(sharedCheckpointPath)
 
@@ -448,9 +506,12 @@ module Handlers =
                         try
                             let session =
                                 let restorePath =
-                                    if File.Exists(sharedCheckpointPath) then sharedCheckpointPath
-                                    elif File.Exists(checkpointPath) then checkpointPath
-                                    else ""
+                                    if File.Exists(sharedCheckpointPath) then
+                                        sharedCheckpointPath
+                                    elif File.Exists(checkpointPath) then
+                                        checkpointPath
+                                    else
+                                        ""
 
                                 if restorePath <> "" then
                                     Session.RestoreFromCheckpoint(profile, env, llmClient, restorePath, sessionConfig)
@@ -458,6 +519,7 @@ module Handlers =
                                     Session(profile, env, llmClient, sessionConfig)
 
                             let systemPrompt = node.GetAttrString("system_prompt", "").Trim()
+
                             if systemPrompt <> "" && session.UserInstructions.IsNone then
                                 session.SetUserInstructions(systemPrompt)
 
@@ -477,9 +539,8 @@ module Handlers =
                                 session.History
                                 |> formatHistory
                                 |> fun turns ->
-                                    JsonSerializer.Serialize(
-                                        turns,
-                                        JsonSerializerOptions(WriteIndented = true))
+                                    JsonSerializer.Serialize(turns, JsonSerializerOptions(WriteIndented = true))
+
                             writeStageFile stageDir rootDir "history.json" historyJson
 
                             let toolOutputFromSession =
@@ -487,14 +548,19 @@ module Handlers =
                                 |> List.choose (fun evt ->
                                     if evt.Kind = CodingAgent.EventKind.ToolCallEnd then
                                         evt.Data |> Map.tryFind "output"
-                                    else None)
+                                    else
+                                        None)
                                 |> String.concat "\n\n"
+
                             let toolOutput = toolOutputFromSession
+
                             if toolOutput <> "" then
                                 writeStageFile stageDir rootDir "tool_output.txt" toolOutput
 
                             let hitTurnLimit =
-                                session.Events |> List.exists (fun evt -> evt.Kind = CodingAgent.EventKind.TurnLimit)
+                                session.Events
+                                |> List.exists (fun evt -> evt.Kind = CodingAgent.EventKind.TurnLimit)
+
                             let aborted =
                                 session.State = SessionState.Closed
                                 || (session.Events
@@ -506,6 +572,7 @@ module Handlers =
                             // aggregator (which reads llm.* context keys) captures CodingAgent
                             // nodes, not just the embedded `llm` handler.
                             let usage = session.Usage
+
                             if usage.InputTokens > 0 || usage.OutputTokens > 0 then
                                 let cacheHit = (usage.CacheReadTokens |> Option.defaultValue 0) > 0
                                 let costMicros = session.CostMicrodollars
@@ -516,9 +583,12 @@ module Handlers =
                                 context.Set("llm.provider", profile.Id)
                                 context.Set("llm.last_node", node.Id)
                                 context.Set("llm.cost_microdollars", string costMicros)
+
                                 context.Set(
                                     "llm.cost_usd",
-                                    costUsd.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                                    costUsd.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                )
+
                                 context.Set("llm.cache_hit", string cacheHit)
 
                             let contextUpdates =
@@ -528,17 +598,20 @@ module Handlers =
                                 if session.State = SessionState.Idle && not hitTurnLimit && not aborted then
                                     Outcome.Success(
                                         notes = $"Stage completed: {node.Id}",
-                                        contextUpdates = contextUpdates)
+                                        contextUpdates = contextUpdates
+                                    )
                                 elif aborted then
                                     { Outcome.Fail("Coding agent session aborted") with
                                         ContextUpdates = contextUpdates }
                                 else
                                     { Outcome.Fail("Coding agent session hit turn limits before completion") with
                                         ContextUpdates = contextUpdates }
+
                             let outcome =
                                 match tryOutcomeFailFromPattern node finalResponse contextUpdates with
                                 | Some failOutcome -> failOutcome
                                 | None -> outcomeBase
+
                             writeStatus stageDir rootDir outcome
                             outcome
                         with
@@ -568,6 +641,7 @@ module Handlers =
                 let stageDir, rootDir = resolveStageDirs logsRoot node context
                 // 1. Derive choices from outgoing edges
                 let edges = graph.OutgoingEdges(node.Id)
+
                 if edges.IsEmpty then
                     Outcome.Fail("No outgoing edges for human gate")
                 else
@@ -576,14 +650,17 @@ module Handlers =
                         |> List.map (fun edge ->
                             let label = if edge.Label <> "" then edge.Label else edge.ToNode
                             let key = AcceleratorKey.parse label
-                            {| Key = key; Label = label; To = edge.ToNode |})
+
+                            {| Key = key
+                               Label = label
+                               To = edge.ToNode |})
 
                     // 2. Write prompt.md if node has a prompt attribute
                     let hasPrompt = node.Prompt <> ""
+
                     let promptFilePath =
                         if hasPrompt then
-                            let expandedPrompt =
-                                node.Prompt.Replace("$ATTRACTOR_LOGS_ROOT", logsRoot)
+                            let expandedPrompt = node.Prompt.Replace("$ATTRACTOR_LOGS_ROOT", logsRoot)
                             let path = Path.Combine(stageDir, "prompt.md")
                             writeStageFile stageDir rootDir "prompt.md" expandedPrompt
                             Some path
@@ -592,18 +669,19 @@ module Handlers =
 
                     // Build metadata with logs root and last completed stage
                     let lastStage = context.Get("last_stage", "")
+
                     let metadata =
                         let m =
-                            Map.ofList [
-                                "logs_root", logsRoot
-                                "last_stage", lastStage
-                                "goal", graph.Goal
-                                "node_id", node.Id
-                            ]
+                            Map.ofList
+                                [ "logs_root", logsRoot
+                                  "last_stage", lastStage
+                                  "goal", graph.Goal
+                                  "node_id", node.Id ]
+
                         let withAttrs =
                             node.Attributes
-                            |> Map.fold (fun acc key value ->
-                                acc |> Map.add $"attr.{key}" (value.AsString())) m
+                            |> Map.fold (fun acc key value -> acc |> Map.add $"attr.{key}" (value.AsString())) m
+
                         match promptFilePath with
                         | Some pf -> withAttrs |> Map.add "prompt_file" pf
                         | None -> withAttrs
@@ -628,8 +706,7 @@ module Handlers =
                         let answer =
                             try
                                 interviewer.Ask(question)
-                            with
-                            | :? OperationCanceledException ->
+                            with :? OperationCanceledException ->
                                 Answer.Skipped
 
                         if answer.IsSkipped then
@@ -643,27 +720,35 @@ module Handlers =
                                     ""
                             // Use file content if available, otherwise fall back to answer text
                             let inputValue =
-                                if responseContent <> "" then responseContent
-                                else answer.Value
+                                if responseContent <> "" then
+                                    responseContent
+                                else
+                                    answer.Value
 
                             let selected = choices[0]
+
                             { Outcome.Success(
-                                contextUpdates =
-                                    Map.ofList [
-                                        "human.gate.selected", selected.Key
-                                        "human.gate.label", selected.Label
-                                        "human.gate.input", inputValue ])
-                              with
+                                  contextUpdates =
+                                      Map.ofList
+                                          [ "human.gate.selected", selected.Key
+                                            "human.gate.label", selected.Label
+                                            "human.gate.input", inputValue ]
+                              ) with
                                 SuggestedNextIds = [ selected.To ] }
                     else
                         // MULTI-CHOICE PATH (existing behavior, enhanced with prompt_file)
                         let options =
                             choices
                             |> List.map (fun c ->
-                                { Key = c.Key; Label = AcceleratorKey.displayLabel c.Label })
+                                { Key = c.Key
+                                  Label = AcceleratorKey.displayLabel c.Label })
 
                         let question =
-                            { Text = if node.Label <> node.Id then node.Label else "Select an option:"
+                            { Text =
+                                if node.Label <> node.Id then
+                                    node.Label
+                                else
+                                    "Select an option:"
                               Type = QuestionType.MultipleChoice
                               Options = options
                               Default = None
@@ -674,22 +759,25 @@ module Handlers =
                         let answer =
                             try
                                 interviewer.Ask(question)
-                            with
-                            | :? OperationCanceledException ->
+                            with :? OperationCanceledException ->
                                 Answer.Skipped
 
                         // Handle timeout/skip
                         if answer.IsTimeout then
-                            let defaultChoice =
-                                node.GetAttrString("human.default_choice", "")
+                            let defaultChoice = node.GetAttrString("human.default_choice", "")
+
                             if defaultChoice <> "" then
                                 let selected =
                                     choices
                                     |> List.tryFind (fun c -> c.Key = defaultChoice || c.Label = defaultChoice)
                                     |> Option.defaultValue choices[0]
+
                                 { Outcome.Success(
-                                    contextUpdates = Map.ofList [ "human.gate.selected", selected.Key; "human.gate.label", selected.Label ])
-                                  with
+                                      contextUpdates =
+                                          Map.ofList
+                                              [ "human.gate.selected", selected.Key
+                                                "human.gate.label", selected.Label ]
+                                  ) with
                                     SuggestedNextIds = [ selected.To ] }
                             else
                                 Outcome.Retry("human gate timeout, no default")
@@ -701,13 +789,18 @@ module Handlers =
                                 choices
                                 |> List.tryFind (fun c ->
                                     c.Key.Equals(answer.Value, StringComparison.OrdinalIgnoreCase)
-                                    || AcceleratorKey.normalizeLabel c.Label = AcceleratorKey.normalizeLabel answer.Value
-                                    || (answer.SelectedOption |> Option.map (fun o -> o.Key = c.Key) |> Option.defaultValue false))
+                                    || AcceleratorKey.normalizeLabel c.Label = AcceleratorKey.normalizeLabel
+                                        answer.Value
+                                    || (answer.SelectedOption
+                                        |> Option.map (fun o -> o.Key = c.Key)
+                                        |> Option.defaultValue false))
                                 |> Option.defaultValue choices[0]
 
                             { Outcome.Success(
-                                contextUpdates = Map.ofList [ "human.gate.selected", selected.Key; "human.gate.label", selected.Label ])
-                              with
+                                  contextUpdates =
+                                      Map.ofList
+                                          [ "human.gate.selected", selected.Key; "human.gate.label", selected.Label ]
+                              ) with
                                 SuggestedNextIds = [ selected.To ]
                                 PreferredLabel = selected.Label }
 
@@ -719,6 +812,7 @@ module Handlers =
         interface IHandler with
             member _.Execute(node, context, graph, logsRoot) =
                 let branches = graph.OutgoingEdges(node.Id)
+
                 if branches.IsEmpty then
                     Outcome.Success(notes = "No branches to execute")
                 else
@@ -728,6 +822,7 @@ module Handlers =
                         |> List.map (fun branch ->
                             async {
                                 let branchContext = context.Clone()
+
                                 match graph.Nodes |> Map.tryFind branch.ToNode with
                                 | Some targetNode ->
                                     try
@@ -745,69 +840,81 @@ module Handlers =
                                         return (branch.ToNode, outcome.Status, outcome.ContextUpdates)
                                     with _ ->
                                         return (branch.ToNode, StageStatus.Fail, Map.empty)
-                                | None ->
-                                    return (branch.ToNode, StageStatus.Fail, Map.empty)
+                                | None -> return (branch.ToNode, StageStatus.Fail, Map.empty)
                             })
                         |> Array.ofList
 
                     let results =
-                        branchTasks
-                        |> Async.Parallel
-                        |> Async.RunSynchronously
-                        |> Array.toList
+                        branchTasks |> Async.Parallel |> Async.RunSynchronously |> Array.toList
 
-                    let successCount = results |> List.filter (fun (_, s, _) -> s = StageStatus.Success) |> List.length
-                    let failCount = results |> List.filter (fun (_, s, _) -> s <> StageStatus.Success) |> List.length
+                    let successCount =
+                        results |> List.filter (fun (_, s, _) -> s = StageStatus.Success) |> List.length
+
+                    let failCount =
+                        results
+                        |> List.filter (fun (_, s, _) -> s <> StageStatus.Success)
+                        |> List.length
 
                     let mergedBranchUpdates =
                         results
-                        |> List.fold (fun acc (branchId, _, updates) ->
-                            updates
-                            |> Map.fold (fun state key value ->
-                                state
-                                |> Map.add $"parallel.{node.Id}.{branchId}.{key}" value
-                                |> Map.add key value) acc) Map.empty
+                        |> List.fold
+                            (fun acc (branchId, _, updates) ->
+                                updates
+                                |> Map.fold
+                                    (fun state key value ->
+                                        state
+                                        |> Map.add $"parallel.{node.Id}.{branchId}.{key}" value
+                                        |> Map.add key value)
+                                    acc)
+                            Map.empty
 
                     // Write per-branch results to context + record executed nodes
-                    let executedNodes =
-                        results |> List.map (fun (id, _, _) -> id) |> String.concat ","
+                    let executedNodes = results |> List.map (fun (id, _, _) -> id) |> String.concat ","
+
                     let laneNames =
                         results
                         |> List.map (fun (branchId, _, _) ->
                             let branchNode = graph.Nodes |> Map.tryFind branchId
+
                             branchNode
                             |> Option.map (fun n -> n.GetAttrString("lane", branchId))
                             |> Option.defaultValue branchId)
+
                     let metadataUpdates =
                         results
-                        |> List.fold (fun acc (branchId, status, _) ->
-                            let branchNode = graph.Nodes |> Map.tryFind branchId
-                            let lane =
-                                branchNode
-                                |> Option.map (fun n -> n.GetAttrString("lane", branchId))
-                                |> Option.defaultValue branchId
-                            acc
-                            |> Map.add $"parallel.branch.{branchId}.status" (status.ToString())
-                            |> Map.add $"parallel.{node.Id}.{branchId}.lane" lane)
+                        |> List.fold
+                            (fun acc (branchId, status, _) ->
+                                let branchNode = graph.Nodes |> Map.tryFind branchId
+
+                                let lane =
+                                    branchNode
+                                    |> Option.map (fun n -> n.GetAttrString("lane", branchId))
+                                    |> Option.defaultValue branchId
+
+                                acc
+                                |> Map.add $"parallel.branch.{branchId}.status" (status.ToString())
+                                |> Map.add $"parallel.{node.Id}.{branchId}.lane" lane)
                             (Map.ofList
                                 [ "parallel.success_count", string successCount
                                   "parallel.fail_count", string failCount
                                   "parallel.executed_nodes", executedNodes ])
                         |> Map.add $"parallel.{node.Id}.lanes" (String.concat "," laneNames)
+
                     let contextUpdates =
                         metadataUpdates
                         |> Map.fold (fun state key value -> Map.add key value state) mergedBranchUpdates
 
                     let status =
-                        if failCount = 0 then StageStatus.Success
-                        else StageStatus.PartialSuccess
+                        if failCount = 0 then
+                            StageStatus.Success
+                        else
+                            StageStatus.PartialSuccess
 
                     // Find the fan-in node: look for nodes that all branches converge to
                     let fanInTargets =
                         branches
                         |> List.collect (fun branch ->
-                            graph.OutgoingEdges(branch.ToNode)
-                            |> List.map (fun e -> e.ToNode))
+                            graph.OutgoingEdges(branch.ToNode) |> List.map (fun e -> e.ToNode))
                         |> List.distinct
 
                     { Status = status
@@ -824,11 +931,13 @@ module Handlers =
                 // Read parallel branch results from context
                 let successCount = context.TryGet("parallel.success_count")
                 let failCount = context.TryGet("parallel.fail_count")
+
                 match successCount, failCount with
                 | Some sc, Some fc ->
                     Outcome.Success(
                         notes = $"Fan-in completed: {sc} succeeded, {fc} failed",
-                        contextUpdates = Map.ofList [ "parallel.fan_in.completed", "true" ])
+                        contextUpdates = Map.ofList [ "parallel.fan_in.completed", "true" ]
+                    )
                 | _ ->
                     // No parallel results, pass through
                     Outcome.Success(notes = "Fan-in: no parallel results, passing through")
@@ -842,6 +951,7 @@ module Handlers =
         interface IHandler with
             member _.Execute(node, context, graph, logsRoot) =
                 let command = node.GetAttrString("tool_command", "")
+
                 if command = "" then
                     Outcome.Fail("No tool_command specified")
                 else
@@ -853,6 +963,7 @@ module Handlers =
                         // If node has a prompt, write it to a file for the tool to consume
                         let promptFile =
                             let prompt = node.Prompt
+
                             if prompt <> "" then
                                 let path = Path.Combine(stageDir, "prompt.txt")
                                 writeStageFile stageDir rootDir "prompt.txt" prompt
@@ -867,12 +978,11 @@ module Handlers =
                                 node.Id
                                 stageDir
                                 logsRoot
-                                [ "TOOL_NAME", "shell"
-                                  "TOOL_ARGS", command
-                                  "NODE_ID", node.Id ]
+                                [ "TOOL_NAME", "shell"; "TOOL_ARGS", command; "NODE_ID", node.Id ]
                         with
                         | Result.Error hookError ->
                             eprintfn "Warning: pre-hook command failed for node %s: %s" node.Id hookError
+
                             let outcome =
                                 { Status = StageStatus.Skipped
                                   PreferredLabel = ""
@@ -880,6 +990,7 @@ module Handlers =
                                   ContextUpdates = Map.empty
                                   Notes = "Tool execution skipped because pre-hook failed"
                                   FailureReason = hookError }
+
                             writeStatus stageDir rootDir outcome
                             outcome
                         | Result.Ok _ ->
@@ -894,9 +1005,9 @@ module Handlers =
 
                             // Set env vars for the tool command
                             match promptFile with
-                            | Some path ->
-                                psi.EnvironmentVariables["ATTRACTOR_PROMPT_FILE"] <- path
+                            | Some path -> psi.EnvironmentVariables["ATTRACTOR_PROMPT_FILE"] <- path
                             | None -> ()
+
                             psi.EnvironmentVariables["ATTRACTOR_STAGE_DIR"] <- rootDir
                             psi.EnvironmentVariables["ATTRACTOR_LOGS_ROOT"] <- logsRoot
                             psi.EnvironmentVariables["ATTRACTOR_NODE_ID"] <- node.Id
@@ -930,7 +1041,11 @@ module Handlers =
                                     true
 
                             if not completed then
-                                try proc.Kill(true) with _ -> ()
+                                try
+                                    proc.Kill(true)
+                                with _ ->
+                                    ()
+
                                 match
                                     runHook
                                         node.ToolHooksPost
@@ -946,6 +1061,7 @@ module Handlers =
                                 | Result.Error err ->
                                     eprintfn "Warning: post-hook command failed for node %s: %s" node.Id err
                                 | Result.Ok _ -> ()
+
                                 Outcome.Fail($"Tool timed out after {timeoutMs}ms: {command}")
                             else
                                 let fullOutput = stdoutTask.Result
@@ -954,13 +1070,15 @@ module Handlers =
 
                                 // Write full output to logs
                                 writeStageFile stageDir rootDir "tool_output.txt" fullOutput
+
                                 if stderr.Length > 0 then
                                     writeStageFile stageDir rootDir "tool_stderr.txt" stderr
 
                                 // Truncate output for context
                                 let truncatedOutput =
                                     if fullOutput.Length > outputLimit then
-                                        fullOutput.Substring(0, outputLimit) + $"\n[WARNING: Tool output was truncated. {fullOutput.Length - outputLimit} characters removed]"
+                                        fullOutput.Substring(0, outputLimit)
+                                        + $"\n[WARNING: Tool output was truncated. {fullOutput.Length - outputLimit} characters removed]"
                                     else
                                         fullOutput
 
@@ -989,9 +1107,7 @@ module Handlers =
                                           "tool_exit_code", string exitCode ]
 
                                 if exitCode = 0 then
-                                    Outcome.Success(
-                                        notes = $"Tool completed: {command}",
-                                        contextUpdates = updates)
+                                    Outcome.Success(notes = $"Tool completed: {command}", contextUpdates = updates)
                                 else
                                     { Outcome.Fail($"Tool failed with exit code {exitCode}") with
                                         ContextUpdates = updates }
@@ -1000,7 +1116,8 @@ module Handlers =
 
     /// Mutable callback for running child pipelines, wired up in Engine.fs.
     /// Signature: dotSource -> logsRoot -> (finalOutcome * contextSnapshot)
-    let mutable childPipelineRunner: (string -> string -> Outcome * Map<string, string>) option = None
+    let mutable childPipelineRunner: (string -> string -> Outcome * Map<string, string>) option =
+        None
 
     /// Manager loop handler: child pipeline execution with polling/steering fallback.
     /// The optional runChild callback has signature: dotSource -> logsRoot -> (finalOutcome * contextSnapshot).
@@ -1014,20 +1131,16 @@ module Handlers =
 
         let getIntAttr (node: Node) (keys: string list) (defaultValue: int) =
             keys
-            |> List.tryPick (fun key ->
-                node.GetAttr(key)
-                |> Option.bind (fun v -> v.AsInt()))
+            |> List.tryPick (fun key -> node.GetAttr(key) |> Option.bind (fun v -> v.AsInt()))
             |> Option.defaultValue defaultValue
 
         let executePollingMode (node: Node) (context: Context) =
             let lane = node.GetAttrString("lane", "")
             let maxCycles = getIntAttr node [ "max_cycles"; "manager.max_cycles" ] 10
 
-            let stopConditionKey =
-                node.GetAttrString("stop_condition_key", "manager.stop")
+            let stopConditionKey = node.GetAttrString("stop_condition_key", "manager.stop")
 
-            let observeKey =
-                node.GetAttrString("observe_key", "manager.subordinate_output")
+            let observeKey = node.GetAttrString("observe_key", "manager.subordinate_output")
 
             let waitMs =
                 node.GetAttr("wait_ms")
@@ -1054,6 +1167,7 @@ module Handlers =
                     false
                 else
                     let lower = observed.ToLowerInvariant()
+
                     repeatCount >= 1
                     || lower.Contains("stuck")
                     || lower.Contains("off-track")
@@ -1066,6 +1180,7 @@ module Handlers =
 
                 // Observe subordinate output.
                 let observed = context.TryGet(observeKey) |> Option.defaultValue ""
+
                 if observed <> "" then
                     context.Set("manager.last_observed", observed)
 
@@ -1073,6 +1188,7 @@ module Handlers =
                     repeatCount <- repeatCount + 1
                 else
                     repeatCount <- 0
+
                 lastObserved <- observed
 
                 if hasStopSignal () then
@@ -1083,17 +1199,18 @@ module Handlers =
                     if shouldInjectSteering observed then
                         steeringMessage <-
                             $"Cycle {cycle}: steer subordinate back to goal, unblock the next concrete step, and report progress."
+
                         context.Set("manager.steering", steeringMessage)
                         context.Set("manager.correction_injected", "true")
 
                     context.Set("manager.cycle", string cycle)
+
                     if cycle < maxCycles then
                         System.Threading.Thread.Sleep(waitMs)
 
             let stoppedStr = if stopped then "true" else "false"
-            let status =
-                if stopped then StageStatus.Success
-                else StageStatus.Fail
+            let status = if stopped then StageStatus.Success else StageStatus.Fail
+
             { Status = status
               PreferredLabel = ""
               SuggestedNextIds = []
@@ -1102,21 +1219,22 @@ module Handlers =
                     [ "manager.total_cycles", string cycle
                       "manager.turns_used", string cycle
                       "manager.stopped", stoppedStr ]
-                    |> fun updates ->
-                        if lane <> "" then
-                            updates |> Map.add "manager.lane" lane
-                        else
-                            updates
-                    |> fun updates ->
-                        if steeringMessage <> "" then
-                            updates |> Map.add "manager.steering" steeringMessage
-                        else
-                            updates
+                |> fun updates ->
+                    if lane <> "" then
+                        updates |> Map.add "manager.lane" lane
+                    else
+                        updates
+                |> fun updates ->
+                    if steeringMessage <> "" then
+                        updates |> Map.add "manager.steering" steeringMessage
+                    else
+                        updates
               Notes = $"Manager loop: {cycle} cycles, stopped={stopped}"
               FailureReason =
                 if status = StageStatus.Fail then
                     $"manager loop reached max_cycles ({maxCycles}) without stop condition"
-                else "" }
+                else
+                    "" }
 
         let executeChildMode (node: Node) (_context: Context) (graph: Graph) (logsRoot: string) =
             let childDotfile = graph.StackChildDotfile.Trim()
@@ -1133,71 +1251,80 @@ module Handlers =
             if not (File.Exists(resolvedPath)) then
                 Outcome.Fail($"Manager loop node {node.Id}: child DOT not found: {resolvedPath}")
             else
-                match resolveRunner() with
-                | None ->
-                    Outcome.Fail($"Manager loop node {node.Id}: child pipeline runner not configured (Engine not wired)")
-                | Some runChildFn ->
-                let childDotSource = File.ReadAllText(resolvedPath)
-                let maxCycles = getIntAttr node [ "manager.max_cycles"; "max_cycles" ] 10
-                let pollInterval = getIntAttr node [ "manager.poll_interval"; "poll_interval" ] 5 |> max 0
-                let lane = node.GetAttrString("lane", "")
-
-                let mutable cycle = 0
-                let mutable finalOutcome: Outcome option = None
-                let mutable lastChildStatus = "unknown"
-
-                while cycle < maxCycles && finalOutcome.IsNone do
-                    let childLogsRoot = Path.Combine(logsRoot, node.Id, $"cycle_{cycle}")
-
-                    try
-                        let (childOutcome, childContext) = runChildFn childDotSource childLogsRoot
-                        lastChildStatus <- childOutcome.Status.ToString().ToLowerInvariant()
-
-                        match childOutcome.Status with
-                        | StageStatus.Success
-                        | StageStatus.PartialSuccess ->
-                            let baseUpdates =
-                                [ "manager.cycle_count", string (cycle + 1)
-                                  "manager.total_cycles", string (cycle + 1)
-                                  "manager.turns_used", string (cycle + 1)
-                                  "manager.child_status", lastChildStatus ]
-                                |> fun updates ->
-                                    if lane <> "" then
-                                        ("manager.lane", lane) :: updates
-                                    else
-                                        updates
-
-                            let updates =
-                                childContext
-                                |> Map.fold (fun acc key value -> acc |> Map.add $"child.{key}" value) (baseUpdates |> Map.ofList)
-
-                            finalOutcome <-
-                                Some
-                                    { Outcome.Success(
-                                        notes = $"Manager loop completed after {cycle + 1} cycle(s)",
-                                        contextUpdates = updates) with
-                                        Status = childOutcome.Status }
-                        | _ ->
-                            if cycle < maxCycles - 1 && pollInterval > 0 then
-                                System.Threading.Thread.Sleep(pollInterval * 1000)
-                    with ex ->
-                        if cycle = maxCycles - 1 then
-                            finalOutcome <-
-                                Some(
-                                    Outcome.Fail(
-                                        $"Manager loop node {node.Id}: child pipeline threw after {cycle + 1} cycle(s): {ex.Message}"
-                                    ))
-                        elif pollInterval > 0 then
-                            System.Threading.Thread.Sleep(pollInterval * 1000)
-
-                    cycle <- cycle + 1
-
-                match finalOutcome with
-                | Some outcome -> outcome
+                match resolveRunner () with
                 | None ->
                     Outcome.Fail(
-                        $"Manager loop node {node.Id}: child pipeline failed after {maxCycles} cycle(s), last status: {lastChildStatus}"
+                        $"Manager loop node {node.Id}: child pipeline runner not configured (Engine not wired)"
                     )
+                | Some runChildFn ->
+                    let childDotSource = File.ReadAllText(resolvedPath)
+                    let maxCycles = getIntAttr node [ "manager.max_cycles"; "max_cycles" ] 10
+
+                    let pollInterval =
+                        getIntAttr node [ "manager.poll_interval"; "poll_interval" ] 5 |> max 0
+
+                    let lane = node.GetAttrString("lane", "")
+
+                    let mutable cycle = 0
+                    let mutable finalOutcome: Outcome option = None
+                    let mutable lastChildStatus = "unknown"
+
+                    while cycle < maxCycles && finalOutcome.IsNone do
+                        let childLogsRoot = Path.Combine(logsRoot, node.Id, $"cycle_{cycle}")
+
+                        try
+                            let (childOutcome, childContext) = runChildFn childDotSource childLogsRoot
+                            lastChildStatus <- childOutcome.Status.ToString().ToLowerInvariant()
+
+                            match childOutcome.Status with
+                            | StageStatus.Success
+                            | StageStatus.PartialSuccess ->
+                                let baseUpdates =
+                                    [ "manager.cycle_count", string (cycle + 1)
+                                      "manager.total_cycles", string (cycle + 1)
+                                      "manager.turns_used", string (cycle + 1)
+                                      "manager.child_status", lastChildStatus ]
+                                    |> fun updates ->
+                                        if lane <> "" then
+                                            ("manager.lane", lane) :: updates
+                                        else
+                                            updates
+
+                                let updates =
+                                    childContext
+                                    |> Map.fold
+                                        (fun acc key value -> acc |> Map.add $"child.{key}" value)
+                                        (baseUpdates |> Map.ofList)
+
+                                finalOutcome <-
+                                    Some
+                                        { Outcome.Success(
+                                              notes = $"Manager loop completed after {cycle + 1} cycle(s)",
+                                              contextUpdates = updates
+                                          ) with
+                                            Status = childOutcome.Status }
+                            | _ ->
+                                if cycle < maxCycles - 1 && pollInterval > 0 then
+                                    System.Threading.Thread.Sleep(pollInterval * 1000)
+                        with ex ->
+                            if cycle = maxCycles - 1 then
+                                finalOutcome <-
+                                    Some(
+                                        Outcome.Fail(
+                                            $"Manager loop node {node.Id}: child pipeline threw after {cycle + 1} cycle(s): {ex.Message}"
+                                        )
+                                    )
+                            elif pollInterval > 0 then
+                                System.Threading.Thread.Sleep(pollInterval * 1000)
+
+                        cycle <- cycle + 1
+
+                    match finalOutcome with
+                    | Some outcome -> outcome
+                    | None ->
+                        Outcome.Fail(
+                            $"Manager loop node {node.Id}: child pipeline failed after {maxCycles} cycle(s), last status: {lastChildStatus}"
+                        )
 
         interface IHandler with
             member _.Execute(node, context, graph, logsRoot) =
@@ -1218,11 +1345,9 @@ type HandlerRegistry() =
     let handlers = System.Collections.Generic.Dictionary<string, IHandler>()
     let mutable defaultHandler: IHandler = Handlers.CodergenHandler() :> IHandler
 
-    member _.Register(typeString: string, handler: IHandler) =
-        handlers[typeString] <- handler
+    member _.Register(typeString: string, handler: IHandler) = handlers[typeString] <- handler
 
-    member _.SetDefault(handler: IHandler) =
-        defaultHandler <- handler
+    member _.SetDefault(handler: IHandler) = defaultHandler <- handler
 
     member _.Resolve(node: Node) : IHandler =
         // 1. Explicit type attribute
@@ -1233,6 +1358,7 @@ type HandlerRegistry() =
         else
             // 2. Shape-based resolution
             let handlerType = ShapeMapping.resolveHandlerType node
+
             match handlers.TryGetValue(handlerType) with
             | true, h -> h
             | false, _ -> defaultHandler
@@ -1248,13 +1374,17 @@ type HandlerRegistry() =
         let registry = HandlerRegistry()
         let interviewer = defaultArg interviewer (AutoApproveInterviewer() :> IInterviewer)
         let llmClient = defaultArg llmClient (Client())
+
         let acpPermissionStrategy =
             defaultArg acpPermissionStrategy AcpRuntime.PermissionStrategy.DenyAll
+
         registry.Register("start", Handlers.StartHandler())
         registry.Register("exit", Handlers.ExitHandler())
+
         match backend with
         | Some b -> registry.Register("codergen", Handlers.CodergenHandler(b))
         | None -> registry.Register("codergen", Handlers.CodergenHandler())
+
         registry.Register("coding_agent", Handlers.CodingAgentHandler(llmClient))
         registry.Register("wait.human", Handlers.WaitForHumanHandler(interviewer))
         registry.Register("conditional", Handlers.ConditionalHandler())
@@ -1265,7 +1395,9 @@ type HandlerRegistry() =
         registry.Register("mcp.tool", McpHandlers.McpToolHandler())
         registry.Register("acp.agent", AcpHandlers.AcpAgentHandler(permissionStrategy = acpPermissionStrategy))
         registry.Register("stack.manager_loop", Handlers.ManagerLoopHandler())
+
         match backend with
         | Some b -> registry.SetDefault(Handlers.CodergenHandler(b))
         | None -> registry.SetDefault(Handlers.CodergenHandler())
+
         registry

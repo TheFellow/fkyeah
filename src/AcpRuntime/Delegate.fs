@@ -3,23 +3,16 @@ namespace AcpRuntime
 open System
 
 [<CLIMutable>]
-type ReadTextFileRequest =
-    { Path: string }
+type ReadTextFileRequest = { Path: string }
 
 [<CLIMutable>]
-type ReadTextFileResult =
-    { Path: string
-      Content: string }
+type ReadTextFileResult = { Path: string; Content: string }
 
 [<CLIMutable>]
-type WriteTextFileRequest =
-    { Path: string
-      Content: string }
+type WriteTextFileRequest = { Path: string; Content: string }
 
 [<CLIMutable>]
-type WriteTextFileResult =
-    { Path: string
-      BytesWritten: int }
+type WriteTextFileResult = { Path: string; BytesWritten: int }
 
 [<CLIMutable>]
 type TerminalCreateRequest =
@@ -29,8 +22,7 @@ type TerminalCreateRequest =
       Environment: Map<string, string> }
 
 [<CLIMutable>]
-type TerminalCreateResult =
-    { TerminalId: string }
+type TerminalCreateResult = { TerminalId: string }
 
 [<CLIMutable>]
 type TerminalOutputRequest =
@@ -55,20 +47,16 @@ type TerminalWaitForExitResult =
       TimedOut: bool }
 
 [<CLIMutable>]
-type TerminalKillRequest =
-    { TerminalId: string }
+type TerminalKillRequest = { TerminalId: string }
 
 [<CLIMutable>]
-type TerminalKillResult =
-    { Killed: bool }
+type TerminalKillResult = { Killed: bool }
 
 [<CLIMutable>]
-type TerminalReleaseRequest =
-    { TerminalId: string }
+type TerminalReleaseRequest = { TerminalId: string }
 
 [<CLIMutable>]
-type TerminalReleaseResult =
-    { Released: bool }
+type TerminalReleaseResult = { Released: bool }
 
 [<CLIMutable>]
 type PermissionRequest =
@@ -78,8 +66,7 @@ type PermissionRequest =
 
 [<CLIMutable>]
 type PermissionResult =
-    { Allowed: bool
-      Reason: string option }
+    { Allowed: bool; Reason: string option }
 
 type AcpDelegate =
     { ReadTextFile: ReadTextFileRequest -> Async<Result<ReadTextFileResult, AcpError>>
@@ -95,9 +82,7 @@ type AcpDelegate =
 module AcpDelegate =
 
     let private denied operation =
-        async {
-            return Error(AcpError.PermissionDenied $"Operation '{operation}' is denied")
-        }
+        async { return Error(AcpError.PermissionDenied $"Operation '{operation}' is denied") }
 
     let denyAll =
         { ReadTextFile = fun _ -> denied "filesystem/read_text_file"

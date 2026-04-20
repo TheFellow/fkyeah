@@ -54,7 +54,10 @@ module ErrorSprint007 =
 
         use rateLimitResponse = new HttpResponseMessage(enum<HttpStatusCode> 429)
         rateLimitResponse.Headers.TryAddWithoutValidation("Retry-After", "60") |> ignore
-        let classifiedRateLimit = ErrorMapping.classifyHttpResponse rateLimitResponse "slow down"
+
+        let classifiedRateLimit =
+            ErrorMapping.classifyHttpResponse rateLimitResponse "slow down"
+
         let rateLimitError = Assert.IsType<RateLimitError>(classifiedRateLimit)
         Assert.Equal(Some 60.0, rateLimitError.RetryAfter)
 
@@ -66,5 +69,9 @@ module ErrorSprint007 =
 
     [<Fact>]
     let ``Retry effectiveDelay rejects Retry-After values beyond max delay`` () =
-        let config = { RetryConfig.Default with MaxDelayMs = 1000; Jitter = false }
+        let config =
+            { RetryConfig.Default with
+                MaxDelayMs = 1000
+                Jitter = false }
+
         Assert.Equal(None, Retry.effectiveDelay config 0 (Some 2.0))

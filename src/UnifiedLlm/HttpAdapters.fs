@@ -38,6 +38,7 @@ module SseParsing =
             while not finished do
                 let elapsed = int progress.ElapsedMilliseconds
                 let remaining = idleTimeoutMs - elapsed
+
                 if remaining <= 0 then
                     raise (TimeoutError(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
 
@@ -45,6 +46,7 @@ module SseParsing =
                 cts.CancelAfter(remaining)
                 let mutable line: string = null
                 let mutable cancelled = false
+
                 try
                     try
                         line <- reader.ReadLineAsync(cts.Token).AsTask().GetAwaiter().GetResult()
@@ -72,8 +74,10 @@ module SseParsing =
                     if dataLines.Count > 0 then
                         let name = if eventName = "" then "message" else eventName
                         let data = String.concat "\n" dataLines
+
                         if not (isHeartbeatEvent name) then
                             progress.Restart()
+
                         yield name, data
                         eventName <- ""
                         dataLines.Clear()
@@ -94,8 +98,7 @@ module HttpCancellation =
 
     let token () = cts.Token
 
-    let cancel () =
-        cts.Cancel()
+    let cancel () = cts.Cancel()
 
     let isCancelled () = cts.IsCancellationRequested
 
@@ -105,27 +108,34 @@ module HttpCancellation =
 
 module private HttpAdapterHelpers =
 
-    type ToolBlockState = {
-        Id: string
-        Name: string
-        Args: StringBuilder
-        Metadata: Map<string, string>
-    }
+    type ToolBlockState =
+        { Id: string
+          Name: string
+          Args: StringBuilder
+          Metadata: Map<string, string> }
 
     let tryGetProperty (name: string) (element: JsonElement) : JsonElement option =
         let mutable value = Unchecked.defaultof<JsonElement>
-        if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then Some value
-        else None
+
+        if element.ValueKind = JsonValueKind.Object && element.TryGetProperty(name, &value) then
+            Some value
+        else
+            None
 
     let tryGetString (name: string) (element: JsonElement) : string option =
         tryGetProperty name element
         |> Option.bind (fun p ->
-            if p.ValueKind = JsonValueKind.String then Some(p.GetString()) else None)
+            if p.ValueKind = JsonValueKind.String then
+                Some(p.GetString())
+            else
+                None)
 
     let toObjMap (map: Map<string, string>) : obj =
         let d = Dictionary<string, obj>()
+
         for KeyValue(k, v) in map do
             d[k] <- v :> obj
+
         d :> obj
 
     let toRawElement (raw: string) : JsonElement =
@@ -135,8 +145,10 @@ module private HttpAdapterHelpers =
             JsonSerializer.SerializeToElement(dict [ "raw_text", raw ]).Clone()
 
     let tryParseJsonObject (json: string) (fallback: obj) : obj =
-        try JsonDocument.Parse(json).RootElement.Clone() :> obj
-        with _ -> fallback
+        try
+            JsonDocument.Parse(json).RootElement.Clone() :> obj
+        with _ ->
+            fallback
 
     let private tryConvertJsonElementMap (element: JsonElement) : Map<string, obj> option =
         if element.ValueKind <> JsonValueKind.Object then
@@ -151,8 +163,13 @@ module private HttpAdapterHelpers =
                     | JsonValueKind.False -> p.Value.GetBoolean() :> obj
                     | JsonValueKind.Number ->
                         let mutable i = 0L
-                        if p.Value.TryGetInt64(&i) then i :> obj else p.Value.GetDouble() :> obj
+
+                        if p.Value.TryGetInt64(&i) then
+                            i :> obj
+                        else
+                            p.Value.GetDouble() :> obj
                     | _ -> p.Value.Clone() :> obj
+
                 p.Name, boxed)
             |> Map.ofSeq
             |> Some
@@ -161,12 +178,9 @@ module private HttpAdapterHelpers =
         match value with
         | null -> None
         | :? Map<string, obj> as m -> Some m
-        | :? Map<string, string> as m ->
-            m |> Map.map (fun _ v -> v :> obj) |> Some
-        | :? IDictionary<string, obj> as dictObj ->
-            dictObj |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq |> Some
-        | :? JsonElement as je ->
-            tryConvertJsonElementMap je
+        | :? Map<string, string> as m -> m |> Map.map (fun _ v -> v :> obj) |> Some
+        | :? IDictionary<string, obj> as dictObj -> dictObj |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq |> Some
+        | :? JsonElement as je -> tryConvertJsonElementMap je
         | _ -> None
 
     let rec tryAsBool (value: obj) : bool option =
@@ -175,16 +189,20 @@ module private HttpAdapterHelpers =
         | :? bool as b -> Some b
         | :? string as s ->
             let t = s.Trim().ToLowerInvariant()
+
             match t with
-            | "true" | "1" | "yes" -> Some true
-            | "false" | "0" | "no" -> Some false
+            | "true"
+            | "1"
+            | "yes" -> Some true
+            | "false"
+            | "0"
+            | "no" -> Some false
             | _ -> None
         | :? JsonElement as je ->
             match je.ValueKind with
             | JsonValueKind.True -> Some true
             | JsonValueKind.False -> Some false
-            | JsonValueKind.String ->
-                tryAsBool (je.GetString() :> obj)
+            | JsonValueKind.String -> tryAsBool (je.GetString() :> obj)
             | _ -> None
         | _ -> None
 
@@ -192,8 +210,10 @@ module private HttpAdapterHelpers =
         match value with
         | :? Map<string, obj> as m ->
             let d = Dictionary<string, obj>()
+
             for KeyValue(k, v) in m do
                 d[k] <- toProviderOptionPayload v
+
             d :> obj
         | :? JsonElement as je -> je.Clone() :> obj
         | _ -> value
@@ -209,7 +229,8 @@ module private HttpAdapterHelpers =
         | _ -> Other raw
 
     let mapOpenAIFinishReason (rawStatus: string) (rawReason: string option) (hasToolCalls: bool) =
-        if hasToolCalls then ToolCalls (rawReason |> Option.defaultValue "tool_calls")
+        if hasToolCalls then
+            ToolCalls(rawReason |> Option.defaultValue "tool_calls")
         else
             match rawStatus, rawReason with
             | "completed", _ -> Stop "completed"
@@ -223,12 +244,19 @@ module private HttpAdapterHelpers =
             | s, None -> Other s
 
     let mapGeminiFinishReason (raw: string) (hasToolCalls: bool) =
-        if hasToolCalls then ToolCalls (if String.IsNullOrWhiteSpace(raw) then "function_call" else raw)
+        if hasToolCalls then
+            ToolCalls(
+                if String.IsNullOrWhiteSpace(raw) then
+                    "function_call"
+                else
+                    raw
+            )
         else
             match raw with
             | "STOP" -> Stop raw
             | "MAX_TOKENS" -> Length raw
-            | "SAFETY" | "RECITATION" -> ContentFilter raw
+            | "SAFETY"
+            | "RECITATION" -> ContentFilter raw
             | "" -> Stop "STOP"
             | "ERROR" -> Error raw
             | _ -> Other raw
@@ -251,6 +279,7 @@ module private HttpAdapterHelpers =
         value
         |> Option.bind (fun v ->
             let mutable asInt = 0L
+
             if Int64.TryParse(v, &asInt) then
                 Some(DateTimeOffset.FromUnixTimeSeconds(asInt))
             else
@@ -264,9 +293,7 @@ module private HttpAdapterHelpers =
         (resetHeaders: string list)
         : RateLimitInfo option =
         let limit =
-            limitHeaders
-            |> List.tryPick (fun h -> tryGetHeader httpResp h)
-            |> tryParseInt
+            limitHeaders |> List.tryPick (fun h -> tryGetHeader httpResp h) |> tryParseInt
 
         let remaining =
             remainingHeaders
@@ -279,14 +306,19 @@ module private HttpAdapterHelpers =
             |> tryParseResetAt
 
         if limit.IsSome || remaining.IsSome || resetAt.IsSome then
-            Some { Limit = limit; Remaining = remaining; ResetAt = resetAt }
-        else None
+            Some
+                { Limit = limit
+                  Remaining = remaining
+                  ResetAt = resetAt }
+        else
+            None
 
     let parseAnthropicRateLimit (httpResp: HttpResponseMessage) =
         parseRateLimit
             httpResp
             [ "anthropic-ratelimit-requests-limit"; "anthropic-ratelimit-tokens-limit" ]
-            [ "anthropic-ratelimit-requests-remaining"; "anthropic-ratelimit-tokens-remaining" ]
+            [ "anthropic-ratelimit-requests-remaining"
+              "anthropic-ratelimit-tokens-remaining" ]
             [ "anthropic-ratelimit-requests-reset"; "anthropic-ratelimit-tokens-reset" ]
 
     let parseOpenAIRateLimit (httpResp: HttpResponseMessage) =
@@ -305,7 +337,8 @@ module private HttpAdapterHelpers =
 
     let createLinkedCancellationSource (request: Request) =
         let tokens = ResizeArray<CancellationToken>()
-        tokens.Add(HttpCancellation.token())
+        tokens.Add(HttpCancellation.token ())
+
         match request.AbortSignal with
         | Some signal -> tokens.Add(signal.Token)
         | None -> ()
@@ -317,11 +350,9 @@ module private HttpAdapterHelpers =
                 new CancellationTokenSource()
 
         let timeoutCandidatesMs =
-            [
-                request.Timeout |> Option.map (fun timeout -> int timeout.TotalMilliseconds)
-                request.TimeoutConfig |> Option.bind (fun timeout -> timeout.PerStepMs)
-                request.AdapterTimeout |> Option.bind (fun timeout -> timeout.RequestMs)
-            ]
+            [ request.Timeout |> Option.map (fun timeout -> int timeout.TotalMilliseconds)
+              request.TimeoutConfig |> Option.bind (fun timeout -> timeout.PerStepMs)
+              request.AdapterTimeout |> Option.bind (fun timeout -> timeout.RequestMs) ]
             |> List.choose id
             |> List.filter (fun ms -> ms > 0)
 
@@ -336,33 +367,41 @@ module private HttpAdapterHelpers =
     let raiseCancellation (request: Request) =
         match request.AbortSignal with
         | Some signal when signal.IsAborted -> raise (AbortError("Request aborted by caller"))
-        | _ when HttpCancellation.isCancelled() -> raise (AbortError("Request cancelled"))
-        | _ when request.Timeout.IsSome || request.TimeoutConfig.IsSome || request.AdapterTimeout.IsSome ->
+        | _ when HttpCancellation.isCancelled () -> raise (AbortError("Request cancelled"))
+        | _ when
+            request.Timeout.IsSome
+            || request.TimeoutConfig.IsSome
+            || request.AdapterTimeout.IsSome
+            ->
             raise (RequestTimeoutError("Request timed out"))
         | _ -> raise (TimeoutError("Request timed out"))
 
     let sendAndReadString (client: HttpClient) (request: Request) (httpReq: HttpRequestMessage) =
         use cts = createLinkedCancellationSource request
+
         try
             let httpResp = client.Send(httpReq, cts.Token)
-            let respBody = httpResp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult()
+
+            let respBody =
+                httpResp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult()
+
             httpResp, respBody
-        with
-        | :? OperationCanceledException ->
+        with :? OperationCanceledException ->
             raiseCancellation request
 
     let sendForStream (client: HttpClient) (request: Request) (httpReq: HttpRequestMessage) =
         let cts = createLinkedCancellationSource request
+
         try
-            let httpResp = client.Send(httpReq, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+            let httpResp =
+                client.Send(httpReq, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+
             httpResp, cts
-        with
-        | :? OperationCanceledException ->
+        with :? OperationCanceledException ->
             cts.Dispose()
             raiseCancellation request
 
-    let parseSse (reader: StreamReader) (outer: CancellationToken) =
-        SseParsing.parse reader outer
+    let parseSse (reader: StreamReader) (outer: CancellationToken) = SseParsing.parse reader outer
 
     let extractMessagePartsFromAnthropic (content: JsonElement) =
         let contentParts = ResizeArray<ContentPart>()
@@ -377,31 +416,39 @@ module private HttpAdapterHelpers =
                 let text = tryGetString "thinking" item |> Option.defaultValue ""
                 let signature = tryGetString "signature" item
                 let redacted = text = "[redacted]"
-                contentParts.Add(ContentPart.Thinking { Text = text; Signature = signature; Redacted = redacted })
+
+                contentParts.Add(
+                    ContentPart.Thinking
+                        { Text = text
+                          Signature = signature
+                          Redacted = redacted }
+                )
             | Some "redacted_thinking" ->
-                contentParts.Add(ContentPart.Thinking { Text = "[redacted]"; Signature = None; Redacted = true })
+                contentParts.Add(
+                    ContentPart.Thinking
+                        { Text = "[redacted]"
+                          Signature = None
+                          Redacted = true }
+                )
             | Some "tool_use" ->
                 let args =
                     match tryGetProperty "input" item with
                     | Some input -> input.GetRawText()
                     | None -> "{}"
-                contentParts.Add(ContentPart.ToolCall {
-                    Id = tryGetString "id" item |> Option.defaultValue (Guid.NewGuid().ToString("N"))
-                    Name = tryGetString "name" item |> Option.defaultValue "unknown_tool"
-                    Arguments = args
-                    Metadata = Map.empty
-                })
-            | Some other ->
-                warnings.Add(sprintf "Unknown Anthropic content block type: %s" other)
+
+                contentParts.Add(
+                    ContentPart.ToolCall
+                        { Id = tryGetString "id" item |> Option.defaultValue (Guid.NewGuid().ToString("N"))
+                          Name = tryGetString "name" item |> Option.defaultValue "unknown_tool"
+                          Arguments = args
+                          Metadata = Map.empty }
+                )
+            | Some other -> warnings.Add(sprintf "Unknown Anthropic content block type: %s" other)
             | None -> warnings.Add("Anthropic content block missing type")
 
         contentParts |> Seq.toList, warnings |> Seq.toList
 
-    let responseFromAnthropic
-        (requestModel: string)
-        (respBody: string)
-        (httpResp: HttpResponseMessage)
-        =
+    let responseFromAnthropic (requestModel: string) (respBody: string) (httpResp: HttpResponseMessage) =
         let doc = JsonDocument.Parse(respBody)
         let root = doc.RootElement
 
@@ -414,26 +461,39 @@ module private HttpAdapterHelpers =
         let usage: Usage =
             match tryGetProperty "usage" root with
             | Some u ->
-                { InputTokens = tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
-                  OutputTokens = tryGetProperty "output_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+                { InputTokens =
+                    tryGetProperty "input_tokens" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
+                  OutputTokens =
+                    tryGetProperty "output_tokens" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
                   ReasoningTokens = None
                   CacheReadTokens = tryGetProperty "cache_read_input_tokens" u |> Option.map (fun v -> v.GetInt32())
-                  CacheWriteTokens = tryGetProperty "cache_creation_input_tokens" u |> Option.map (fun v -> v.GetInt32()) }
+                  CacheWriteTokens =
+                    tryGetProperty "cache_creation_input_tokens" u
+                    |> Option.map (fun v -> v.GetInt32()) }
             | None -> Usage.Zero
 
         let rawStopReason =
-            tryGetString "stop_reason" root
-            |> Option.defaultValue "end_turn"
+            tryGetString "stop_reason" root |> Option.defaultValue "end_turn"
 
         let finishReason = mapAnthropicFinishReason rawStopReason
 
         let message =
             { Role = Assistant
-              Content = if contentParts.IsEmpty then [ ContentPart.Text "" ] else contentParts
+              Content =
+                if contentParts.IsEmpty then
+                    [ ContentPart.Text "" ]
+                else
+                    contentParts
               Name = None
               ToolCallId = None }
 
-        { Id = tryGetString "id" root |> Option.defaultValue ("anthropic-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+        { Id =
+            tryGetString "id" root
+            |> Option.defaultValue ("anthropic-" + Guid.NewGuid().ToString("N").Substring(0, 8))
           Model = tryGetString "model" root |> Option.defaultValue requestModel
           Provider = "anthropic"
           Message = message
@@ -444,11 +504,7 @@ module private HttpAdapterHelpers =
           Warnings = warnings
           RateLimit = parseAnthropicRateLimit httpResp }
 
-    let responseFromOpenAI
-        (requestModel: string)
-        (respBody: string)
-        (httpResp: HttpResponseMessage)
-        =
+    let responseFromOpenAI (requestModel: string) (respBody: string) (httpResp: HttpResponseMessage) =
         let doc = JsonDocument.Parse(respBody)
         let root = doc.RootElement
 
@@ -466,7 +522,13 @@ module private HttpAdapterHelpers =
                         contentParts.Add(ContentPart.Text(tryGetString "text" part |> Option.defaultValue ""))
                     | Some "reasoning" ->
                         let text = tryGetString "text" part |> Option.defaultValue ""
-                        contentParts.Add(ContentPart.Thinking { Text = text; Signature = None; Redacted = false })
+
+                        contentParts.Add(
+                            ContentPart.Thinking
+                                { Text = text
+                                  Signature = None
+                                  Redacted = false }
+                        )
                     | Some other -> warnings.Add(sprintf "Unknown OpenAI message part type: %s" other)
                     | None -> ()
             | None -> ()
@@ -478,16 +540,26 @@ module private HttpAdapterHelpers =
                 | Some "message" -> addMessageContent item
                 | Some "function_call" ->
                     hasToolCalls <- true
-                    contentParts.Add(ContentPart.ToolCall {
-                        Id = tryGetString "call_id" item |> Option.defaultValue (Guid.NewGuid().ToString("N"))
-                        Name = tryGetString "name" item |> Option.defaultValue "unknown_tool"
-                        Arguments = tryGetString "arguments" item |> Option.defaultValue "{}"
-                        Metadata = Map.empty
-                    })
+
+                    contentParts.Add(
+                        ContentPart.ToolCall
+                            { Id =
+                                tryGetString "call_id" item
+                                |> Option.defaultValue (Guid.NewGuid().ToString("N"))
+                              Name = tryGetString "name" item |> Option.defaultValue "unknown_tool"
+                              Arguments = tryGetString "arguments" item |> Option.defaultValue "{}"
+                              Metadata = Map.empty }
+                    )
                 | Some "reasoning" ->
                     let text = tryGetString "summary" item |> Option.defaultValue ""
+
                     if text <> "" then
-                        contentParts.Add(ContentPart.Thinking { Text = text; Signature = None; Redacted = false })
+                        contentParts.Add(
+                            ContentPart.Thinking
+                                { Text = text
+                                  Signature = None
+                                  Redacted = false }
+                        )
                 | Some other -> warnings.Add(sprintf "Unknown OpenAI output item type: %s" other)
                 | None -> ()
         | None ->
@@ -498,8 +570,15 @@ module private HttpAdapterHelpers =
         let usage: Usage =
             match tryGetProperty "usage" root with
             | Some u ->
-                let inputTokens = tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
-                let outputTokens = tryGetProperty "output_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+                let inputTokens =
+                    tryGetProperty "input_tokens" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
+
+                let outputTokens =
+                    tryGetProperty "output_tokens" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
 
                 let cacheReadTokens =
                     tryGetProperty "input_tokens_details" u
@@ -519,16 +598,26 @@ module private HttpAdapterHelpers =
             | None -> Usage.Zero
 
         let status = tryGetString "status" root |> Option.defaultValue "completed"
+
         let incompleteReason =
-            tryGetProperty "incomplete_details" root
-            |> Option.bind (tryGetString "reason")
+            tryGetProperty "incomplete_details" root |> Option.bind (tryGetString "reason")
 
         let finishReason = mapOpenAIFinishReason status incompleteReason hasToolCalls
 
-        { Id = tryGetString "id" root |> Option.defaultValue ("openai-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+        { Id =
+            tryGetString "id" root
+            |> Option.defaultValue ("openai-" + Guid.NewGuid().ToString("N").Substring(0, 8))
           Model = tryGetString "model" root |> Option.defaultValue requestModel
           Provider = "openai"
-          Message = { Role = Assistant; Content = (if contentParts.Count = 0 then [ ContentPart.Text "" ] else contentParts |> Seq.toList); Name = None; ToolCallId = None }
+          Message =
+            { Role = Assistant
+              Content =
+                (if contentParts.Count = 0 then
+                     [ ContentPart.Text "" ]
+                 else
+                     contentParts |> Seq.toList)
+              Name = None
+              ToolCallId = None }
           FinishReason = finishReason
           Usage = usage
           ResponseId = tryGetString "id" root
@@ -536,11 +625,7 @@ module private HttpAdapterHelpers =
           Warnings = warnings |> Seq.toList
           RateLimit = parseOpenAIRateLimit httpResp }
 
-    let responseFromGemini
-        (requestModel: string)
-        (respBody: string)
-        (httpResp: HttpResponseMessage)
-        =
+    let responseFromGemini (requestModel: string) (respBody: string) (httpResp: HttpResponseMessage) =
         let doc = JsonDocument.Parse(respBody)
         let root = doc.RootElement
 
@@ -559,35 +644,42 @@ module private HttpAdapterHelpers =
             | Some parts ->
                 for part in parts.EnumerateArray() do
                     match tryGetProperty "text" part with
-                    | Some textPart ->
-                        contentParts.Add(ContentPart.Text(textPart.GetString()))
+                    | Some textPart -> contentParts.Add(ContentPart.Text(textPart.GetString()))
                     | None ->
                         match tryGetProperty "functionCall" part with
                         | Some fc ->
                             hasToolCalls <- true
+
                             let metadata =
                                 match tryGetString "thoughtSignature" part with
                                 | Some ts -> Map.ofList [ "thoughtSignature", ts ]
                                 | None -> Map.empty
-                            contentParts.Add(ContentPart.ToolCall {
-                                Id = "gemini-tc-" + Guid.NewGuid().ToString("N").Substring(0, 8)
-                                Name = tryGetString "name" fc |> Option.defaultValue "unknown_tool"
-                                Arguments =
-                                    match tryGetProperty "args" fc with
-                                    | Some args -> args.GetRawText()
-                                    | None -> "{}"
-                                Metadata = metadata
-                            })
-                        | None ->
-                            warnings.Add("Unknown Gemini content part")
+
+                            contentParts.Add(
+                                ContentPart.ToolCall
+                                    { Id = "gemini-tc-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+                                      Name = tryGetString "name" fc |> Option.defaultValue "unknown_tool"
+                                      Arguments =
+                                        match tryGetProperty "args" fc with
+                                        | Some args -> args.GetRawText()
+                                        | None -> "{}"
+                                      Metadata = metadata }
+                            )
+                        | None -> warnings.Add("Unknown Gemini content part")
             | None -> ()
         | _ -> warnings.Add("Gemini response missing candidates")
 
         let usage: Usage =
             match tryGetProperty "usageMetadata" root with
             | Some u ->
-                { InputTokens = tryGetProperty "promptTokenCount" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
-                  OutputTokens = tryGetProperty "candidatesTokenCount" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+                { InputTokens =
+                    tryGetProperty "promptTokenCount" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
+                  OutputTokens =
+                    tryGetProperty "candidatesTokenCount" u
+                    |> Option.map (fun v -> v.GetInt32())
+                    |> Option.defaultValue 0
                   ReasoningTokens = tryGetProperty "thoughtsTokenCount" u |> Option.map (fun v -> v.GetInt32())
                   CacheReadTokens = tryGetProperty "cachedContentTokenCount" u |> Option.map (fun v -> v.GetInt32())
                   CacheWriteTokens = None }
@@ -598,7 +690,15 @@ module private HttpAdapterHelpers =
         { Id = "gemini-" + Guid.NewGuid().ToString("N").Substring(0, 8)
           Model = requestModel
           Provider = "gemini"
-          Message = { Role = Assistant; Content = (if contentParts.Count = 0 then [ ContentPart.Text "" ] else contentParts |> Seq.toList); Name = None; ToolCallId = None }
+          Message =
+            { Role = Assistant
+              Content =
+                (if contentParts.Count = 0 then
+                     [ ContentPart.Text "" ]
+                 else
+                     contentParts |> Seq.toList)
+              Name = None
+              ToolCallId = None }
           FinishReason = finishReason
           Usage = usage
           ResponseId = None
@@ -611,6 +711,7 @@ type AnthropicAdapter(apiKey: string) =
     // 10-minute transport cap on the initial POST. The SSE loop has its own
     // idle timeout; this guards against stalled connects or headers.
     let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
+
     let baseUrl =
         match Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") with
         | null
@@ -630,8 +731,10 @@ type AnthropicAdapter(apiKey: string) =
 
     let buildBody (request: Request) (stream: bool) =
         let model =
-            if request.Model = "" then "claude-sonnet-4-6"
-            else request.Model
+            if request.Model = "" then
+                "claude-sonnet-4-6"
+            else
+                request.Model
 
         let maxTokens = request.MaxTokens |> Option.defaultValue 4096
 
@@ -639,10 +742,16 @@ type AnthropicAdapter(apiKey: string) =
 
         let systemText =
             request.Messages
-            |> List.choose (fun m -> if m.Role = System || m.Role = Developer then Some m.Text else None)
+            |> List.choose (fun m ->
+                if m.Role = System || m.Role = Developer then
+                    Some m.Text
+                else
+                    None)
             |> String.concat "\n"
 
-        let nonSystemMessages = request.Messages |> List.filter (fun m -> m.Role <> System && m.Role <> Developer)
+        let nonSystemMessages =
+            request.Messages
+            |> List.filter (fun m -> m.Role <> System && m.Role <> Developer)
 
         let lastUserIndex =
             nonSystemMessages
@@ -655,6 +764,7 @@ type AnthropicAdapter(apiKey: string) =
             nonSystemMessages
             |> List.mapi (fun i m ->
                 let isLastUser = lastUserIndex = Some i
+
                 match m.Role with
                 | Assistant ->
                     let contentBlocks =
@@ -663,16 +773,32 @@ type AnthropicAdapter(apiKey: string) =
                             match part with
                             | ContentPart.Text t -> {| ``type`` = "text"; text = t |} :> obj
                             | ContentPart.ToolCall tc ->
-                                let inputObj = HttpAdapterHelpers.tryParseJsonObject tc.Arguments ({||} :> obj)
-                                {| ``type`` = "tool_use"; id = tc.Id; name = tc.Name; input = inputObj |} :> obj
+                                let inputObj = HttpAdapterHelpers.tryParseJsonObject tc.Arguments ({| |} :> obj)
+
+                                {| ``type`` = "tool_use"
+                                   id = tc.Id
+                                   name = tc.Name
+                                   input = inputObj |}
+                                :> obj
                             | ContentPart.Thinking td ->
-                                {| ``type`` = "thinking"; thinking = td.Text; signature = td.Signature |} :> obj
+                                {| ``type`` = "thinking"
+                                   thinking = td.Text
+                                   signature = td.Signature |}
+                                :> obj
                             | _ -> {| ``type`` = "text"; text = "" |} :> obj)
                         |> Array.ofList
-                    {| role = "assistant"; content = contentBlocks |} :> obj
+
+                    {| role = "assistant"
+                       content = contentBlocks |}
+                    :> obj
                 | Tool ->
                     let resultContent =
-                        m.Content |> List.tryPick (fun p -> match p with | ContentPart.ToolResult tr -> Some tr | _ -> None)
+                        m.Content
+                        |> List.tryPick (fun p ->
+                            match p with
+                            | ContentPart.ToolResult tr -> Some tr
+                            | _ -> None)
+
                     match resultContent with
                     | Some tr ->
                         let block =
@@ -681,22 +807,35 @@ type AnthropicAdapter(apiKey: string) =
                                    tool_use_id = tr.ToolCallId
                                    content = tr.Content
                                    is_error = tr.IsError
-                                   cache_control = {| ``type`` = "ephemeral" |} |} :> obj
+                                   cache_control = {| ``type`` = "ephemeral" |} |}
+                                :> obj
                             else
                                 {| ``type`` = "tool_result"
                                    tool_use_id = tr.ToolCallId
                                    content = tr.Content
-                                   is_error = tr.IsError |} :> obj
-                        {| role = "user"; content = [| block |] |} :> obj
+                                   is_error = tr.IsError |}
+                                :> obj
+
+                        {| role = "user"
+                           content = [| block |] |}
+                        :> obj
                     | None ->
-                        {| role = "user"; content = [| {| ``type`` = "text"; text = m.Text |} |] |} :> obj
+                        {| role = "user"
+                           content = [| {| ``type`` = "text"; text = m.Text |} |] |}
+                        :> obj
                 | _ ->
                     let block =
                         if autoCache && isLastUser then
-                            {| ``type`` = "text"; text = m.Text; cache_control = {| ``type`` = "ephemeral" |} |} :> obj
+                            {| ``type`` = "text"
+                               text = m.Text
+                               cache_control = {| ``type`` = "ephemeral" |} |}
+                            :> obj
                         else
                             {| ``type`` = "text"; text = m.Text |} :> obj
-                    {| role = "user"; content = [| block |] |} :> obj)
+
+                    {| role = "user"
+                       content = [| block |] |}
+                    :> obj)
 
         let bodyDict = Dictionary<string, obj>()
         bodyDict["model"] <- model
@@ -705,9 +844,14 @@ type AnthropicAdapter(apiKey: string) =
 
         if systemText <> "" then
             if autoCache then
-                bodyDict["system"] <- [| {| ``type`` = "text"; text = systemText; cache_control = {| ``type`` = "ephemeral" |} |} |]
+                bodyDict["system"] <-
+                    [| {| ``type`` = "text"
+                          text = systemText
+                          cache_control = {| ``type`` = "ephemeral" |} |} |]
             else
-                bodyDict["system"] <- [| {| ``type`` = "text"; text = systemText |} |]
+                bodyDict["system"] <-
+                    [| {| ``type`` = "text"
+                          text = systemText |} |]
 
         if stream then
             bodyDict["stream"] <- true
@@ -756,7 +900,9 @@ type AnthropicAdapter(apiKey: string) =
             if maxTokens <= budget then
                 bodyDict["max_tokens"] <- budget + 4096
         | Some budget, _ ->
-            bodyDict["thinking"] <- {| ``type`` = "enabled"; budget_tokens = budget |}
+            bodyDict["thinking"] <-
+                {| ``type`` = "enabled"
+                   budget_tokens = budget |}
             // max_tokens must be greater than thinking.budget_tokens per Anthropic API
             if maxTokens <= budget then
                 bodyDict["max_tokens"] <- budget + 4096
@@ -765,28 +911,48 @@ type AnthropicAdapter(apiKey: string) =
         let structuredToolName, structuredToolDef =
             match request.ResponseFormat with
             | Some(ResponseFormat.JsonSchema(name, schema, _strict)) ->
-                let schemaObj = HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
-                let toolName = if String.IsNullOrWhiteSpace(name) then "extract_structured_output" else name
+                let schemaObj =
+                    HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
+
+                let toolName =
+                    if String.IsNullOrWhiteSpace(name) then
+                        "extract_structured_output"
+                    else
+                        name
+
                 let tool =
                     {| name = toolName
                        description = "Return the final response as structured JSON."
-                       input_schema = schemaObj |} :> obj
+                       input_schema = schemaObj |}
+                    :> obj
+
                 Some toolName, Some tool
             | Some ResponseFormat.JsonObject ->
                 let toolName = "extract_structured_output"
+
                 let tool =
                     {| name = toolName
                        description = "Return the final response as structured JSON object."
-                       input_schema = ({| ``type`` = "object" |} :> obj) |} :> obj
+                       input_schema = ({| ``type`` = "object" |} :> obj) |}
+                    :> obj
+
                 Some toolName, Some tool
             | _ -> None, None
 
         let toolDefs = ResizeArray<obj>()
+
         match request.Tools with
         | Some tools when not tools.IsEmpty ->
             for t in tools do
-                let inputSchema = HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
-                toolDefs.Add({| name = t.Name; description = t.Description; input_schema = inputSchema |} :> obj)
+                let inputSchema =
+                    HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
+
+                toolDefs.Add(
+                    {| name = t.Name
+                       description = t.Description
+                       input_schema = inputSchema |}
+                    :> obj
+                )
         | _ -> ()
 
         match structuredToolDef with
@@ -820,19 +986,24 @@ type AnthropicAdapter(apiKey: string) =
         httpReq.Headers.Add("anthropic-version", "2023-06-01")
 
         let betaFeatures = ResizeArray<string>()
+
         if request.ReasoningEffort.IsSome then
             betaFeatures.Add("interleaved-thinking-2025-05-14")
 
         let addFeature (feature: string) =
             let trimmed = feature.Trim()
+
             if trimmed <> "" && not (betaFeatures.Contains(trimmed)) then
                 betaFeatures.Add(trimmed)
 
-        match tryGetAnthropicOptions request |> Option.bind (fun opts -> opts |> Map.tryFind "beta_features") with
-        | Some (:? string as features) ->
+        match
+            tryGetAnthropicOptions request
+            |> Option.bind (fun opts -> opts |> Map.tryFind "beta_features")
+        with
+        | Some(:? string as features) ->
             for feature in features.Split(',') do
                 addFeature feature
-        | Some (:? JsonElement as je) when je.ValueKind = JsonValueKind.Array ->
+        | Some(:? JsonElement as je) when je.ValueKind = JsonValueKind.Array ->
             for item in je.EnumerateArray() do
                 if item.ValueKind = JsonValueKind.String then
                     addFeature (item.GetString())
@@ -846,14 +1017,16 @@ type AnthropicAdapter(apiKey: string) =
     interface IProviderAdapter with
         member _.ProviderId = "anthropic"
         member _.Initialize() = async.Return()
-        member _.Close() =
-            async {
-                client.Dispose()
-            }
+        member _.Close() = async { client.Dispose() }
         member _.SupportsToolChoice() = true
 
         member this.Complete(request: Request) =
-            let model = if request.Model = "" then "claude-sonnet-4-6" else request.Model
+            let model =
+                if request.Model = "" then
+                    "claude-sonnet-4-6"
+                else
+                    request.Model
+
             let httpReq = this.BuildHttpRequest(request, false)
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
@@ -864,7 +1037,12 @@ type AnthropicAdapter(apiKey: string) =
             HttpAdapterHelpers.responseFromAnthropic model respBody httpResp
 
         member this.Stream(request: Request) =
-            let model = if request.Model = "" then "claude-sonnet-4-6" else request.Model
+            let model =
+                if request.Model = "" then
+                    "claude-sonnet-4-6"
+                else
+                    request.Model
+
             seq {
                 let httpReq = this.BuildHttpRequest(request, true)
                 let httpResp, cts = HttpAdapterHelpers.sendForStream client request httpReq
@@ -896,42 +1074,69 @@ type AnthropicAdapter(apiKey: string) =
                 for (eventName, data) in HttpAdapterHelpers.parseSse reader cts.Token do
                     if data <> "[DONE]" then
                         rawEvents.Add(sprintf "%s:%s" eventName data)
+
                         match eventName with
                         | "message_start" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             match HttpAdapterHelpers.tryGetProperty "message" root with
                             | Some msg ->
                                 responseId <- HttpAdapterHelpers.tryGetString "id" msg |> Option.defaultValue responseId
-                                responseModel <- HttpAdapterHelpers.tryGetString "model" msg |> Option.defaultValue responseModel
+
+                                responseModel <-
+                                    HttpAdapterHelpers.tryGetString "model" msg |> Option.defaultValue responseModel
+
                                 match HttpAdapterHelpers.tryGetProperty "usage" msg with
                                 | Some u ->
-                                    usage <- { usage with InputTokens = HttpAdapterHelpers.tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue usage.InputTokens }
+                                    usage <-
+                                        { usage with
+                                            InputTokens =
+                                                HttpAdapterHelpers.tryGetProperty "input_tokens" u
+                                                |> Option.map (fun v -> v.GetInt32())
+                                                |> Option.defaultValue usage.InputTokens }
                                 | None -> ()
                             | None -> ()
                         | "content_block_start" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
-                            let idx = HttpAdapterHelpers.tryGetProperty "index" root |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+
+                            let idx =
+                                HttpAdapterHelpers.tryGetProperty "index" root
+                                |> Option.map (fun v -> v.GetInt32())
+                                |> Option.defaultValue 0
+
                             match HttpAdapterHelpers.tryGetProperty "content_block" root with
                             | Some block ->
                                 match HttpAdapterHelpers.tryGetString "type" block with
                                 | Some "text" ->
                                     textBuilders[idx] <- StringBuilder()
+
                                     if textStarted.Add(idx) then
                                         yield TextStart(sprintf "text-%d" idx)
                                 | Some "tool_use" ->
-                                    let state: HttpAdapterHelpers.ToolBlockState = {
-                                        Id = HttpAdapterHelpers.tryGetString "id" block |> Option.defaultValue ("tool-" + Guid.NewGuid().ToString("N"))
-                                        Name = HttpAdapterHelpers.tryGetString "name" block |> Option.defaultValue "unknown_tool"
-                                        Args = StringBuilder()
-                                        Metadata = Map.empty
-                                    }
+                                    let state: HttpAdapterHelpers.ToolBlockState =
+                                        { Id =
+                                            HttpAdapterHelpers.tryGetString "id" block
+                                            |> Option.defaultValue ("tool-" + Guid.NewGuid().ToString("N"))
+                                          Name =
+                                            HttpAdapterHelpers.tryGetString "name" block
+                                            |> Option.defaultValue "unknown_tool"
+                                          Args = StringBuilder()
+                                          Metadata = Map.empty }
+
                                     match HttpAdapterHelpers.tryGetProperty "input" block with
                                     | Some input -> state.Args.Append(input.GetRawText()) |> ignore
                                     | None -> ()
+
                                     toolStates[idx] <- state
-                                    yield ToolCallStart { Id = state.Id; Name = state.Name; Arguments = state.Args.ToString(); Metadata = state.Metadata }
+
+                                    yield
+                                        ToolCallStart
+                                            { Id = state.Id
+                                              Name = state.Name
+                                              Arguments = state.Args.ToString()
+                                              Metadata = state.Metadata }
                                 | Some "thinking" ->
                                     reasoningBuilders[idx] <- StringBuilder()
                                     yield ReasoningStart None
@@ -940,25 +1145,39 @@ type AnthropicAdapter(apiKey: string) =
                         | "content_block_delta" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
-                            let idx = HttpAdapterHelpers.tryGetProperty "index" root |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+
+                            let idx =
+                                HttpAdapterHelpers.tryGetProperty "index" root
+                                |> Option.map (fun v -> v.GetInt32())
+                                |> Option.defaultValue 0
+
                             match HttpAdapterHelpers.tryGetProperty "delta" root with
                             | Some delta ->
                                 match HttpAdapterHelpers.tryGetString "type" delta with
                                 | Some "text_delta" ->
                                     let chunk = HttpAdapterHelpers.tryGetString "text" delta |> Option.defaultValue ""
+
                                     if chunk <> "" then
-                                        if not (textBuilders.ContainsKey(idx)) then textBuilders[idx] <- StringBuilder()
+                                        if not (textBuilders.ContainsKey(idx)) then
+                                            textBuilders[idx] <- StringBuilder()
+
                                         textBuilders[idx].Append(chunk) |> ignore
                                         yield TextDelta(Some(sprintf "text-%d" idx), chunk)
                                 | Some "input_json_delta" ->
-                                    let chunk = HttpAdapterHelpers.tryGetString "partial_json" delta |> Option.defaultValue ""
+                                    let chunk =
+                                        HttpAdapterHelpers.tryGetString "partial_json" delta |> Option.defaultValue ""
+
                                     if chunk <> "" && toolStates.ContainsKey(idx) then
                                         toolStates[idx].Args.Append(chunk) |> ignore
                                         yield ToolCallDelta(toolStates[idx].Id, chunk)
                                 | Some "thinking_delta" ->
-                                    let chunk = HttpAdapterHelpers.tryGetString "thinking" delta |> Option.defaultValue ""
+                                    let chunk =
+                                        HttpAdapterHelpers.tryGetString "thinking" delta |> Option.defaultValue ""
+
                                     if chunk <> "" then
-                                        if not (reasoningBuilders.ContainsKey(idx)) then reasoningBuilders[idx] <- StringBuilder()
+                                        if not (reasoningBuilders.ContainsKey(idx)) then
+                                            reasoningBuilders[idx] <- StringBuilder()
+
                                         reasoningBuilders[idx].Append(chunk) |> ignore
                                         yield ThinkingEvent chunk
                                 | _ -> ()
@@ -966,11 +1185,18 @@ type AnthropicAdapter(apiKey: string) =
                         | "content_block_stop" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
-                            let idx = HttpAdapterHelpers.tryGetProperty "index" root |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+
+                            let idx =
+                                HttpAdapterHelpers.tryGetProperty "index" root
+                                |> Option.map (fun v -> v.GetInt32())
+                                |> Option.defaultValue 0
 
                             if textBuilders.ContainsKey(idx) then
                                 let text = textBuilders[idx].ToString()
-                                if text <> "" then contentParts.Add(ContentPart.Text text)
+
+                                if text <> "" then
+                                    contentParts.Add(ContentPart.Text text)
+
                                 yield TextEnd(sprintf "text-%d" idx)
                                 textBuilders.Remove(idx) |> ignore
 
@@ -980,20 +1206,32 @@ type AnthropicAdapter(apiKey: string) =
                                       Name = toolStates[idx].Name
                                       Arguments = toolStates[idx].Args.ToString()
                                       Metadata = toolStates[idx].Metadata }
+
                                 contentParts.Add(ContentPart.ToolCall tc)
                                 yield ToolCallEnd tc
                                 toolStates.Remove(idx) |> ignore
 
                             if reasoningBuilders.ContainsKey(idx) then
                                 let t = reasoningBuilders[idx].ToString()
-                                if t <> "" then contentParts.Add(ContentPart.Thinking { Text = t; Signature = None; Redacted = false })
+
+                                if t <> "" then
+                                    contentParts.Add(
+                                        ContentPart.Thinking
+                                            { Text = t
+                                              Signature = None
+                                              Redacted = false }
+                                    )
+
                                 yield ReasoningEnd None
                                 reasoningBuilders.Remove(idx) |> ignore
                         | "message_delta" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
 
-                            match HttpAdapterHelpers.tryGetProperty "delta" root |> Option.bind (HttpAdapterHelpers.tryGetString "stop_reason") with
+                            match
+                                HttpAdapterHelpers.tryGetProperty "delta" root
+                                |> Option.bind (HttpAdapterHelpers.tryGetString "stop_reason")
+                            with
                             | Some raw -> finishReason <- HttpAdapterHelpers.mapAnthropicFinishReason raw
                             | None -> ()
 
@@ -1001,7 +1239,10 @@ type AnthropicAdapter(apiKey: string) =
                             | Some u ->
                                 usage <-
                                     { usage with
-                                        OutputTokens = HttpAdapterHelpers.tryGetProperty "output_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue usage.OutputTokens
+                                        OutputTokens =
+                                            HttpAdapterHelpers.tryGetProperty "output_tokens" u
+                                            |> Option.map (fun v -> v.GetInt32())
+                                            |> Option.defaultValue usage.OutputTokens
                                         CacheReadTokens =
                                             HttpAdapterHelpers.tryGetProperty "cache_read_input_tokens" u
                                             |> Option.map (fun v -> v.GetInt32())
@@ -1012,7 +1253,11 @@ type AnthropicAdapter(apiKey: string) =
                         | "message_stop" ->
                             let message =
                                 { Role = Assistant
-                                  Content = if contentParts.Count = 0 then [ ContentPart.Text "" ] else contentParts |> Seq.toList
+                                  Content =
+                                    if contentParts.Count = 0 then
+                                        [ ContentPart.Text "" ]
+                                    else
+                                        contentParts |> Seq.toList
                                   Name = None
                                   ToolCallId = None }
 
@@ -1032,13 +1277,14 @@ type AnthropicAdapter(apiKey: string) =
                         | "error" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             let message =
                                 HttpAdapterHelpers.tryGetProperty "error" root
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "message")
                                 |> Option.defaultValue data
+
                             yield StreamError message
-                        | _ ->
-                            yield ProviderEvent(eventName, data)
+                        | _ -> yield ProviderEvent(eventName, data)
             }
 
 /// Real OpenAI Responses API adapter
@@ -1046,6 +1292,7 @@ type OpenAIAdapter(apiKey: string) =
     // 10-minute transport cap on the initial POST. The SSE loop has its own
     // idle timeout; this guards against stalled connects or headers.
     let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
+
     let baseUrl =
         match Environment.GetEnvironmentVariable("OPENAI_BASE_URL") with
         | null
@@ -1057,7 +1304,11 @@ type OpenAIAdapter(apiKey: string) =
 
         let instructions =
             request.Messages
-            |> List.choose (fun m -> if m.Role = System || m.Role = Developer then Some m.Text else None)
+            |> List.choose (fun m ->
+                if m.Role = System || m.Role = Developer then
+                    Some m.Text
+                else
+                    None)
             |> String.concat "\n"
 
         let input =
@@ -1066,35 +1317,69 @@ type OpenAIAdapter(apiKey: string) =
             |> List.collect (fun m ->
                 match m.Role with
                 | Assistant ->
-                    let hasToolCalls = m.Content |> List.exists (function ContentPart.ToolCall _ -> true | _ -> false)
+                    let hasToolCalls =
+                        m.Content
+                        |> List.exists (function
+                            | ContentPart.ToolCall _ -> true
+                            | _ -> false)
+
                     if hasToolCalls then
                         m.Content
                         |> List.choose (fun p ->
                             match p with
                             | ContentPart.Text t when t <> "" ->
-                                Some ({| ``type`` = "message"; role = "assistant"; content = [| {| ``type`` = "output_text"; text = t |} |] |} :> obj)
+                                Some(
+                                    {| ``type`` = "message"
+                                       role = "assistant"
+                                       content = [| {| ``type`` = "output_text"; text = t |} |] |}
+                                    :> obj
+                                )
                             | ContentPart.ToolCall tc ->
-                                Some ({| ``type`` = "function_call"; call_id = tc.Id; name = tc.Name; arguments = tc.Arguments |} :> obj)
+                                Some(
+                                    {| ``type`` = "function_call"
+                                       call_id = tc.Id
+                                       name = tc.Name
+                                       arguments = tc.Arguments |}
+                                    :> obj
+                                )
                             | _ -> None)
                     else
-                        [ {| ``type`` = "message"; role = "assistant"; content = [| {| ``type`` = "output_text"; text = m.Text |} |] |} :> obj ]
+                        [ {| ``type`` = "message"
+                             role = "assistant"
+                             content =
+                              [| {| ``type`` = "output_text"
+                                    text = m.Text |} |] |}
+                          :> obj ]
                 | Tool ->
                     m.Content
                     |> List.choose (fun p ->
                         match p with
                         | ContentPart.ToolResult tr ->
-                            Some ({| ``type`` = "function_call_output"; call_id = tr.ToolCallId; output = tr.Content |} :> obj)
+                            Some(
+                                {| ``type`` = "function_call_output"
+                                   call_id = tr.ToolCallId
+                                   output = tr.Content |}
+                                :> obj
+                            )
                         | _ -> None)
                 | _ ->
-                    [ {| ``type`` = "message"; role = "user"; content = [| {| ``type`` = "input_text"; text = m.Text |} |] |} :> obj ])
+                    [ {| ``type`` = "message"
+                         role = "user"
+                         content =
+                          [| {| ``type`` = "input_text"
+                                text = m.Text |} |] |}
+                      :> obj ])
 
         let bodyDict = Dictionary<string, obj>()
         bodyDict["model"] <- model
         bodyDict["input"] <- input
         bodyDict["store"] <- true
 
-        if instructions <> "" then bodyDict["instructions"] <- instructions
-        if stream then bodyDict["stream"] <- true
+        if instructions <> "" then
+            bodyDict["instructions"] <- instructions
+
+        if stream then
+            bodyDict["stream"] <- true
 
         match request.PreviousResponseId with
         | Some prevId -> bodyDict["previous_response_id"] <- prevId
@@ -1126,10 +1411,16 @@ type OpenAIAdapter(apiKey: string) =
 
         match request.ResponseFormat with
         | Some(ResponseFormat.JsonSchema(name, schema, strict)) ->
-            let schemaObj = HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
-            bodyDict["text"] <- {| format = {| ``type`` = "json_schema"; name = name; schema = schemaObj; strict = strict |} |}
-        | Some ResponseFormat.JsonObject ->
-            bodyDict["text"] <- {| format = {| ``type`` = "json_object" |} |}
+            let schemaObj =
+                HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
+
+            bodyDict["text"] <-
+                {| format =
+                    {| ``type`` = "json_schema"
+                       name = name
+                       schema = schemaObj
+                       strict = strict |} |}
+        | Some ResponseFormat.JsonObject -> bodyDict["text"] <- {| format = {| ``type`` = "json_object" |} |}
         | _ -> ()
 
         match request.Tools with
@@ -1137,9 +1428,16 @@ type OpenAIAdapter(apiKey: string) =
             let toolDefs =
                 tools
                 |> List.map (fun t ->
-                    let parameters = HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
-                    {| ``type`` = "function"; name = t.Name; description = t.Description; parameters = parameters |} :> obj)
+                    let parameters =
+                        HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
+
+                    {| ``type`` = "function"
+                       name = t.Name
+                       description = t.Description
+                       parameters = parameters |}
+                    :> obj)
                 |> List.toArray
+
             bodyDict["tools"] <- toolDefs
 
             match request.ToolChoice with
@@ -1162,10 +1460,7 @@ type OpenAIAdapter(apiKey: string) =
     interface IProviderAdapter with
         member _.ProviderId = "openai"
         member _.Initialize() = async.Return()
-        member _.Close() =
-            async {
-                client.Dispose()
-            }
+        member _.Close() = async { client.Dispose() }
         member _.SupportsToolChoice() = true
 
         member this.Complete(request: Request) =
@@ -1181,6 +1476,7 @@ type OpenAIAdapter(apiKey: string) =
 
         member this.Stream(request: Request) =
             let model = if request.Model = "" then "gpt-4o" else request.Model
+
             seq {
                 let httpReq = this.BuildHttpRequest(request, true)
                 let httpResp, cts = HttpAdapterHelpers.sendForStream client request httpReq
@@ -1211,44 +1507,72 @@ type OpenAIAdapter(apiKey: string) =
                 for (eventName, data) in HttpAdapterHelpers.parseSse reader cts.Token do
                     if data <> "[DONE]" then
                         rawEvents.Add(sprintf "%s:%s" eventName data)
+
                         match eventName with
                         | "response.created" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
                             responseId <- HttpAdapterHelpers.tryGetString "id" root
-                            responseModel <- HttpAdapterHelpers.tryGetString "model" root |> Option.defaultValue responseModel
+
+                            responseModel <-
+                                HttpAdapterHelpers.tryGetString "model" root
+                                |> Option.defaultValue responseModel
                         | "response.output_item.added" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             match HttpAdapterHelpers.tryGetProperty "item" root with
                             | Some item ->
                                 match HttpAdapterHelpers.tryGetString "type" item with
                                 | Some "function_call" ->
-                                    let id = HttpAdapterHelpers.tryGetString "call_id" item |> Option.defaultValue ("call-" + Guid.NewGuid().ToString("N"))
-                                    let name = HttpAdapterHelpers.tryGetString "name" item |> Option.defaultValue "unknown_tool"
-                                    let args = HttpAdapterHelpers.tryGetString "arguments" item |> Option.defaultValue ""
-                                    let state: HttpAdapterHelpers.ToolBlockState = { Id = id; Name = name; Args = StringBuilder(args); Metadata = Map.empty }
+                                    let id =
+                                        HttpAdapterHelpers.tryGetString "call_id" item
+                                        |> Option.defaultValue ("call-" + Guid.NewGuid().ToString("N"))
+
+                                    let name =
+                                        HttpAdapterHelpers.tryGetString "name" item
+                                        |> Option.defaultValue "unknown_tool"
+
+                                    let args =
+                                        HttpAdapterHelpers.tryGetString "arguments" item |> Option.defaultValue ""
+
+                                    let state: HttpAdapterHelpers.ToolBlockState =
+                                        { Id = id
+                                          Name = name
+                                          Args = StringBuilder(args)
+                                          Metadata = Map.empty }
+
                                     toolStates[id] <- state
-                                    if not (toolOrder.Contains(id)) then toolOrder.Add(id)
-                                    yield ToolCallStart { Id = id; Name = name; Arguments = args; Metadata = Map.empty }
-                                | Some "reasoning" ->
-                                    yield ReasoningStart None
+
+                                    if not (toolOrder.Contains(id)) then
+                                        toolOrder.Add(id)
+
+                                    yield
+                                        ToolCallStart
+                                            { Id = id
+                                              Name = name
+                                              Arguments = args
+                                              Metadata = Map.empty }
+                                | Some "reasoning" -> yield ReasoningStart None
                                 | _ -> ()
                             | None -> ()
                         | "response.content_part.delta"
                         | "response.output_text.delta" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             let delta =
                                 HttpAdapterHelpers.tryGetString "delta" root
                                 |> Option.orElseWith (fun () ->
                                     HttpAdapterHelpers.tryGetProperty "part" root
                                     |> Option.bind (HttpAdapterHelpers.tryGetString "text"))
                                 |> Option.defaultValue ""
+
                             if delta <> "" then
                                 if not textStarted then
                                     textStarted <- true
                                     yield TextStart "text-0"
+
                                 textBuffer.Append(delta) |> ignore
                                 yield TextDelta(Some "text-0", delta)
                         | "response.function_call_arguments.delta" ->
@@ -1256,27 +1580,31 @@ type OpenAIAdapter(apiKey: string) =
                             let root = doc.RootElement
                             let id = HttpAdapterHelpers.tryGetString "call_id" root |> Option.defaultValue ""
                             let delta = HttpAdapterHelpers.tryGetString "delta" root |> Option.defaultValue ""
+
                             if id <> "" && delta <> "" && toolStates.ContainsKey(id) then
                                 toolStates[id].Args.Append(delta) |> ignore
                                 yield ToolCallDelta(id, delta)
                         | "response.output_item.done" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             match HttpAdapterHelpers.tryGetProperty "item" root with
                             | Some item ->
                                 match HttpAdapterHelpers.tryGetString "type" item with
                                 | Some "function_call" ->
                                     let id = HttpAdapterHelpers.tryGetString "call_id" item |> Option.defaultValue ""
+
                                     if id <> "" && toolStates.ContainsKey(id) then
                                         let state = toolStates[id]
+
                                         let tc: ToolCallData =
                                             { Id = state.Id
                                               Name = state.Name
                                               Arguments = state.Args.ToString()
                                               Metadata = state.Metadata }
+
                                         yield ToolCallEnd tc
-                                | Some "reasoning" ->
-                                    yield ReasoningEnd None
+                                | Some "reasoning" -> yield ReasoningEnd None
                                 | _ -> ()
                             | None -> ()
                         | "response.completed" ->
@@ -1284,30 +1612,49 @@ type OpenAIAdapter(apiKey: string) =
                             let root = doc.RootElement
 
                             let responseElement =
-                                HttpAdapterHelpers.tryGetProperty "response" root
-                                |> Option.defaultValue root
+                                HttpAdapterHelpers.tryGetProperty "response" root |> Option.defaultValue root
 
                             let responseText = textBuffer.ToString()
-                            if responseText <> "" then contentParts.Add(ContentPart.Text responseText)
+
+                            if responseText <> "" then
+                                contentParts.Add(ContentPart.Text responseText)
 
                             for id in toolOrder do
                                 if toolStates.ContainsKey(id) then
                                     let state = toolStates[id]
-                                    contentParts.Add(ContentPart.ToolCall { Id = state.Id; Name = state.Name; Arguments = state.Args.ToString(); Metadata = state.Metadata })
 
-                            let status = HttpAdapterHelpers.tryGetString "status" responseElement |> Option.defaultValue "completed"
+                                    contentParts.Add(
+                                        ContentPart.ToolCall
+                                            { Id = state.Id
+                                              Name = state.Name
+                                              Arguments = state.Args.ToString()
+                                              Metadata = state.Metadata }
+                                    )
+
+                            let status =
+                                HttpAdapterHelpers.tryGetString "status" responseElement
+                                |> Option.defaultValue "completed"
+
                             let incompleteReason =
                                 HttpAdapterHelpers.tryGetProperty "incomplete_details" responseElement
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "reason")
 
                             let hasToolCalls = toolOrder.Count > 0
-                            finishReason <- HttpAdapterHelpers.mapOpenAIFinishReason status incompleteReason hasToolCalls
+
+                            finishReason <-
+                                HttpAdapterHelpers.mapOpenAIFinishReason status incompleteReason hasToolCalls
 
                             match HttpAdapterHelpers.tryGetProperty "usage" responseElement with
                             | Some u ->
                                 usage <-
-                                    { InputTokens = HttpAdapterHelpers.tryGetProperty "input_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
-                                      OutputTokens = HttpAdapterHelpers.tryGetProperty "output_tokens" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue 0
+                                    { InputTokens =
+                                        HttpAdapterHelpers.tryGetProperty "input_tokens" u
+                                        |> Option.map (fun v -> v.GetInt32())
+                                        |> Option.defaultValue 0
+                                      OutputTokens =
+                                        HttpAdapterHelpers.tryGetProperty "output_tokens" u
+                                        |> Option.map (fun v -> v.GetInt32())
+                                        |> Option.defaultValue 0
                                       ReasoningTokens =
                                         HttpAdapterHelpers.tryGetProperty "output_tokens_details" u
                                         |> Option.bind (HttpAdapterHelpers.tryGetProperty "reasoning_tokens")
@@ -1323,10 +1670,20 @@ type OpenAIAdapter(apiKey: string) =
                                 yield TextEnd "text-0"
 
                             let response =
-                                { Id = responseId |> Option.defaultValue ("openai-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+                                { Id =
+                                    responseId
+                                    |> Option.defaultValue ("openai-" + Guid.NewGuid().ToString("N").Substring(0, 8))
                                   Model = responseModel
                                   Provider = "openai"
-                                  Message = { Role = Assistant; Content = (if contentParts.Count = 0 then [ ContentPart.Text "" ] else contentParts |> Seq.toList); Name = None; ToolCallId = None }
+                                  Message =
+                                    { Role = Assistant
+                                      Content =
+                                        (if contentParts.Count = 0 then
+                                             [ ContentPart.Text "" ]
+                                         else
+                                             contentParts |> Seq.toList)
+                                      Name = None
+                                      ToolCallId = None }
                                   FinishReason = finishReason
                                   Usage = usage
                                   ResponseId = responseId
@@ -1338,10 +1695,12 @@ type OpenAIAdapter(apiKey: string) =
                         | "response.failed" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
+
                             let message =
                                 HttpAdapterHelpers.tryGetProperty "error" root
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "message")
                                 |> Option.defaultValue "OpenAI stream failed"
+
                             yield StreamError message
                             yield Finish(Error "response.failed", None, None)
                         | _ -> yield ProviderEvent(eventName, data)
@@ -1361,13 +1720,18 @@ type GeminiAdapter(apiKey: string) =
     let buildBody (request: Request) =
         let systemText =
             request.Messages
-            |> List.choose (fun m -> if m.Role = System || m.Role = Developer then Some m.Text else None)
+            |> List.choose (fun m ->
+                if m.Role = System || m.Role = Developer then
+                    Some m.Text
+                else
+                    None)
             |> String.concat "\n"
 
         let toolCallNameMap =
             request.Messages
             |> List.collect (fun m ->
-                m.Content |> List.choose (fun p ->
+                m.Content
+                |> List.choose (fun p ->
                     match p with
                     | ContentPart.ToolCall tc -> Some(tc.Id, tc.Name)
                     | _ -> None))
@@ -1385,16 +1749,24 @@ type GeminiAdapter(apiKey: string) =
                             match p with
                             | ContentPart.Text t -> {| text = t |} :> obj
                             | ContentPart.ToolCall tc ->
-                                let args = HttpAdapterHelpers.tryParseJsonObject tc.Arguments ({||} :> obj)
+                                let args = HttpAdapterHelpers.tryParseJsonObject tc.Arguments ({| |} :> obj)
+
                                 match tc.Metadata |> Map.tryFind "thoughtSignature" with
-                                | Some ts -> {| functionCall = {| name = tc.Name; args = args |}; thoughtSignature = ts |} :> obj
+                                | Some ts ->
+                                    {| functionCall = {| name = tc.Name; args = args |}
+                                       thoughtSignature = ts |}
+                                    :> obj
                                 | None -> {| functionCall = {| name = tc.Name; args = args |} |} :> obj
                             | ContentPart.Thinking td ->
                                 match td.Signature with
-                                | Some sigValue -> {| text = td.Text; thoughtSignature = sigValue |} :> obj
+                                | Some sigValue ->
+                                    {| text = td.Text
+                                       thoughtSignature = sigValue |}
+                                    :> obj
                                 | None -> {| text = td.Text |} :> obj
                             | _ -> {| text = "" |} :> obj)
                         |> Array.ofList
+
                     {| role = "model"; parts = parts |} :> obj
                 | Tool ->
                     let parts =
@@ -1402,14 +1774,28 @@ type GeminiAdapter(apiKey: string) =
                         |> List.choose (fun p ->
                             match p with
                             | ContentPart.ToolResult tr ->
-                                let name = toolCallNameMap |> Map.tryFind tr.ToolCallId |> Option.defaultValue "unknown"
-                                let responseObj = HttpAdapterHelpers.tryParseJsonObject tr.Content ({| result = tr.Content |} :> obj)
-                                Some ({| functionResponse = {| name = name; response = responseObj |} |} :> obj)
+                                let name =
+                                    toolCallNameMap |> Map.tryFind tr.ToolCallId |> Option.defaultValue "unknown"
+
+                                let responseObj =
+                                    HttpAdapterHelpers.tryParseJsonObject
+                                        tr.Content
+                                        ({| result = tr.Content |} :> obj)
+
+                                Some(
+                                    {| functionResponse =
+                                        {| name = name
+                                           response = responseObj |} |}
+                                    :> obj
+                                )
                             | _ -> None)
                         |> Array.ofList
+
                     {| role = "user"; parts = parts |} :> obj
                 | _ ->
-                    {| role = "user"; parts = [| {| text = m.Text |} :> obj |] |} :> obj)
+                    {| role = "user"
+                       parts = [| {| text = m.Text |} :> obj |] |}
+                    :> obj)
 
         let bodyObj = Dictionary<string, obj>()
         bodyObj["contents"] <- contents
@@ -1426,9 +1812,15 @@ type GeminiAdapter(apiKey: string) =
             let funcDecls =
                 tools
                 |> List.map (fun t ->
-                    let parameters = HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
-                    {| name = t.Name; description = t.Description; parameters = parameters |} :> obj)
+                    let parameters =
+                        HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
+
+                    {| name = t.Name
+                       description = t.Description
+                       parameters = parameters |}
+                    :> obj)
                 |> List.toArray
+
             bodyObj["tools"] <- [| {| function_declarations = funcDecls |} |]
         | _ -> ()
 
@@ -1453,9 +1845,10 @@ type GeminiAdapter(apiKey: string) =
         match request.ResponseFormat with
         | Some(ResponseFormat.JsonSchema(_, schema, _)) ->
             genConfig["responseMimeType"] <- "application/json"
-            genConfig["responseSchema"] <- HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
-        | Some ResponseFormat.JsonObject ->
-            genConfig["responseMimeType"] <- "application/json"
+
+            genConfig["responseSchema"] <-
+                HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
+        | Some ResponseFormat.JsonObject -> genConfig["responseMimeType"] <- "application/json"
         | _ -> ()
 
         if genConfig.Count > 0 then
@@ -1464,6 +1857,7 @@ type GeminiAdapter(apiKey: string) =
         match request.ToolChoice with
         | Some choice ->
             let fc = Dictionary<string, obj>()
+
             match choice with
             | ToolChoice.Auto -> fc["mode"] <- "AUTO"
             | ToolChoice.None -> fc["mode"] <- "NONE"
@@ -1471,6 +1865,7 @@ type GeminiAdapter(apiKey: string) =
             | ToolChoice.Named name ->
                 fc["mode"] <- "ANY"
                 fc["allowedFunctionNames"] <- [| name |]
+
             bodyObj["toolConfig"] <- {| functionCallingConfig = fc |}
         | None -> ()
 
@@ -1493,15 +1888,19 @@ type GeminiAdapter(apiKey: string) =
     interface IProviderAdapter with
         member _.ProviderId = "gemini"
         member _.Initialize() = async.Return()
-        member _.Close() =
-            async {
-                client.Dispose()
-            }
+        member _.Close() = async { client.Dispose() }
         member _.SupportsToolChoice() = true
 
         member _.Complete(request: Request) =
-            let model = if request.Model = "" then "gemini-2.5-flash-preview-05-20" else request.Model
-            let url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}"
+            let model =
+                if request.Model = "" then
+                    "gemini-2.5-flash-preview-05-20"
+                else
+                    request.Model
+
+            let url =
+                $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}"
+
             let httpReq = buildHttpRequest url request
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
 
@@ -1512,8 +1911,14 @@ type GeminiAdapter(apiKey: string) =
             HttpAdapterHelpers.responseFromGemini model respBody httpResp
 
         member _.Stream(request: Request) =
-            let model = if request.Model = "" then "gemini-2.5-flash-preview-05-20" else request.Model
-            let url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={apiKey}"
+            let model =
+                if request.Model = "" then
+                    "gemini-2.5-flash-preview-05-20"
+                else
+                    request.Model
+
+            let url =
+                $"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={apiKey}"
 
             seq {
                 let httpReq = buildHttpRequest url request
@@ -1548,43 +1953,59 @@ type GeminiAdapter(apiKey: string) =
                         match HttpAdapterHelpers.tryGetProperty "candidates" root with
                         | Some candidates when candidates.GetArrayLength() > 0 ->
                             let first = candidates.[0]
-                            let rawFinish = HttpAdapterHelpers.tryGetString "finishReason" first |> Option.defaultValue ""
 
-                            match HttpAdapterHelpers.tryGetProperty "content" first |> Option.bind (HttpAdapterHelpers.tryGetProperty "parts") with
+                            let rawFinish =
+                                HttpAdapterHelpers.tryGetString "finishReason" first |> Option.defaultValue ""
+
+                            match
+                                HttpAdapterHelpers.tryGetProperty "content" first
+                                |> Option.bind (HttpAdapterHelpers.tryGetProperty "parts")
+                            with
                             | Some parts ->
                                 let currentText =
                                     parts.EnumerateArray()
-                                    |> Seq.choose (fun p -> HttpAdapterHelpers.tryGetProperty "text" p |> Option.map (fun t -> t.GetString()))
+                                    |> Seq.choose (fun p ->
+                                        HttpAdapterHelpers.tryGetProperty "text" p
+                                        |> Option.map (fun t -> t.GetString()))
                                     |> String.concat ""
 
                                 if currentText.Length > accumulatedText.Length then
                                     let delta = currentText.Substring(accumulatedText.Length)
+
                                     if delta <> "" then
                                         if not textStarted then
                                             textStarted <- true
                                             yield TextStart "text-0"
+
                                         accumulatedText <- currentText
                                         yield TextDelta(Some "text-0", delta)
 
                                 for part in parts.EnumerateArray() do
                                     match HttpAdapterHelpers.tryGetProperty "functionCall" part with
                                     | Some fc ->
-                                        let name = HttpAdapterHelpers.tryGetString "name" fc |> Option.defaultValue "unknown_tool"
+                                        let name =
+                                            HttpAdapterHelpers.tryGetString "name" fc
+                                            |> Option.defaultValue "unknown_tool"
+
                                         let argsText =
                                             match HttpAdapterHelpers.tryGetProperty "args" fc with
                                             | Some args -> args.GetRawText()
                                             | None -> "{}"
+
                                         let key = name + "|" + argsText
+
                                         if seenToolKeys.Add(key) then
                                             let metadata =
                                                 match HttpAdapterHelpers.tryGetString "thoughtSignature" part with
                                                 | Some ts -> Map.ofList [ "thoughtSignature", ts ]
                                                 | None -> Map.empty
+
                                             let tc: ToolCallData =
                                                 { Id = "gemini-tc-" + Guid.NewGuid().ToString("N").Substring(0, 8)
                                                   Name = name
                                                   Arguments = argsText
                                                   Metadata = metadata }
+
                                             toolCalls.Add(tc)
                                             yield ToolCallStart tc
                                             yield ToolCallEnd tc
@@ -1597,10 +2018,20 @@ type GeminiAdapter(apiKey: string) =
                         match HttpAdapterHelpers.tryGetProperty "usageMetadata" root with
                         | Some u ->
                             usage <-
-                                { InputTokens = HttpAdapterHelpers.tryGetProperty "promptTokenCount" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue usage.InputTokens
-                                  OutputTokens = HttpAdapterHelpers.tryGetProperty "candidatesTokenCount" u |> Option.map (fun v -> v.GetInt32()) |> Option.defaultValue usage.OutputTokens
-                                  ReasoningTokens = HttpAdapterHelpers.tryGetProperty "thoughtsTokenCount" u |> Option.map (fun v -> v.GetInt32())
-                                  CacheReadTokens = HttpAdapterHelpers.tryGetProperty "cachedContentTokenCount" u |> Option.map (fun v -> v.GetInt32())
+                                { InputTokens =
+                                    HttpAdapterHelpers.tryGetProperty "promptTokenCount" u
+                                    |> Option.map (fun v -> v.GetInt32())
+                                    |> Option.defaultValue usage.InputTokens
+                                  OutputTokens =
+                                    HttpAdapterHelpers.tryGetProperty "candidatesTokenCount" u
+                                    |> Option.map (fun v -> v.GetInt32())
+                                    |> Option.defaultValue usage.OutputTokens
+                                  ReasoningTokens =
+                                    HttpAdapterHelpers.tryGetProperty "thoughtsTokenCount" u
+                                    |> Option.map (fun v -> v.GetInt32())
+                                  CacheReadTokens =
+                                    HttpAdapterHelpers.tryGetProperty "cachedContentTokenCount" u
+                                    |> Option.map (fun v -> v.GetInt32())
                                   CacheWriteTokens = usage.CacheWriteTokens }
                         | None -> ()
 
@@ -1608,14 +2039,24 @@ type GeminiAdapter(apiKey: string) =
                     yield TextEnd "text-0"
 
                 let contentParts =
-                    [ if accumulatedText <> "" then yield ContentPart.Text accumulatedText
-                      for tc in toolCalls do yield ContentPart.ToolCall tc ]
+                    [ if accumulatedText <> "" then
+                          yield ContentPart.Text accumulatedText
+                      for tc in toolCalls do
+                          yield ContentPart.ToolCall tc ]
 
                 let response =
                     { Id = "gemini-" + Guid.NewGuid().ToString("N").Substring(0, 8)
                       Model = model
                       Provider = "gemini"
-                      Message = { Role = Assistant; Content = (if contentParts.IsEmpty then [ ContentPart.Text "" ] else contentParts); Name = None; ToolCallId = None }
+                      Message =
+                        { Role = Assistant
+                          Content =
+                            (if contentParts.IsEmpty then
+                                 [ ContentPart.Text "" ]
+                             else
+                                 contentParts)
+                          Name = None
+                          ToolCallId = None }
                       FinishReason = finishReason
                       Usage = usage
                       ResponseId = None

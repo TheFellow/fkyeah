@@ -9,7 +9,7 @@ let private makeResponse (request: Request) (text: string) (usage: Usage) =
     { Id = Guid.NewGuid().ToString("N")
       Model = request.Model
       Provider = request.Provider |> Option.defaultValue "openai"
-      Message = Message.assistant(text)
+      Message = Message.assistant (text)
       FinishReason = Stop "stop"
       Usage = usage
       ResponseId = None
@@ -22,7 +22,7 @@ let private recorder () =
     { Emit = events.Add }, events
 
 let private requestFor provider model prompt =
-    { Request.Create(model, [ Message.user(prompt) ]) with
+    { Request.Create(model, [ Message.user (prompt) ]) with
         Provider = Some provider }
 
 let private eventName event =
@@ -49,14 +49,18 @@ let private eventName event =
 let ``full middleware pipeline caches identical complete requests`` () =
     CircuitBreakerRegistry.reset ()
     let sink, events = recorder ()
-    let ledger = CostLedger.inMemory()
-    let cacheDir = Path.Combine(Path.GetTempPath(), "fkyeah-integration-cache-" + Guid.NewGuid().ToString("N"))
+    let ledger = CostLedger.inMemory ()
+
+    let cacheDir =
+        Path.Combine(Path.GetTempPath(), "fkyeah-integration-cache-" + Guid.NewGuid().ToString("N"))
 
     try
         let adapterCalls = ref 0
         let mock = ConfigurableMockAdapter("openai")
+
         mock.SetCompleteHandler(fun request ->
             adapterCalls.Value <- adapterCalls.Value + 1
+
             makeResponse
                 request
                 "cached answer"
@@ -68,14 +72,17 @@ let ``full middleware pipeline caches identical complete requests`` () =
 
         let client = Client()
         client.RegisterAdapter(mock)
-        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog()) sink)
+        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog ()) sink)
         client.AddMiddlewareFn(Middleware.circuitBreaker CircuitBreakerConfig.Default sink)
+
         client.AddMiddlewareFn(
             Middleware.cache
                 (CacheStore.fileSystem
                     { CacheConfig.Default with
                         PersistencePath = Some cacheDir })
-                sink)
+                sink
+        )
+
         client.AddMiddlewareFn(Middleware.observability sink (Some ledger))
 
         let request = requestFor "openai" "gpt-5.4" "hello"
@@ -86,9 +93,30 @@ let ``full middleware pipeline caches identical complete requests`` () =
         Assert.Equal("cached answer", second.Text)
         Assert.Equal(1, adapterCalls.Value)
         Assert.Equal(1, ledger.CallCount())
-        Assert.Contains(events, fun event -> match event with | ObservabilityEvent.CacheMiss _ -> true | _ -> false)
-        Assert.Contains(events, fun event -> match event with | ObservabilityEvent.CacheStored _ -> true | _ -> false)
-        Assert.Contains(events, fun event -> match event with | ObservabilityEvent.CacheHit _ -> true | _ -> false)
+
+        Assert.Contains(
+            events,
+            fun event ->
+                match event with
+                | ObservabilityEvent.CacheMiss _ -> true
+                | _ -> false
+        )
+
+        Assert.Contains(
+            events,
+            fun event ->
+                match event with
+                | ObservabilityEvent.CacheStored _ -> true
+                | _ -> false
+        )
+
+        Assert.Contains(
+            events,
+            fun event ->
+                match event with
+                | ObservabilityEvent.CacheHit _ -> true
+                | _ -> false
+        )
     finally
         if Directory.Exists(cacheDir) then
             Directory.Delete(cacheDir, true)
@@ -99,26 +127,37 @@ let ``validation middleware rejects invalid models before provider dispatch`` ()
     let sink, events = recorder ()
     let adapterCalls = ref 0
     let mock = ConfigurableMockAdapter("openai")
+
     mock.SetCompleteHandler(fun request ->
         adapterCalls.Value <- adapterCalls.Value + 1
         makeResponse request "should not happen" Usage.Zero)
 
     let client = Client()
     client.RegisterAdapter(mock)
-    client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog()) sink)
+    client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog ()) sink)
 
     let request = requestFor "openai" "definitely-not-a-real-model" "hello"
-    let ex = Assert.Throws<ValidationError>(fun () -> client.Complete(request) |> ignore)
+
+    let ex =
+        Assert.Throws<ValidationError>(fun () -> client.Complete(request) |> ignore)
 
     Assert.Contains("Unknown model", ex.Message)
     Assert.Equal(0, adapterCalls.Value)
-    Assert.Contains(events, fun event -> match event with | ObservabilityEvent.ValidationFailed _ -> true | _ -> false)
+
+    Assert.Contains(
+        events,
+        fun event ->
+            match event with
+            | ObservabilityEvent.ValidationFailed _ -> true
+            | _ -> false
+    )
 
 [<Fact>]
 let ``circuit breaker middleware opens and later recovers after cooldown`` () =
     CircuitBreakerRegistry.reset ()
     let sink, events = recorder ()
     let provider = "breaker-provider"
+
     let config =
         { FailureThreshold = 2
           CooldownPeriod = TimeSpan.FromMilliseconds(30.0)
@@ -126,20 +165,27 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
 
     let adapterCalls = ref 0
     let mock = ConfigurableMockAdapter(provider)
+
     mock.SetCompleteHandler(fun _ ->
         adapterCalls.Value <- adapterCalls.Value + 1
         raise (ProviderError("transient failure", Some 500, true)))
 
     let client = Client()
     client.RegisterAdapter(mock)
-    client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog()) sink)
+    client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog ()) sink)
     client.AddMiddlewareFn(Middleware.circuitBreaker config sink)
 
     let request = requestFor provider "gpt-5.4" "hello"
 
-    Assert.Throws<ProviderError>(fun () -> client.Complete(request) |> ignore) |> ignore
-    Assert.Throws<ProviderError>(fun () -> client.Complete(request) |> ignore) |> ignore
-    Assert.Throws<CircuitOpenError>(fun () -> client.Complete(request) |> ignore) |> ignore
+    Assert.Throws<ProviderError>(fun () -> client.Complete(request) |> ignore)
+    |> ignore
+
+    Assert.Throws<ProviderError>(fun () -> client.Complete(request) |> ignore)
+    |> ignore
+
+    Assert.Throws<CircuitOpenError>(fun () -> client.Complete(request) |> ignore)
+    |> ignore
+
     Assert.Equal(2, adapterCalls.Value)
 
     System.Threading.Thread.Sleep(60)
@@ -156,13 +202,21 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
     Assert.Equal("recovered", firstProbe.Text)
     Assert.Equal("recovered", secondProbe.Text)
     Assert.Equal(CircuitState.Closed 0, state)
-    Assert.Contains(events, fun event -> match event with | ObservabilityEvent.BreakerStateChanged _ -> true | _ -> false)
+
+    Assert.Contains(
+        events,
+        fun event ->
+            match event with
+            | ObservabilityEvent.BreakerStateChanged _ -> true
+            | _ -> false
+    )
 
 [<Fact>]
 let ``observability middleware emits cost events in order`` () =
     let sink, events = recorder ()
-    let ledger = CostLedger.inMemory()
+    let ledger = CostLedger.inMemory ()
     let mock = ConfigurableMockAdapter("openai")
+
     mock.SetCompleteHandler(fun request ->
         makeResponse
             request
@@ -188,20 +242,26 @@ let ``observability middleware emits cost events in order`` () =
 let ``streaming pipeline replays cache hits without calling provider twice`` () =
     CircuitBreakerRegistry.reset ()
     let sink, _ = recorder ()
-    let cacheDir = Path.Combine(Path.GetTempPath(), "fkyeah-stream-cache-" + Guid.NewGuid().ToString("N"))
+
+    let cacheDir =
+        Path.Combine(Path.GetTempPath(), "fkyeah-stream-cache-" + Guid.NewGuid().ToString("N"))
 
     try
         let adapterCalls = ref 0
+
         let usage =
             { InputTokens = 80
               OutputTokens = 20
               ReasoningTokens = None
               CacheReadTokens = None
               CacheWriteTokens = None }
+
         let mock = ConfigurableMockAdapter("openai")
+
         mock.SetStreamHandler(fun request ->
             adapterCalls.Value <- adapterCalls.Value + 1
             let response = makeResponse request "streamed answer" usage
+
             seq {
                 yield StreamStart
                 yield TextStart "text-1"
@@ -213,22 +273,48 @@ let ``streaming pipeline replays cache hits without calling provider twice`` () 
 
         let client = Client()
         client.RegisterAdapter(mock)
-        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog()) sink)
+        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog ()) sink)
+
         client.AddMiddlewareFn(
             Middleware.cache
                 (CacheStore.fileSystem
                     { CacheConfig.Default with
                         PersistencePath = Some cacheDir })
-                sink)
+                sink
+        )
 
         let request = requestFor "openai" "gpt-5.4" "stream me"
         let first = client.Stream(request) |> Seq.toList
         let second = client.Stream(request) |> Seq.toList
 
         Assert.Equal(1, adapterCalls.Value)
-        Assert.Contains(first, fun event -> match event with | Finish _ -> true | _ -> false)
-        Assert.Contains(second, fun event -> match event with | StepFinish(_, Some response) when response.Text = "streamed answer" -> true | _ -> false)
-        Assert.Contains(second, fun event -> match event with | Finish(_, Some finishUsage, Some response) when finishUsage.CacheReadTokens.IsSome && response.Text = "streamed answer" -> true | _ -> false)
+
+        Assert.Contains(
+            first,
+            fun event ->
+                match event with
+                | Finish _ -> true
+                | _ -> false
+        )
+
+        Assert.Contains(
+            second,
+            fun event ->
+                match event with
+                | StepFinish(_, Some response) when response.Text = "streamed answer" -> true
+                | _ -> false
+        )
+
+        Assert.Contains(
+            second,
+            fun event ->
+                match event with
+                | Finish(_, Some finishUsage, Some response) when
+                    finishUsage.CacheReadTokens.IsSome && response.Text = "streamed answer"
+                    ->
+                    true
+                | _ -> false
+        )
     finally
         if Directory.Exists(cacheDir) then
             Directory.Delete(cacheDir, true)
@@ -239,8 +325,9 @@ let ``streaming pipeline replays cache hits without calling provider twice`` () 
 let ``cost tracker accumulates totals from multiple distinct calls`` () =
     CircuitBreakerRegistry.reset ()
     let sink, _ = recorder ()
-    let ledger = CostLedger.inMemory()
+    let ledger = CostLedger.inMemory ()
     let mock = ConfigurableMockAdapter("openai")
+
     mock.SetCompleteHandler(fun request ->
         makeResponse
             request
@@ -262,38 +349,53 @@ let ``cost tracker accumulates totals from multiple distinct calls`` () =
     Assert.Equal(3, ledger.CallCount())
     // All 3 calls have the same cost, so total should be 3x the individual
     let singleCost =
-        Costing.tryCalculateCostById "gpt-5.4"
-            { InputTokens = 100; OutputTokens = 50; ReasoningTokens = None
-              CacheReadTokens = None; CacheWriteTokens = None }
+        Costing.tryCalculateCostById
+            "gpt-5.4"
+            { InputTokens = 100
+              OutputTokens = 50
+              ReasoningTokens = None
+              CacheReadTokens = None
+              CacheWriteTokens = None }
             false
         |> Option.get
+
     Assert.Equal(singleCost.TotalMicrodollars * 3L, ledger.TotalMicrodollars())
 
 [<Fact>]
 let ``full pipeline event ordering follows expected sequence`` () =
     CircuitBreakerRegistry.reset ()
     let sink, events = recorder ()
-    let ledger = CostLedger.inMemory()
-    let cacheDir = Path.Combine(Path.GetTempPath(), "fkyeah-order-test-" + Guid.NewGuid().ToString("N"))
+    let ledger = CostLedger.inMemory ()
+
+    let cacheDir =
+        Path.Combine(Path.GetTempPath(), "fkyeah-order-test-" + Guid.NewGuid().ToString("N"))
 
     try
         let mock = ConfigurableMockAdapter("openai")
+
         mock.SetCompleteHandler(fun request ->
             makeResponse
                 request
                 "ordering"
-                { InputTokens = 10; OutputTokens = 5
-                  ReasoningTokens = None; CacheReadTokens = None; CacheWriteTokens = None })
+                { InputTokens = 10
+                  OutputTokens = 5
+                  ReasoningTokens = None
+                  CacheReadTokens = None
+                  CacheWriteTokens = None })
 
         let client = Client()
         client.RegisterAdapter(mock)
-        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog()) sink)
+        client.AddMiddlewareFn(Middleware.validation (RequestValidator.fromCatalog ()) sink)
         client.AddMiddlewareFn(Middleware.circuitBreaker CircuitBreakerConfig.Default sink)
+
         client.AddMiddlewareFn(
             Middleware.cache
                 (CacheStore.fileSystem
-                    { CacheConfig.Default with PersistencePath = Some cacheDir })
-                sink)
+                    { CacheConfig.Default with
+                        PersistencePath = Some cacheDir })
+                sink
+        )
+
         client.AddMiddlewareFn(Middleware.observability sink (Some ledger))
 
         client.Complete(requestFor "openai" "gpt-5.4" "event-order") |> ignore
@@ -310,4 +412,5 @@ let ``full pipeline event ordering follows expected sequence`` () =
         // cache_miss should appear (first call on fresh store)
         Assert.Contains("cache_miss", names)
     finally
-        if Directory.Exists(cacheDir) then Directory.Delete(cacheDir, true)
+        if Directory.Exists(cacheDir) then
+            Directory.Delete(cacheDir, true)

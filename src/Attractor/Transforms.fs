@@ -11,21 +11,30 @@ module Transforms =
         { new ITransform with
             member _.Apply(graph) =
                 let goal = graph.Goal
+
                 let updatedNodes =
                     graph.Nodes
                     |> Map.map (fun _ node ->
                         if node.Prompt.Contains("$goal") then
                             let newPrompt = node.Prompt.Replace("$goal", goal)
+
                             { node with
                                 Attributes = node.Attributes |> Map.add "prompt" (AttrValue.String newPrompt) }
                         else
                             node)
+
                 { graph with Nodes = updatedNodes } }
 
     /// Agent-attribute keys whose presence on a box (codergen) node signals that the
     /// pipeline author intended a full coding agent session, not a single-turn LLM call.
     let private agentPromotionAttributes =
-        Set.ofList [ "max_turns"; "max_tool_rounds"; "thread_id"; "cwd"; "command_timeout"; "system_prompt" ]
+        Set.ofList
+            [ "max_turns"
+              "max_tool_rounds"
+              "thread_id"
+              "cwd"
+              "command_timeout"
+              "system_prompt" ]
 
     /// Auto-promotion transform: box nodes with agent-specific attributes are promoted
     /// to coding_agent handler type. This bridges compatibility with pipelines authored
@@ -37,10 +46,11 @@ module Transforms =
                     graph.Nodes
                     |> Map.map (fun _ node ->
                         let handlerType = ShapeMapping.resolveHandlerType node
+
                         if handlerType = "codergen" && node.NodeType = "" then
                             let hasAgentAttr =
-                                node.Attributes
-                                |> Map.exists (fun k _ -> agentPromotionAttributes.Contains(k))
+                                node.Attributes |> Map.exists (fun k _ -> agentPromotionAttributes.Contains(k))
+
                             if hasAgentAttr then
                                 { node with
                                     Attributes = node.Attributes |> Map.add "type" (AttrValue.String "coding_agent") }
@@ -48,6 +58,7 @@ module Transforms =
                                 node
                         else
                             node)
+
                 { graph with Nodes = updatedNodes } }
 
     /// Stylesheet application transform
@@ -55,7 +66,9 @@ module Transforms =
         { new ITransform with
             member _.Apply(graph) =
                 let ss = graph.ModelStylesheet
-                if ss = "" then graph
+
+                if ss = "" then
+                    graph
                 else
                     match Stylesheet.parse ss with
                     | Ok parsed -> Stylesheet.apply parsed graph
@@ -63,9 +76,7 @@ module Transforms =
 
     /// Built-in transforms in application order
     let builtInTransforms: ITransform list =
-        [ variableExpansion
-          codergenAutoPromotion
-          stylesheetApplication ]
+        [ variableExpansion; codergenAutoPromotion; stylesheetApplication ]
 
     /// Apply all transforms to a graph
     let applyAll (transforms: ITransform list) (graph: Graph) : Graph =
@@ -74,10 +85,12 @@ module Transforms =
     /// Prepare a pipeline: parse, transform, validate
     let preparePipeline (source: string) (extraTransforms: ITransform list option) =
         let graph = DotParser.parseOrRaise source
+
         let transforms =
             match extraTransforms with
             | Some extra -> builtInTransforms @ extra
             | None -> builtInTransforms
+
         let transformed = applyAll transforms graph
         let diagnostics = Validation.validate transformed None
         (transformed, diagnostics)

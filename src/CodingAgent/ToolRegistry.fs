@@ -21,6 +21,7 @@ module private JsonSchemaValidation =
 
     let private getAllowedTypes (schema: JsonElement) : Set<string> option =
         let mutable t = Unchecked.defaultof<JsonElement>
+
         if not (schema.TryGetProperty("type", &t)) then
             None
         else
@@ -29,22 +30,28 @@ module private JsonSchemaValidation =
             | JsonValueKind.Array ->
                 t.EnumerateArray()
                 |> Seq.choose (fun item ->
-                    if item.ValueKind = JsonValueKind.String then Some(item.GetString())
-                    else None)
+                    if item.ValueKind = JsonValueKind.String then
+                        Some(item.GetString())
+                    else
+                        None)
                 |> set
                 |> Some
             | _ -> None
 
     let private valueMatchesTypes (value: JsonElement) (allowedTypes: Set<string>) =
         let actual = jsonTypeName value
+
         allowedTypes.Contains(actual)
         || (actual = "integer" && allowedTypes.Contains("number"))
-        || (actual = "number" && not (allowedTypes.Contains("integer")) && allowedTypes.Contains("number"))
+        || (actual = "number"
+            && not (allowedTypes.Contains("integer"))
+            && allowedTypes.Contains("number"))
 
     let private validateRequired (schema: JsonElement) (args: JsonElement) =
         let mutable req = Unchecked.defaultof<JsonElement>
+
         if not (schema.TryGetProperty("required", &req)) then
-            Result.Ok ()
+            Result.Ok()
         elif req.ValueKind <> JsonValueKind.Array then
             Result.Error "schema.required must be an array"
         else
@@ -55,29 +62,35 @@ module private JsonSchemaValidation =
                 else
                     let name = item.GetString()
                     let mutable value = Unchecked.defaultof<JsonElement>
-                    if args.TryGetProperty(name, &value) then None
-                    else Some(sprintf "missing required field '%s'" name))
+
+                    if args.TryGetProperty(name, &value) then
+                        None
+                    else
+                        Some(sprintf "missing required field '%s'" name))
             |> function
                 | Some err -> Result.Error err
-                | None -> Result.Ok ()
+                | None -> Result.Ok()
 
     let private validatePropertyTypes (schema: JsonElement) (args: JsonElement) =
         let mutable props = Unchecked.defaultof<JsonElement>
+
         if not (schema.TryGetProperty("properties", &props)) then
-            Result.Ok ()
+            Result.Ok()
         elif props.ValueKind <> JsonValueKind.Object then
             Result.Error "schema.properties must be an object"
         else
             args.EnumerateObject()
             |> Seq.tryPick (fun argProp ->
                 let mutable propSchema = Unchecked.defaultof<JsonElement>
+
                 if not (props.TryGetProperty(argProp.Name, &propSchema)) then
                     None
                 else
                     match getAllowedTypes propSchema with
                     | None -> None
                     | Some allowed ->
-                        if valueMatchesTypes argProp.Value allowed then None
+                        if valueMatchesTypes argProp.Value allowed then
+                            None
                         else
                             Some(
                                 sprintf
@@ -88,7 +101,7 @@ module private JsonSchemaValidation =
                             ))
             |> function
                 | Some err -> Result.Error err
-                | None -> Result.Ok ()
+                | None -> Result.Ok()
 
     let validateArguments (schemaJson: string) (argsJson: string) : Result<unit, string> =
         try
@@ -98,38 +111,38 @@ module private JsonSchemaValidation =
             let args = argsDoc.RootElement
 
             let mutable schemaType = Unchecked.defaultof<JsonElement>
-            if schema.TryGetProperty("type", &schemaType)
-               && schemaType.ValueKind = JsonValueKind.String
-               && schemaType.GetString() = "object"
-               && args.ValueKind <> JsonValueKind.Object then
+
+            if
+                schema.TryGetProperty("type", &schemaType)
+                && schemaType.ValueKind = JsonValueKind.String
+                && schemaType.GetString() = "object"
+                && args.ValueKind <> JsonValueKind.Object
+            then
                 Result.Error "tool arguments must be a JSON object"
             elif args.ValueKind <> JsonValueKind.Object then
                 Result.Error "tool arguments must be a JSON object"
             else
                 match validateRequired schema args with
                 | Result.Error err -> Result.Error err
-                | Result.Ok () -> validatePropertyTypes schema args
+                | Result.Ok() -> validatePropertyTypes schema args
         with ex ->
             Result.Error(sprintf "invalid JSON arguments: %s" ex.Message)
 
 /// A registered tool with definition and executor
-type RegisteredTool = {
-    Definition: ToolDefinition
-    IsCacheable: bool
-    Execute: (string -> IExecutionEnvironment -> string)
-}
+type RegisteredTool =
+    { Definition: ToolDefinition
+      IsCacheable: bool
+      Execute: (string -> IExecutionEnvironment -> string) }
 
 /// Registry for dispatching tool calls
 type AgentToolRegistry() =
     let tools = Dictionary<string, RegisteredTool>()
 
     /// Register a tool. Latest-wins for name collisions.
-    member _.Register(tool: RegisteredTool) =
-        tools.[tool.Definition.Name] <- tool
+    member _.Register(tool: RegisteredTool) = tools.[tool.Definition.Name] <- tool
 
     /// Unregister a tool by name
-    member _.Unregister(name: string) =
-        tools.Remove(name) |> ignore
+    member _.Unregister(name: string) = tools.Remove(name) |> ignore
 
     /// Look up a tool by name
     member _.Resolve(name: string) : RegisteredTool option =
@@ -142,8 +155,7 @@ type AgentToolRegistry() =
         tools.Values |> Seq.map (fun t -> t.Definition) |> Seq.toList
 
     /// List all tool names
-    member _.Names() : string list =
-        tools.Keys |> Seq.toList
+    member _.Names() : string list = tools.Keys |> Seq.toList
 
     /// Count of registered tools
     member _.Count = tools.Count
@@ -166,11 +178,15 @@ type AgentToolRegistry() =
                   IsError = true
                   ImageData = None
                   ImageMediaType = None }
-            | Result.Ok () ->
+            | Result.Ok() ->
                 try
                     let result = tool.Execute toolCall.Arguments env
-                    { ToolCallId = toolCall.Id; Content = result; IsError = false
-                      ImageData = None; ImageMediaType = None }
+
+                    { ToolCallId = toolCall.Id
+                      Content = result
+                      IsError = false
+                      ImageData = None
+                      ImageMediaType = None }
                 with ex ->
                     { ToolCallId = toolCall.Id
                       Content = sprintf "Tool error (%s): %s" toolCall.Name ex.Message
@@ -179,7 +195,9 @@ type AgentToolRegistry() =
                       ImageMediaType = None }
 
     /// Dispatch multiple tool calls (supports parallel if requested)
-    member this.DispatchAll(toolCalls: ToolCallData list, env: IExecutionEnvironment, runParallel: bool) : ToolResultData list =
+    member this.DispatchAll
+        (toolCalls: ToolCallData list, env: IExecutionEnvironment, runParallel: bool)
+        : ToolResultData list =
         if runParallel && toolCalls.Length > 1 then
             toolCalls
             |> List.map (fun tc ->

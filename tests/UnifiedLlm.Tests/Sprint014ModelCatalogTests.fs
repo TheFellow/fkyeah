@@ -30,9 +30,6 @@ let ``resolveModel finds newly added models and aliases`` () =
 
 [<Fact>]
 let ``catalog remains limited to anthropic openai and gemini providers`` () =
-    let providers =
-        ModelCatalog.listModels()
-        |> List.map _.Provider
-        |> Set.ofList
+    let providers = ModelCatalog.listModels () |> List.map _.Provider |> Set.ofList
 
     Assert.Equal<Set<string>>(set [ "anthropic"; "openai"; "gemini" ], providers)

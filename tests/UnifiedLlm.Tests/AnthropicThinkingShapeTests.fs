@@ -10,28 +10,43 @@ let private buildAnthropicBody (request: Request) =
     let flags = BindingFlags.Instance ||| BindingFlags.NonPublic
     let buildBody = typeof<AnthropicAdapter>.GetMethod("buildBody", flags)
     Assert.NotNull(buildBody)
+
     buildBody.Invoke(adapter, [| box request; box false |])
     |> JsonSerializer.Serialize
     |> JsonDocument.Parse
 
 let private tryProp (name: string) (doc: JsonDocument) =
     let mutable v = Unchecked.defaultof<JsonElement>
-    if doc.RootElement.TryGetProperty(name, &v) then Some v else None
+
+    if doc.RootElement.TryGetProperty(name, &v) then
+        Some v
+    else
+        None
 
 [<Fact>]
 let ``Anthropic buildBody emits adaptive thinking for opus-4-7`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.user("plan") ]) with
+        { Request.Create("claude-opus-4-7", [ Message.user ("plan") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 4096 }
 
     use doc = buildAnthropicBody request
 
-    let thinking = tryProp "thinking" doc |> Option.defaultWith (fun () -> Assert.Fail("thinking missing"); Unchecked.defaultof<_>)
+    let thinking =
+        tryProp "thinking" doc
+        |> Option.defaultWith (fun () ->
+            Assert.Fail("thinking missing")
+            Unchecked.defaultof<_>)
+
     Assert.Equal("adaptive", thinking.GetProperty("type").GetString())
     Assert.False(thinking.TryGetProperty("budget_tokens", ref Unchecked.defaultof<JsonElement>))
 
-    let outputConfig = tryProp "output_config" doc |> Option.defaultWith (fun () -> Assert.Fail("output_config missing"); Unchecked.defaultof<_>)
+    let outputConfig =
+        tryProp "output_config" doc
+        |> Option.defaultWith (fun () ->
+            Assert.Fail("output_config missing")
+            Unchecked.defaultof<_>)
+
     Assert.Equal("high", outputConfig.GetProperty("effort").GetString())
 
     // Thinking tokens consume max_tokens on the adaptive path too, so the
@@ -41,7 +56,7 @@ let ``Anthropic buildBody emits adaptive thinking for opus-4-7`` () =
 [<Fact>]
 let ``Anthropic buildBody maps xhigh to high on adaptive models`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.user("plan") ]) with
+        { Request.Create("claude-opus-4-7", [ Message.user ("plan") ]) with
             ReasoningEffort = Some "xhigh" }
 
     use doc = buildAnthropicBody request
@@ -52,7 +67,7 @@ let ``Anthropic buildBody maps xhigh to high on adaptive models`` () =
 [<Fact>]
 let ``Anthropic buildBody keeps legacy enabled thinking for 4.6 models`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user("plan") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.user ("plan") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 4096 }
 
@@ -67,7 +82,7 @@ let ``Anthropic buildBody keeps legacy enabled thinking for 4.6 models`` () =
 
 [<Fact>]
 let ``Anthropic buildBody omits thinking when reasoning_effort is not set`` () =
-    let request = Request.Create("claude-opus-4-7", [ Message.user("hi") ])
+    let request = Request.Create("claude-opus-4-7", [ Message.user ("hi") ])
 
     use doc = buildAnthropicBody request
 
@@ -77,7 +92,7 @@ let ``Anthropic buildBody omits thinking when reasoning_effort is not set`` () =
 [<Fact>]
 let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budget`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.user("plan") ]) with
+        { Request.Create("claude-opus-4-7", [ Message.user ("plan") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 100000 }
 
@@ -90,7 +105,7 @@ let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budg
 let ``Anthropic buildBody adaptive path applies to sonnet-4-7 and haiku-4-7`` () =
     for model in [ "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
         let request =
-            { Request.Create(model, [ Message.user("plan") ]) with
+            { Request.Create(model, [ Message.user ("plan") ]) with
                 ReasoningEffort = Some "medium" }
 
         use doc = buildAnthropicBody request

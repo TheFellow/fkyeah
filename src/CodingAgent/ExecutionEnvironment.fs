@@ -21,8 +21,11 @@ type IExecutionEnvironment =
     abstract member ListDirectory: path: string -> DirEntry list
     /// Execute a command with timeout
     abstract member ExecCommand: command: string * timeoutMs: int * workingDir: string option -> ExecResult
+
     /// Search file contents by regex pattern
-    abstract member Grep: pattern: string * path: string * caseInsensitive: bool * maxResults: int * globFilter: string option -> string
+    abstract member Grep:
+        pattern: string * path: string * caseInsensitive: bool * maxResults: int * globFilter: string option -> string
+
     /// Find files by glob pattern
     abstract member Glob: pattern: string * path: string -> string list
     /// Get the working directory
@@ -38,26 +41,32 @@ type IExecutionEnvironment =
 
 /// Environment variable filtering for sensitive data
 module EnvVarFilter =
-    let private sensitivePatterns = [
-        "_API_KEY$"
-        "_SECRET$"
-        "_TOKEN$"
-        "_PASSWORD$"
-        "_CREDENTIAL$"
-    ]
+    let private sensitivePatterns =
+        [ "_API_KEY$"; "_SECRET$"; "_TOKEN$"; "_PASSWORD$"; "_CREDENTIAL$" ]
 
-    let private allowedVars = set [
-        "PATH"; "HOME"; "USER"; "SHELL"; "LANG"; "TERM"; "TMPDIR"
-        "GOPATH"; "CARGO_HOME"; "NVM_DIR"; "DOTNET_ROOT"
-    ]
+    let private allowedVars =
+        set
+            [ "PATH"
+              "HOME"
+              "USER"
+              "SHELL"
+              "LANG"
+              "TERM"
+              "TMPDIR"
+              "GOPATH"
+              "CARGO_HOME"
+              "NVM_DIR"
+              "DOTNET_ROOT" ]
 
     /// Filter environment variables, excluding sensitive ones
     let filterEnvVars (vars: Collections.Generic.IDictionary<string, string>) : Map<string, string> =
         vars
         |> Seq.filter (fun kv ->
-            if allowedVars.Contains(kv.Key) then true
+            if allowedVars.Contains(kv.Key) then
+                true
             else
                 let upper = kv.Key.ToUpperInvariant()
+
                 sensitivePatterns
                 |> List.exists (fun pat -> Regex.IsMatch(upper, pat, RegexOptions.IgnoreCase))
                 |> not)
@@ -75,15 +84,17 @@ module private NativeMethods =
 type LocalExecutionEnvironment(workingDir: string) =
 
     let resolvedWorkingDir =
-        if Path.IsPathRooted(workingDir) then workingDir
-        else Path.GetFullPath(workingDir)
+        if Path.IsPathRooted(workingDir) then
+            workingDir
+        else
+            Path.GetFullPath(workingDir)
 
     let trySetProcessGroup (processId: int) =
         if OperatingSystem.IsWindows() then
             ()
         else
             try
-                if NativeMethods.unixSetpgid(processId, processId) <> 0 then
+                if NativeMethods.unixSetpgid (processId, processId) <> 0 then
                     ()
             with _ ->
                 ()
@@ -91,7 +102,7 @@ type LocalExecutionEnvironment(workingDir: string) =
     let sendUnixSignalToGroup (processId: int) (signal: int) =
         if not (OperatingSystem.IsWindows()) then
             try
-                NativeMethods.unixKill(-processId, signal) |> ignore
+                NativeMethods.unixKill (-processId, signal) |> ignore
             with _ ->
                 ()
 
@@ -99,62 +110,82 @@ type LocalExecutionEnvironment(workingDir: string) =
 
         member _.ReadFile(path, offset, limit) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
             if not (File.Exists(fullPath)) then
                 failwith (sprintf "File not found: %s" fullPath)
+
             let lines = File.ReadAllLines(fullPath)
             let startLine = (offset |> Option.defaultValue 1) - 1 |> max 0
             let count = limit |> Option.defaultValue 2000
+
             let selectedLines =
-                lines
-                |> Array.skip (min startLine lines.Length)
-                |> Array.truncate count
+                lines |> Array.skip (min startLine lines.Length) |> Array.truncate count
+
             selectedLines
             |> Array.mapi (fun i line -> sprintf "%4d | %s" (startLine + i + 1) line)
             |> String.concat Environment.NewLine
 
         member _.WriteFile(path, content) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
             let dir = Path.GetDirectoryName(fullPath)
+
             if not (String.IsNullOrEmpty(dir)) && not (Directory.Exists(dir)) then
                 Directory.CreateDirectory(dir) |> ignore
+
             File.WriteAllText(fullPath, content)
 
         member _.FileExists(path) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
             File.Exists(fullPath)
 
         member _.ListDirectory(path) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
             if not (Directory.Exists(fullPath)) then
                 failwith (sprintf "Directory not found: %s" fullPath)
+
             let entries =
                 Directory.GetFileSystemEntries(fullPath)
                 |> Array.map (fun entry ->
                     let info = FileInfo(entry)
                     let isDir = Directory.Exists(entry)
+
                     { Name = Path.GetFileName(entry)
                       IsDir = isDir
                       Size = if isDir then None else Some info.Length })
                 |> Array.toList
+
             entries
 
         member _.ExecCommand(command, timeoutMs, workingDir) =
             let effectiveDir = workingDir |> Option.defaultValue resolvedWorkingDir
             let psi = ProcessStartInfo()
+
             if OperatingSystem.IsWindows() then
                 psi.FileName <- "cmd.exe"
                 psi.Arguments <- sprintf "/c %s" command
             else
                 psi.FileName <- "/bin/bash"
                 psi.Arguments <- sprintf "-c \"%s\"" (command.Replace("\"", "\\\""))
+
             psi.WorkingDirectory <- effectiveDir
             psi.RedirectStandardOutput <- true
             psi.RedirectStandardError <- true
@@ -163,10 +194,13 @@ type LocalExecutionEnvironment(workingDir: string) =
 
             // Filter environment variables
             let envDict = Dictionary<string, string>()
+
             for entry in Environment.GetEnvironmentVariables() |> Seq.cast<Collections.DictionaryEntry> do
                 envDict.[string entry.Key] <- string entry.Value
+
             let filteredVars = EnvVarFilter.filterEnvVars envDict
             psi.Environment.Clear()
+
             for kv in filteredVars do
                 psi.Environment.[kv.Key] <- kv.Value
 
@@ -176,9 +210,11 @@ type LocalExecutionEnvironment(workingDir: string) =
 
             let stdoutSb = StringBuilder()
             let stderrSb = StringBuilder()
+
             proc.OutputDataReceived.Add(fun e ->
                 if not (isNull e.Data) then
                     stdoutSb.AppendLine(e.Data) |> ignore)
+
             proc.ErrorDataReceived.Add(fun e ->
                 if not (isNull e.Data) then
                     stderrSb.AppendLine(e.Data) |> ignore)
@@ -193,14 +229,23 @@ type LocalExecutionEnvironment(workingDir: string) =
 
             if not exited then
                 timedOut <- true
+
                 if OperatingSystem.IsWindows() then
-                    try proc.Kill(true) with _ -> ()
+                    try
+                        proc.Kill(true)
+                    with _ ->
+                        ()
                 else
                     sendUnixSignalToGroup proc.Id 15 // SIGTERM
                     let exitedAfterTerm = proc.WaitForExit(2000)
+
                     if not exitedAfterTerm then
                         sendUnixSignalToGroup proc.Id 9 // SIGKILL
-                try proc.WaitForExit(2000) |> ignore with _ -> ()
+
+                try
+                    proc.WaitForExit(2000) |> ignore
+                with _ ->
+                    ()
             else
                 // Flush async output events
                 proc.WaitForExit()
@@ -210,18 +255,31 @@ type LocalExecutionEnvironment(workingDir: string) =
             let stderr = stderrSb.ToString().TrimEnd()
 
             if timedOut then
-                { Stdout = stdout; Stderr = stderr; ExitCode = -1
-                  TimedOut = true; DurationMs = int sw.ElapsedMilliseconds }
+                { Stdout = stdout
+                  Stderr = stderr
+                  ExitCode = -1
+                  TimedOut = true
+                  DurationMs = int sw.ElapsedMilliseconds }
             else
-                { Stdout = stdout; Stderr = stderr; ExitCode = proc.ExitCode
-                  TimedOut = false; DurationMs = int sw.ElapsedMilliseconds }
+                { Stdout = stdout
+                  Stderr = stderr
+                  ExitCode = proc.ExitCode
+                  TimedOut = false
+                  DurationMs = int sw.ElapsedMilliseconds }
 
         member _.Grep(pattern, path, caseInsensitive, maxResults, globFilter) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
             let regexOptions =
-                if caseInsensitive then RegexOptions.IgnoreCase else RegexOptions.None
+                if caseInsensitive then
+                    RegexOptions.IgnoreCase
+                else
+                    RegexOptions.None
+
             let regex = Regex(pattern, regexOptions)
             let results = System.Collections.Generic.List<string>()
 
@@ -239,10 +297,12 @@ type LocalExecutionEnvironment(workingDir: string) =
                 if results.Count < maxResults && matchesGlob filePath then
                     try
                         let lines = File.ReadAllLines(filePath)
+
                         for i in 0 .. lines.Length - 1 do
                             if results.Count < maxResults && regex.IsMatch(lines.[i]) then
                                 results.Add(sprintf "%s:%d:%s" filePath (i + 1) lines.[i])
-                    with _ -> ()
+                    with _ ->
+                        ()
 
             if File.Exists(fullPath) then
                 searchFile fullPath
@@ -255,22 +315,33 @@ type LocalExecutionEnvironment(workingDir: string) =
 
         member _.Glob(pattern, path) =
             let fullPath =
-                if Path.IsPathRooted(path) then path
-                else Path.Combine(resolvedWorkingDir, path)
-            if not (Directory.Exists(fullPath)) then []
+                if Path.IsPathRooted(path) then
+                    path
+                else
+                    Path.Combine(resolvedWorkingDir, path)
+
+            if not (Directory.Exists(fullPath)) then
+                []
             else
                 // Simple glob: replace ** with recursive, * with single level
                 let searchPattern =
-                    if pattern.Contains("**") then "*"
-                    else pattern.Replace("**", "*")
+                    if pattern.Contains("**") then
+                        "*"
+                    else
+                        pattern.Replace("**", "*")
+
                 let searchOption =
-                    if pattern.Contains("**") then SearchOption.AllDirectories
-                    else SearchOption.TopDirectoryOnly
+                    if pattern.Contains("**") then
+                        SearchOption.AllDirectories
+                    else
+                        SearchOption.TopDirectoryOnly
+
                 try
                     Directory.EnumerateFiles(fullPath, searchPattern, searchOption)
                     |> Seq.toList
                     |> List.sortByDescending (fun f -> File.GetLastWriteTimeUtc(f))
-                with _ -> []
+                with _ ->
+                    []
 
         member _.WorkingDirectory = resolvedWorkingDir
 

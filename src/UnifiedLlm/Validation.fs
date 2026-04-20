@@ -22,20 +22,15 @@ module ValidationIssue =
 
     let describe issue =
         match issue with
-        | ValidationIssue.UnknownModel modelId ->
-            $"Unknown model '{modelId}'"
+        | ValidationIssue.UnknownModel modelId -> $"Unknown model '{modelId}'"
         | ValidationIssue.UnsupportedCapability(modelId, capability) ->
             $"Model '{modelId}' does not support {capability}"
         | ValidationIssue.InvalidTemperature(modelId, value) ->
             $"Model '{modelId}' received invalid temperature {value}"
-        | ValidationIssue.InvalidToolChoice message ->
-            $"Invalid tool choice: {message}"
-        | ValidationIssue.EmptyMessages ->
-            "Request must include prompt or messages"
-        | ValidationIssue.PromptAndMessagesBothPresent ->
-            "Prompt and messages cannot both be present"
-        | ValidationIssue.PreviousResponseMismatch message ->
-            $"Previous response mismatch: {message}"
+        | ValidationIssue.InvalidToolChoice message -> $"Invalid tool choice: {message}"
+        | ValidationIssue.EmptyMessages -> "Request must include prompt or messages"
+        | ValidationIssue.PromptAndMessagesBothPresent -> "Prompt and messages cannot both be present"
+        | ValidationIssue.PreviousResponseMismatch message -> $"Previous response mismatch: {message}"
         | ValidationIssue.ThinkingBudgetExceedsMaxTokens(modelId, maxTokens, budgetTokens) ->
             $"Model '{modelId}' has max_tokens={maxTokens} but thinking budget requires {budgetTokens}; increase max_tokens above the thinking budget"
 
@@ -49,16 +44,15 @@ module RequestValidator =
 
     let private toolChoiceIssues (request: Request) =
         match request.ToolChoice, request.Tools with
-        | Some (ToolChoice.Named name), Some tools when tools |> List.exists (fun tool -> tool.Name = name) |> not ->
+        | Some(ToolChoice.Named name), Some tools when tools |> List.exists (fun tool -> tool.Name = name) |> not ->
             [ ValidationIssue.InvalidToolChoice($"Named tool '{name}' is not present in request.Tools") ]
-        | Some (ToolChoice.Named name), Option.None ->
+        | Some(ToolChoice.Named name), Option.None ->
             [ ValidationIssue.InvalidToolChoice($"Named tool '{name}' requires request.Tools") ]
         | Some ToolChoice.Required, Some tools when List.isEmpty tools ->
             [ ValidationIssue.InvalidToolChoice("ToolChoice.Required requires at least one tool") ]
         | Some ToolChoice.Required, Option.None ->
             [ ValidationIssue.InvalidToolChoice("ToolChoice.Required requires request.Tools") ]
-        | _ ->
-            []
+        | _ -> []
 
     let fromCatalog () : RequestValidator =
         { Validate =
@@ -66,28 +60,22 @@ module RequestValidator =
                 let issues = ResizeArray<ValidationIssue>()
 
                 match request.Prompt, request.Messages with
-                | Some _, _ :: _ ->
-                    issues.Add ValidationIssue.PromptAndMessagesBothPresent
-                | None, [] ->
-                    issues.Add ValidationIssue.EmptyMessages
-                | _ ->
-                    ()
+                | Some _, _ :: _ -> issues.Add ValidationIssue.PromptAndMessagesBothPresent
+                | None, [] -> issues.Add ValidationIssue.EmptyMessages
+                | _ -> ()
 
                 for issue in toolChoiceIssues request do
                     issues.Add issue
 
                 match ModelCatalog.resolveModel request.Model with
-                | None ->
-                    issues.Add(ValidationIssue.UnknownModel request.Model)
+                | None -> issues.Add(ValidationIssue.UnknownModel request.Model)
                 | Some model ->
                     match request.Tools with
                     | Some tools when not (List.isEmpty tools) && not model.SupportsTools ->
                         issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "tools"))
-                    | _ ->
-                        ()
+                    | _ -> ()
 
-                    let hasVision =
-                        request.Messages |> List.exists hasImageContent
+                    let hasVision = request.Messages |> List.exists hasImageContent
 
                     if hasVision && not model.SupportsVision then
                         issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "vision"))
@@ -104,27 +92,33 @@ module RequestValidator =
                             | "high" -> 32768
                             | "xhigh" -> 65536
                             | _ -> 0
+
                         if budgetTokens > 0 && maxTokens <= budgetTokens then
-                            issues.Add(ValidationIssue.ThinkingBudgetExceedsMaxTokens(model.Id, maxTokens, budgetTokens))
+                            issues.Add(
+                                ValidationIssue.ThinkingBudgetExceedsMaxTokens(model.Id, maxTokens, budgetTokens)
+                            )
                     | _ -> ()
 
                     match request.Temperature with
                     | Some value when value < 0.0 || value > 2.0 ->
                         issues.Add(ValidationIssue.InvalidTemperature(model.Id, value))
-                    | _ ->
-                        ()
+                    | _ -> ()
 
                     match request.PreviousResponseId with
                     | Some _ ->
                         match request.Provider with
-                        | Some provider when not (String.Equals(provider, model.Provider, StringComparison.OrdinalIgnoreCase)) ->
+                        | Some provider when
+                            not (String.Equals(provider, model.Provider, StringComparison.OrdinalIgnoreCase))
+                            ->
                             issues.Add(
                                 ValidationIssue.PreviousResponseMismatch(
-                                    $"provider '{provider}' does not match model provider '{model.Provider}'"))
-                        | _ ->
-                            ()
-                    | None ->
-                        ()
+                                    $"provider '{provider}' does not match model provider '{model.Provider}'"
+                                )
+                            )
+                        | _ -> ()
+                    | None -> ()
 
-                if issues.Count = 0 then Result.Ok request
-                else Result.Error (issues |> Seq.toList) }
+                if issues.Count = 0 then
+                    Result.Ok request
+                else
+                    Result.Error(issues |> Seq.toList) }

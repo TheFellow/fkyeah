@@ -25,33 +25,43 @@ module DefaultDelegate =
 
     let private appendOutput (limitBytes: int) (session: TerminalSession) (text: string) =
         let bytes = Encoding.UTF8.GetBytes(text)
+
         lock session.OutputLock (fun () ->
             if session.OutputBytes >= limitBytes then
                 session.Truncated <- true
             else
                 let remaining = limitBytes - session.OutputBytes
+
                 if bytes.Length <= remaining then
                     session.Output.Append(text) |> ignore
                     session.OutputBytes <- session.OutputBytes + bytes.Length
                 else
                     let mutable consumed = 0
                     let mutable index = 0
+
                     while index < text.Length && consumed < remaining do
                         let current = string text[index]
                         let size = Encoding.UTF8.GetByteCount(current)
+
                         if consumed + size <= remaining then
                             session.Output.Append(current) |> ignore
                             consumed <- consumed + size
                             index <- index + 1
                         else
                             index <- text.Length
+
                     session.OutputBytes <- session.OutputBytes + consumed
                     session.Truncated <- true)
 
     let private readOutput (session: TerminalSession) =
         lock session.OutputLock (fun () -> session.Output.ToString(), session.Truncated)
 
-    let private buildProcessStartInfo (command: string) (args: string list) (workingDirectory: string) (environment: Map<string, string>) =
+    let private buildProcessStartInfo
+        (command: string)
+        (args: string list)
+        (workingDirectory: string)
+        (environment: Map<string, string>)
+        =
         let psi =
             if Path.IsPathRooted(command) then
                 ProcessStartInfo(command)
@@ -81,13 +91,13 @@ module DefaultDelegate =
         Console.Write($"Allow {request.Operation} on {subject}? {reason} [y/N]: ")
         Console.Out.Flush()
         let response = Console.ReadLine()
+
         not (isNull response)
         && response.Trim().StartsWith("y", StringComparison.OrdinalIgnoreCase)
 
     let private authorize permissionStrategy request =
         match permissionStrategy with
-        | PermissionStrategy.DenyAll ->
-            Error(AcpError.PermissionDenied $"Operation '{request.Operation}' is denied")
+        | PermissionStrategy.DenyAll -> Error(AcpError.PermissionDenied $"Operation '{request.Operation}' is denied")
         | PermissionStrategy.AutoApprove ->
             Ok
                 { Allowed = true
@@ -104,33 +114,47 @@ module DefaultDelegate =
         let fullPath = Path.GetFullPath(path)
         let root = Path.GetPathRoot(fullPath)
         let relative = fullPath.Substring(root.Length)
+
         let segments =
-            relative.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+            relative.Split(
+                [| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |],
+                StringSplitOptions.RemoveEmptyEntries
+            )
 
         let mutable current = root
         let mutable index = 0
 
         while index < segments.Length do
             let nextPath = Path.Combine(current, segments[index])
+
             if Directory.Exists(nextPath) then
                 let info = DirectoryInfo(nextPath) :> FileSystemInfo
+
                 current <-
                     if not (isNull info.LinkTarget) then
                         info.ResolveLinkTarget(true).FullName
                     else
                         info.FullName
+
                 index <- index + 1
             elif File.Exists(nextPath) then
                 let info = FileInfo(nextPath) :> FileSystemInfo
+
                 current <-
                     if not (isNull info.LinkTarget) then
                         info.ResolveLinkTarget(true).FullName
                     else
                         info.FullName
+
                 index <- index + 1
             else
                 let remaining = segments[index..]
-                current <- remaining |> Array.fold (fun acc segment -> Path.Combine(acc, segment)) current |> Path.GetFullPath
+
+                current <-
+                    remaining
+                    |> Array.fold (fun acc segment -> Path.Combine(acc, segment)) current
+                    |> Path.GetFullPath
+
                 index <- segments.Length
 
         Path.GetFullPath(current)
@@ -147,11 +171,13 @@ module DefaultDelegate =
                 Path.Combine(rootFull, requestedPath)
 
         let resolved = resolveLinkAwareFullPath combined
+
         if isWithinRoot rootFull resolved then
             Ok resolved
         else
             Error(
-                AcpError.PathOutsideRoot $"'{requestedPath}' resolves to '{resolved}' which is outside root '{rootFull}'"
+                AcpError.PathOutsideRoot
+                    $"'{requestedPath}' resolves to '{resolved}' which is outside root '{rootFull}'"
             )
 
     let createDefaultDelegate (rootDirectory: string) (permissionStrategy: PermissionStrategy) (outputByteLimit: int) =
@@ -190,9 +216,12 @@ module DefaultDelegate =
                         | Error error -> return Error error
                         | Ok path ->
                             let dir = Path.GetDirectoryName(path)
+
                             if not (String.IsNullOrWhiteSpace(dir)) && not (Directory.Exists(dir)) then
                                 Directory.CreateDirectory(dir) |> ignore
+
                             File.WriteAllText(path, request.Content)
+
                             return
                                 Ok
                                     { Path = path
@@ -210,17 +239,18 @@ module DefaultDelegate =
                             | None -> Ok rootFull
 
                         match workingDirectoryResult with
-                        | Error error ->
-                            return Error error
+                        | Error error -> return Error error
                         | Ok workingDirectory ->
                             let psi =
                                 buildProcessStartInfo request.Command request.Args workingDirectory request.Environment
 
                             let proc = new Process(StartInfo = psi)
+
                             if not (proc.Start()) then
                                 return Error(AcpError.InvalidPayload $"Failed to start '{request.Command}'")
                             else
                                 let terminalId = Guid.NewGuid().ToString("N")
+
                                 let session =
                                     { Id = terminalId
                                       Process = proc
@@ -233,8 +263,10 @@ module DefaultDelegate =
                                     Task.Run(fun () ->
                                         task {
                                             let mutable keepReading = true
+
                                             while keepReading do
                                                 let! line = reader.ReadLineAsync()
+
                                                 if isNull line then
                                                     keepReading <- false
                                                 else
@@ -253,28 +285,32 @@ module DefaultDelegate =
                     match sessions.TryGetValue(request.TerminalId) with
                     | true, session ->
                         let output, truncated = readOutput session
+
                         let cappedOutput =
                             match request.MaxBytes with
                             | Some maxBytes when Encoding.UTF8.GetByteCount(output) > maxBytes ->
                                 let mutable consumed = 0
                                 let mutable index = 0
+
                                 while index < output.Length && consumed < maxBytes do
                                     let current = string output[index]
                                     let size = Encoding.UTF8.GetByteCount(current)
+
                                     if consumed + size <= maxBytes then
                                         consumed <- consumed + size
                                         index <- index + 1
                                     else
                                         index <- output.Length
+
                                 output.Substring(0, index)
                             | _ -> output
+
                         return
                             Ok
                                 { Output = cappedOutput
                                   Truncated = truncated
                                   IsRunning = not session.Process.HasExited }
-                    | _ ->
-                        return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
+                    | _ -> return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
                 }
           TerminalWaitForExit =
             fun (request: TerminalWaitForExitRequest) ->
@@ -283,8 +319,13 @@ module DefaultDelegate =
                     | true, session ->
                         match request.TimeoutMs with
                         | Some timeoutMs when timeoutMs > 0 ->
-                            let! completed = session.Process.WaitForExitAsync().WaitAsync(TimeSpan.FromMilliseconds(float timeoutMs)) |> Async.AwaitTask |> Async.Catch
+                            let! completed =
+                                session.Process.WaitForExitAsync().WaitAsync(TimeSpan.FromMilliseconds(float timeoutMs))
+                                |> Async.AwaitTask
+                                |> Async.Catch
+
                             let output, _ = readOutput session
+
                             match completed with
                             | Choice1Of2 _ ->
                                 return
@@ -301,28 +342,26 @@ module DefaultDelegate =
                         | _ ->
                             do! session.Process.WaitForExitAsync() |> Async.AwaitTask
                             let output, _ = readOutput session
+
                             return
                                 Ok
                                     { ExitCode = Some session.Process.ExitCode
                                       Output = output
                                       TimedOut = false }
-                    | _ ->
-                        return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
+                    | _ -> return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
                 }
           TerminalKill =
             fun (request: TerminalKillRequest) ->
                 async {
                     match sessions.TryGetValue(request.TerminalId) with
-                    | true, session when session.Process.HasExited ->
-                        return Ok { Killed = false }
+                    | true, session when session.Process.HasExited -> return Ok { Killed = false }
                     | true, session ->
                         try
                             session.Process.Kill(true)
                             return Ok { Killed = true }
                         with ex ->
                             return Error(AcpError.InvalidPayload ex.Message)
-                    | _ ->
-                        return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
+                    | _ -> return Error(AcpError.InvalidPayload $"Unknown terminal '{request.TerminalId}'")
                 }
           TerminalRelease =
             fun (request: TerminalReleaseRequest) ->
@@ -334,12 +373,10 @@ module DefaultDelegate =
                                 session.Process.Dispose()
                         with _ ->
                             ()
+
                         return Ok { Released = true }
-                    | _ ->
-                        return Ok { Released = false }
+                    | _ -> return Ok { Released = false }
                 }
           RequestPermission =
             fun (request: PermissionRequest) ->
-                async {
-                    return requestPermission request.Operation request.Subject request.Reason
-                } }
+                async { return requestPermission request.Operation request.Subject request.Reason } }

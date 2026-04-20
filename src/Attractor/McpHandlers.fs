@@ -28,6 +28,7 @@ module McpHandlers =
     let private writeStageFile (stageDir: string) (rootDir: string) (fileName: string) (content: string) =
         ensureDir stageDir
         File.WriteAllText(Path.Combine(stageDir, fileName), content)
+
         if stageDir <> rootDir then
             ensureDir rootDir
             File.WriteAllText(Path.Combine(rootDir, fileName), content)
@@ -52,24 +53,33 @@ module McpHandlers =
     let private deserializeTools (raw: string) =
         try
             use document = JsonDocument.Parse(raw)
+
             if document.RootElement.ValueKind <> JsonValueKind.Array then
                 None
             else
                 document.RootElement.EnumerateArray()
                 |> Seq.map (fun item ->
                     let name = item.GetProperty("name").GetString()
+
                     let description =
                         let mutable descriptionElement = Unchecked.defaultof<JsonElement>
-                        if item.TryGetProperty("description", &descriptionElement) && descriptionElement.ValueKind = JsonValueKind.String then
+
+                        if
+                            item.TryGetProperty("description", &descriptionElement)
+                            && descriptionElement.ValueKind = JsonValueKind.String
+                        then
                             descriptionElement.GetString()
                         else
                             ""
+
                     let schema =
                         let mutable schemaElement = Unchecked.defaultof<JsonElement>
+
                         if item.TryGetProperty("inputSchema", &schemaElement) then
                             schemaElement.Clone()
                         else
                             serializeToElement {| |}
+
                     { Name = name
                       Description = description
                       InputSchema = schema })
@@ -80,12 +90,10 @@ module McpHandlers =
 
     let private configBaseDir (graph: Graph) =
         let cwd = graph.GetGraphAttrString("cwd", "")
-        if cwd = "" then
-            Environment.CurrentDirectory
-        elif Path.IsPathRooted(cwd) then
-            cwd
-        else
-            Path.GetFullPath(cwd)
+
+        if cwd = "" then Environment.CurrentDirectory
+        elif Path.IsPathRooted(cwd) then cwd
+        else Path.GetFullPath(cwd)
 
     let private loadConfigs (node: Node) (graph: Graph) =
         let configFile = node.GetAttrString("mcp_config_file", "").Trim()
@@ -97,11 +105,15 @@ module McpHandlers =
                     configFile
                 else
                     Path.Combine(configBaseDir graph, configFile)
+
             Config.parseConfigFile path
         elif inlineConfigs <> "" then
             Config.parseConfigText inlineConfigs
         else
-            Error(McpError.InvalidConfiguration "Missing MCP configuration. Set node attr 'mcp_config_file' or graph attr 'mcp_servers'.")
+            Error(
+                McpError.InvalidConfiguration
+                    "Missing MCP configuration. Set node attr 'mcp_config_file' or graph attr 'mcp_servers'."
+            )
 
     let private argumentsFromContext (context: Context) =
         let primaryValue =
@@ -123,11 +135,17 @@ module McpHandlers =
 
     let private extractToolOutput (result: McpToolCallResult) =
         let content = result.Content
+
         if content.ValueKind = JsonValueKind.Array then
             content.EnumerateArray()
             |> Seq.choose (fun item ->
                 let mutable textElement = Unchecked.defaultof<JsonElement>
-                if item.ValueKind = JsonValueKind.Object && item.TryGetProperty("text", &textElement) && textElement.ValueKind = JsonValueKind.String then
+
+                if
+                    item.ValueKind = JsonValueKind.Object
+                    && item.TryGetProperty("text", &textElement)
+                    && textElement.ValueKind = JsonValueKind.String
+                then
                     Some(textElement.GetString())
                 else
                     None)
@@ -136,13 +154,9 @@ module McpHandlers =
         else
             content.GetRawText()
 
-    let private cacheKey serverName =
-        $"mcp.tools.{serverName}"
+    let private cacheKey serverName = $"mcp.tools.{serverName}"
 
-    type McpToolHandler
-        (
-            ?serverFactory: McpServerConfig -> McpConnectionPolicy -> Result<McpRemoteServer, McpError>
-        ) =
+    type McpToolHandler(?serverFactory: McpServerConfig -> McpConnectionPolicy -> Result<McpRemoteServer, McpError>) =
 
         let serverFactory = defaultArg serverFactory Server.createServer
 
@@ -165,18 +179,17 @@ module McpHandlers =
                     fail "Missing required node attribute 'mcp_tool'"
                 else
                     match loadConfigs node graph with
-                    | Error error ->
-                        fail (McpError.describe error)
+                    | Error error -> fail (McpError.describe error)
                     | Ok configs ->
                         match configs |> List.tryFind (fun config -> config.Name = serverName) with
                         | None ->
                             let available =
                                 configs |> List.map (fun config -> config.Name) |> String.concat ", "
+
                             fail $"MCP server '{serverName}' not found. Available servers: {available}"
                         | Some config ->
                             match serverFactory config McpConnectionPolicy.Default with
-                            | Error error ->
-                                fail (McpError.describe error)
+                            | Error error -> fail (McpError.describe error)
                             | Ok server ->
                                 try
                                     let toolsResult =
@@ -186,38 +199,55 @@ module McpHandlers =
                                             requestTrail.Add(box {| method = "initialize" |})
                                             requestTrail.Add(box {| method = "tools/list" |})
                                             let listed = server.ListTools() |> Async.RunSynchronously
+
                                             match listed with
                                             | Ok tools -> Ok tools
                                             | Error error -> Error error
 
                                     match toolsResult with
-                                    | Error error ->
-                                        fail (McpError.describe error)
+                                    | Error error -> fail (McpError.describe error)
                                     | Ok tools ->
                                         match tools |> List.tryFind (fun tool -> tool.Name = toolName) with
                                         | None ->
                                             let available =
                                                 tools
                                                 |> List.map (fun tool -> tool.Name)
-                                                |> fun names -> if List.isEmpty names then "(none)" else String.concat ", " names
-                                            let requestJson =
-                                                JsonSerializer.Serialize(
-                                                    {| server = serverName
-                                                       tool = toolName
-                                                       requests = requestTrail |> Seq.toList |},
-                                                    JsonSerializerOptions(WriteIndented = true))
-                                            writeStageFile stageDir rootDir "mcp_request.json" requestJson
-                                            fail $"MCP tool '{toolName}' not found on server '{serverName}'. Available tools: {available}"
-                                        | Some _ ->
-                                            let arguments = argumentsFromContext context
-                                            requestTrail.Add(box {| method = "tools/call"; name = toolName; arguments = arguments |})
+                                                |> fun names ->
+                                                    if List.isEmpty names then
+                                                        "(none)"
+                                                    else
+                                                        String.concat ", " names
 
                                             let requestJson =
                                                 JsonSerializer.Serialize(
                                                     {| server = serverName
                                                        tool = toolName
                                                        requests = requestTrail |> Seq.toList |},
-                                                    JsonSerializerOptions(WriteIndented = true))
+                                                    JsonSerializerOptions(WriteIndented = true)
+                                                )
+
+                                            writeStageFile stageDir rootDir "mcp_request.json" requestJson
+
+                                            fail
+                                                $"MCP tool '{toolName}' not found on server '{serverName}'. Available tools: {available}"
+                                        | Some _ ->
+                                            let arguments = argumentsFromContext context
+
+                                            requestTrail.Add(
+                                                box
+                                                    {| method = "tools/call"
+                                                       name = toolName
+                                                       arguments = arguments |}
+                                            )
+
+                                            let requestJson =
+                                                JsonSerializer.Serialize(
+                                                    {| server = serverName
+                                                       tool = toolName
+                                                       requests = requestTrail |> Seq.toList |},
+                                                    JsonSerializerOptions(WriteIndented = true)
+                                                )
+
                                             writeStageFile stageDir rootDir "mcp_request.json" requestJson
 
                                             match server.CallTool toolName arguments |> Async.RunSynchronously with
@@ -225,7 +255,9 @@ module McpHandlers =
                                                 let responseJson =
                                                     JsonSerializer.Serialize(
                                                         {| error = McpError.describe error |},
-                                                        JsonSerializerOptions(WriteIndented = true))
+                                                        JsonSerializerOptions(WriteIndented = true)
+                                                    )
+
                                                 writeStageFile stageDir rootDir "mcp_response.json" responseJson
                                                 fail (McpError.describe error)
                                             | Ok result ->
@@ -233,7 +265,9 @@ module McpHandlers =
                                                     JsonSerializer.Serialize(
                                                         {| isError = result.IsError
                                                            content = result.Content |},
-                                                        JsonSerializerOptions(WriteIndented = true))
+                                                        JsonSerializerOptions(WriteIndented = true)
+                                                    )
+
                                                 writeStageFile stageDir rootDir "mcp_response.json" responseJson
 
                                                 if result.IsError then
@@ -243,10 +277,13 @@ module McpHandlers =
                                                         Map.ofList
                                                             [ "tool.output", extractToolOutput result
                                                               cacheKey serverName, serializeTools tools ]
+
                                                     let outcome =
                                                         Outcome.Success(
                                                             notes = $"MCP tool completed: {serverName}/{toolName}",
-                                                            contextUpdates = updates)
+                                                            contextUpdates = updates
+                                                        )
+
                                                     HandlerArtifacts.writeStatus stageDir rootDir outcome
                                                     outcome
                                 finally

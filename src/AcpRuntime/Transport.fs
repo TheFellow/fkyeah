@@ -37,11 +37,9 @@ module Transport =
           RightToLeft: Channel<byte array>
           mutable Closed: bool }
 
-    type private InMemoryEndpointState =
-        { mutable Connected: bool }
+    type private InMemoryEndpointState = { mutable Connected: bool }
 
-    let private cloneBytes (payload: byte array) =
-        Array.copy payload
+    let private cloneBytes (payload: byte array) = Array.copy payload
 
     let private buildProcessStartInfo (command: string) (args: string list) (workingDirectory: string option) =
         let psi =
@@ -71,8 +69,10 @@ module Transport =
         Task.Run(fun () ->
             task {
                 let mutable keepReading = true
+
                 while keepReading do
                     let! line = proc.StandardError.ReadLineAsync()
+
                     if isNull line then
                         keepReading <- false
                     else
@@ -83,7 +83,9 @@ module Transport =
     let private terminateProcess (proc: Process) =
         async {
             try
-                use killer = Process.Start(ProcessStartInfo("/bin/kill", $"-TERM {proc.Id}", UseShellExecute = false))
+                use killer =
+                    Process.Start(ProcessStartInfo("/bin/kill", $"-TERM {proc.Id}", UseShellExecute = false))
+
                 if not (isNull killer) then
                     do! killer.WaitForExitAsync() |> Async.AwaitTask
             with _ ->
@@ -94,12 +96,15 @@ module Transport =
         taskSeq {
             try
                 let mutable keepReading = true
+
                 while keepReading && not ct.IsCancellationRequested do
                     let! canRead = reader.WaitToReadAsync(ct).AsTask()
+
                     if not canRead then
                         keepReading <- false
                     else
                         let mutable item = Unchecked.defaultof<byte array>
+
                         if reader.TryRead(&item) then
                             yield item
             with :? OperationCanceledException ->
@@ -113,7 +118,11 @@ module Transport =
               RightToLeft = Channel.CreateUnbounded<byte array>()
               Closed = false }
 
-        let createTransport (localState: InMemoryEndpointState) (incoming: ChannelReader<byte array>) (outgoing: ChannelWriter<byte array>) =
+        let createTransport
+            (localState: InMemoryEndpointState)
+            (incoming: ChannelReader<byte array>)
+            (outgoing: ChannelWriter<byte array>)
+            =
             { Connect =
                 fun () ->
                     async {
@@ -141,7 +150,7 @@ module Transport =
 
                         match writable with
                         | Error error -> return Error error
-                        | Ok () ->
+                        | Ok() ->
                             try
                                 do! outgoing.WriteAsync(cloneBytes payload).AsTask() |> Async.AwaitTask
                                 return Ok()
@@ -160,6 +169,7 @@ module Transport =
                         let shouldClose =
                             lock pairState.SyncRoot (fun () ->
                                 localState.Connected <- false
+
                                 if pairState.Closed then
                                     false
                                 else
@@ -170,9 +180,7 @@ module Transport =
                             pairState.LeftToRight.Writer.TryComplete() |> ignore
                             pairState.RightToLeft.Writer.TryComplete() |> ignore
                     }
-              IsConnected =
-                fun () ->
-                    lock pairState.SyncRoot (fun () -> localState.Connected && not pairState.Closed) }
+              IsConnected = fun () -> lock pairState.SyncRoot (fun () -> localState.Connected && not pairState.Closed) }
 
         let leftState = { Connected = false }
         let rightState = { Connected = false }
@@ -194,7 +202,11 @@ module Transport =
         | "heartbeat" -> true
         | _ -> false
 
-    let parseSseStreamWithIdleTimeout (stream: Stream) (ct: CancellationToken) (idleTimeoutMs: int) : IAsyncEnumerable<ParsedSseEvent> =
+    let parseSseStreamWithIdleTimeout
+        (stream: Stream)
+        (ct: CancellationToken)
+        (idleTimeoutMs: int)
+        : IAsyncEnumerable<ParsedSseEvent> =
         taskSeq {
             use reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true)
 
@@ -208,41 +220,49 @@ module Transport =
             let emitEvent () =
                 if seenField then
                     let payload = String.concat "\n" (dataLines |> Seq.toList)
+
                     let eventData =
                         { Data = Encoding.UTF8.GetBytes(payload)
                           EventType = eventType
                           RetryMs = retryMs
                           LastEventId = lastEventId }
+
                     let wasHeartbeat = isHeartbeatEventType eventType
                     dataLines.Clear()
                     eventType <- "message"
                     retryMs <- None
                     lastEventId <- None
                     seenField <- false
+
                     if not wasHeartbeat then
                         progress.Restart()
+
                     Some eventData
                 else
                     None
 
             let parseField (line: string) =
                 let index = line.IndexOf(':')
+
                 if index < 0 then
                     line, ""
                 else
-                    let rawValue = line[(index + 1)..]
+                    let rawValue = line[(index + 1) ..]
+
                     let value =
                         if rawValue.StartsWith(" ", StringComparison.Ordinal) then
                             rawValue.Substring(1)
                         else
                             rawValue
-                    line[..(index - 1)], value
+
+                    line[.. (index - 1)], value
 
             let mutable keepReading = true
 
             while keepReading && not ct.IsCancellationRequested do
                 let elapsed = int progress.ElapsedMilliseconds
                 let remaining = idleTimeoutMs - elapsed
+
                 if remaining <= 0 then
                     raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
 
@@ -252,6 +272,7 @@ module Transport =
 
                 let mutable line: string = null
                 let mutable idleFired = false
+
                 try
                     let! read = reader.ReadLineAsync(linked.Token).AsTask()
                     line <- read
@@ -260,6 +281,7 @@ module Transport =
                         keepReading <- false
                     else
                         idleFired <- true
+
                 idleCts.Dispose()
 
                 if idleFired then
@@ -268,6 +290,7 @@ module Transport =
                 if keepReading then
                     if isNull line then
                         keepReading <- false
+
                         match emitEvent () with
                         | Some eventData -> yield eventData
                         | None -> ()
@@ -280,6 +303,7 @@ module Transport =
                         ()
                     else
                         let fieldName, value = parseField line
+
                         match fieldName with
                         | "data" ->
                             seenField <- true
@@ -312,11 +336,9 @@ module Transport =
         let setClosed error =
             lock syncRoot (fun () -> lastError <- Some error)
 
-        let currentProcess () =
-            lock syncRoot (fun () -> activeProcess)
+        let currentProcess () = lock syncRoot (fun () -> activeProcess)
 
-        let stateError () =
-            lock syncRoot (fun () -> lastError)
+        let stateError () = lock syncRoot (fun () -> lastError)
 
         let clearState () =
             lock syncRoot (fun () ->
@@ -328,8 +350,7 @@ module Transport =
                 async {
                     match currentProcess (), stateError () with
                     | Some proc, _ when not proc.HasExited -> return Error AcpError.AlreadyConnected
-                    | _, Some(AcpError.ProcessExited exitCode) ->
-                        return Error(AcpError.ProcessExited exitCode)
+                    | _, Some(AcpError.ProcessExited exitCode) -> return Error(AcpError.ProcessExited exitCode)
                     | _ ->
                         try
                             let psi = buildProcessStartInfo command args workingDirectory
@@ -340,14 +361,16 @@ module Transport =
                                 return Error(AcpError.InvalidPayload $"Failed to start command '{command}'")
                             else
                                 let drainTask = startStderrDrain proc stderrBuffer
+
                                 if proc.WaitForExit(200) then
-                                    let details =
-                                        lock stderrBuffer (fun () -> stderrBuffer.ToString().Trim())
+                                    let details = lock stderrBuffer (fun () -> stderrBuffer.ToString().Trim())
+
                                     let reason =
                                         if String.IsNullOrWhiteSpace(details) then
                                             $"Command '{command}' exited during startup"
                                         else
                                             details
+
                                     setClosed (AcpError.ProcessExited proc.ExitCode)
                                     clearState ()
                                     proc.Dispose()
@@ -357,6 +380,7 @@ module Transport =
                                         lastError <- None
                                         activeProcess <- Some proc
                                         stderrDrain <- Some drainTask)
+
                                     return Ok()
                         with ex ->
                             return Error(AcpError.InvalidPayload ex.Message)
@@ -367,8 +391,7 @@ module Transport =
                     match currentProcess (), stateError () with
                     | _, Some error -> return Error error
                     | None, _ -> return Error AcpError.NotConnected
-                    | Some proc, _ when proc.HasExited ->
-                        return Error(AcpError.ProcessExited proc.ExitCode)
+                    | Some proc, _ when proc.HasExited -> return Error(AcpError.ProcessExited proc.ExitCode)
                     | Some proc, _ ->
                         try
                             let text = Encoding.UTF8.GetString(payload)
@@ -385,19 +408,26 @@ module Transport =
                     match currentProcess () with
                     | Some proc ->
                         let mutable keepReading = true
+
                         while keepReading && not ct.IsCancellationRequested do
                             let! line = proc.StandardOutput.ReadLineAsync()
+
                             if isNull line then
                                 keepReading <- false
+
                                 if proc.HasExited then
                                     setClosed (AcpError.ProcessExited proc.ExitCode)
                                 else
                                     setClosed AcpError.TransportClosed
                             else
                                 let payload = Encoding.UTF8.GetBytes(line)
+
                                 if payload.Length > DefaultMaxMessageSize then
                                     keepReading <- false
-                                    setClosed (AcpError.InvalidPayload $"Stdio message exceeded {DefaultMaxMessageSize} bytes")
+
+                                    setClosed (
+                                        AcpError.InvalidPayload $"Stdio message exceeded {DefaultMaxMessageSize} bytes"
+                                    )
                                 else
                                     yield payload
                     | None -> ()
@@ -416,6 +446,7 @@ module Transport =
 
                             if not proc.HasExited then
                                 do! terminateProcess proc
+
                                 if not (proc.WaitForExit(5000)) then
                                     try
                                         proc.Kill(true)
@@ -451,12 +482,13 @@ module Transport =
             fun () ->
                 async {
                     match currentSocket () with
-                    | Some existing when existing.State = WebSocketState.Open ->
-                        return Error AcpError.AlreadyConnected
+                    | Some existing when existing.State = WebSocketState.Open -> return Error AcpError.AlreadyConnected
                     | _ ->
                         let created = new ClientWebSocket()
+
                         for KeyValue(key, value) in headers do
                             created.Options.SetRequestHeader(key, value)
+
                         do! created.ConnectAsync(Uri(url), CancellationToken.None) |> Async.AwaitTask
                         socket <- Some created
                         return Ok()
@@ -466,7 +498,10 @@ module Transport =
                 async {
                     match currentSocket () with
                     | Some ws when ws.State = WebSocketState.Open ->
-                        do! ws.SendAsync(ArraySegment(payload), WebSocketMessageType.Text, true, CancellationToken.None) |> Async.AwaitTask
+                        do!
+                            ws.SendAsync(ArraySegment(payload), WebSocketMessageType.Text, true, CancellationToken.None)
+                            |> Async.AwaitTask
+
                         return Ok()
                     | _ -> return Error AcpError.NotConnected
                 }
@@ -477,24 +512,29 @@ module Transport =
                     | Some ws when ws.State = WebSocketState.Open ->
                         let buffer = Array.zeroCreate<byte> 4096
                         let mutable keepReading = true
+
                         while keepReading && not ct.IsCancellationRequested do
                             use ms = new MemoryStream()
                             let mutable finished = false
                             let mutable shouldYield = false
+
                             while not finished && not ct.IsCancellationRequested do
                                 let! result = ws.ReceiveAsync(ArraySegment(buffer), ct)
+
                                 match result.MessageType with
                                 | WebSocketMessageType.Close ->
                                     keepReading <- false
                                     finished <- true
                                 | _ ->
                                     ms.Write(buffer, 0, result.Count)
+
                                     if ms.Length > int64 DefaultMaxMessageSize then
                                         finished <- true
                                         keepReading <- false
                                     elif result.EndOfMessage then
                                         finished <- true
                                         shouldYield <- true
+
                             if shouldYield then
                                 yield ms.ToArray()
                     | _ -> ()
@@ -506,9 +546,16 @@ module Transport =
                     | Some ws ->
                         try
                             if ws.State = WebSocketState.Open || ws.State = WebSocketState.CloseReceived then
-                                do! ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "disconnect", CancellationToken.None) |> Async.AwaitTask
+                                do!
+                                    ws.CloseAsync(
+                                        WebSocketCloseStatus.NormalClosure,
+                                        "disconnect",
+                                        CancellationToken.None
+                                    )
+                                    |> Async.AwaitTask
                         with _ ->
                             ()
+
                         ws.Dispose()
                         socket <- None
                     | None -> ()
@@ -553,15 +600,14 @@ module Transport =
                         request.Content.Headers.ContentType <- MediaTypeHeaderValue("application/json")
                         let! response = httpClient.SendAsync(request) |> Async.AwaitTask
                         use response = response
+
                         if response.IsSuccessStatusCode then
                             return Ok()
                         else
                             return Error AcpError.TransportClosed
                     with
-                    | :? TaskCanceledException as ex ->
-                        return Error(AcpError.TimedOut ex.Message)
-                    | ex ->
-                        return Error(AcpError.InvalidPayload ex.Message)
+                    | :? TaskCanceledException as ex -> return Error(AcpError.TimedOut ex.Message)
+                    | ex -> return Error(AcpError.InvalidPayload ex.Message)
                 }
           Receive =
             fun ct ->
@@ -571,8 +617,10 @@ module Transport =
                         use request = new HttpRequestMessage(HttpMethod.Get, url)
                         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue("text/event-stream"))
                         applyHeaders request
+
                         match lastEventId with
-                        | Some value when value <> "" -> request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
+                        | Some value when value <> "" ->
+                            request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
                         | _ -> ()
 
                         let! response = httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct)
@@ -591,11 +639,13 @@ module Transport =
                         if String.Equals(mediaType, "application/json", StringComparison.OrdinalIgnoreCase) then
                             use memory = new MemoryStream()
                             do! stream.CopyToAsync(memory, ct)
+
                             if memory.Length <= int64 DefaultMaxMessageSize then
                                 yield memory.ToArray()
                         else
                             for eventData in parseSseStream stream ct do
                                 lastEventId <- eventData.LastEventId |> Option.orElse lastEventId
+
                                 if eventData.Data.Length <= DefaultMaxMessageSize then
                                     yield eventData.Data
                     | None -> ()

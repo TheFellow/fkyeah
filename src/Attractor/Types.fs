@@ -19,25 +19,26 @@ type Duration =
 
     static member TryParse(s: string) : Duration option =
         let s = s.Trim()
+
         if s.EndsWith("ms") then
             match Int64.TryParse(s.Substring(0, s.Length - 2)) with
-            | true, v -> Some (Duration.FromMs v)
+            | true, v -> Some(Duration.FromMs v)
             | _ -> None
         elif s.EndsWith("s") && not (s.EndsWith("ms")) then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
-            | true, v -> Some (Duration.FromSeconds v)
+            | true, v -> Some(Duration.FromSeconds v)
             | _ -> None
         elif s.EndsWith("m") then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
-            | true, v -> Some (Duration.FromMinutes v)
+            | true, v -> Some(Duration.FromMinutes v)
             | _ -> None
         elif s.EndsWith("h") then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
-            | true, v -> Some (Duration.FromHours v)
+            | true, v -> Some(Duration.FromHours v)
             | _ -> None
         elif s.EndsWith("d") then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
-            | true, v -> Some (Duration.FromDays v)
+            | true, v -> Some(Duration.FromDays v)
             | _ -> None
         else
             None
@@ -195,11 +196,14 @@ module FidelityMode =
     /// Approximate character budget using 1 token ~= 4 characters.
     let charBudget (mode: FidelityMode) : int =
         let tokens = tokenBudget mode
-        if tokens = Int32.MaxValue then Int32.MaxValue else tokens * 4
+
+        if tokens = Int32.MaxValue then
+            Int32.MaxValue
+        else
+            tokens * 4
 
     /// Reduced-fidelity requests should use a fresh session.
-    let useFreshSession (mode: FidelityMode) : bool =
-        mode <> FidelityMode.Full
+    let useFreshSession (mode: FidelityMode) : bool = mode <> FidelityMode.Full
 
 /// A parsed node from the DOT graph
 type Node =
@@ -231,12 +235,9 @@ type Node =
         |> Option.defaultValue ""
 
     member this.MaxRetriesOption =
-        this.Attributes
-        |> Map.tryFind "max_retries"
-        |> Option.bind (fun v -> v.AsInt())
+        this.Attributes |> Map.tryFind "max_retries" |> Option.bind (fun v -> v.AsInt())
 
-    member this.MaxRetries =
-        defaultArg this.MaxRetriesOption 0
+    member this.MaxRetries = defaultArg this.MaxRetriesOption 0
 
     member this.GoalGate =
         this.Attributes
@@ -333,8 +334,7 @@ type Node =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue ""
 
-    member this.GetAttr(key: string) =
-        this.Attributes |> Map.tryFind key
+    member this.GetAttr(key: string) = this.Attributes |> Map.tryFind key
 
     member this.GetAttrString(key: string, defaultValue: string) =
         this.Attributes
@@ -415,8 +415,7 @@ type Graph =
         |> Option.orElseWith (fun () -> Map.tryFind "default_max_retry" this.GraphAttributes)
         |> Option.bind (fun v -> v.AsInt())
 
-    member this.DefaultMaxRetry =
-        defaultArg this.DefaultMaxRetriesOption 0
+    member this.DefaultMaxRetry = defaultArg this.DefaultMaxRetriesOption 0
 
     member this.RetryTarget =
         this.GraphAttributes
@@ -456,20 +455,18 @@ type Graph =
 
     member this.FindStartNode() =
         this.Nodes
-        |> Map.tryPick (fun _ n ->
-            if n.Shape = "Mdiamond" then Some n
-            else None)
+        |> Map.tryPick (fun _ n -> if n.Shape = "Mdiamond" then Some n else None)
         |> Option.orElseWith (fun () ->
-            this.Nodes |> Map.tryFind "start"
+            this.Nodes
+            |> Map.tryFind "start"
             |> Option.orElseWith (fun () -> this.Nodes |> Map.tryFind "Start"))
 
     member this.FindExitNode() =
         this.Nodes
-        |> Map.tryPick (fun _ n ->
-            if n.Shape = "Msquare" then Some n
-            else None)
+        |> Map.tryPick (fun _ n -> if n.Shape = "Msquare" then Some n else None)
         |> Option.orElseWith (fun () ->
-            this.Nodes |> Map.tryFind "exit"
+            this.Nodes
+            |> Map.tryFind "exit"
             |> Option.orElseWith (fun () -> this.Nodes |> Map.tryFind "end"))
 
     member this.GetGraphAttrString(key: string, defaultValue: string) =
@@ -526,13 +523,7 @@ module KnownAttributes =
               "mcp_config_file" ]
 
     let edge =
-        set
-            [ "label"
-              "condition"
-              "weight"
-              "fidelity"
-              "thread_id"
-              "loop_restart" ]
+        set [ "label"; "condition"; "weight"; "fidelity"; "thread_id"; "loop_restart" ]
 
     let graph =
         set
@@ -583,11 +574,7 @@ type FileArtifactStore(rootPath: string) =
             Directory.CreateDirectory(artifactsDir) |> ignore
 
     let pathForKey (key: string) =
-        let safe =
-            key
-                .Replace("/", "_")
-                .Replace("\\", "_")
-                .Replace("..", "_")
+        let safe = key.Replace("/", "_").Replace("\\", "_").Replace("..", "_")
         Path.Combine(artifactsDir, safe)
 
     interface IArtifactStore with
@@ -597,21 +584,23 @@ type FileArtifactStore(rootPath: string) =
 
         member _.Retrieve(key) =
             let path = pathForKey key
-            if File.Exists(path) then Some(File.ReadAllText(path))
-            else None
 
-        member _.Has(key) =
-            File.Exists(pathForKey key)
+            if File.Exists(path) then
+                Some(File.ReadAllText(path))
+            else
+                None
+
+        member _.Has(key) = File.Exists(pathForKey key)
 
         member _.List() =
-            if not (Directory.Exists(artifactsDir)) then []
+            if not (Directory.Exists(artifactsDir)) then
+                []
             else
-                Directory.EnumerateFiles(artifactsDir)
-                |> Seq.map Path.GetFileName
-                |> Seq.toList
+                Directory.EnumerateFiles(artifactsDir) |> Seq.map Path.GetFileName |> Seq.toList
 
         member _.Remove(key) =
             let path = pathForKey key
+
             if File.Exists(path) then
                 File.Delete(path)
 
@@ -638,7 +627,10 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
 
     let withOffload (key: string) (value: string) =
         match artifactStore with
-        | Some store when not (value.StartsWith("artifact:")) && Encoding.UTF8.GetByteCount(value) > thresholdBytes ->
+        | Some store when
+            not (value.StartsWith("artifact:"))
+            && Encoding.UTF8.GetByteCount(value) > thresholdBytes
+            ->
             let artifactKey = sprintf "%s-%s.txt" key (Guid.NewGuid().ToString("N"))
             store.Store(artifactKey, value)
             $"artifact:{artifactKey}"
@@ -672,13 +664,9 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
         lock lockObj (fun () -> logs.Add(entry))
 
     member _.Snapshot() =
-        lock lockObj (fun () ->
-            values
-            |> Seq.map (fun kv -> kv.Key, kv.Value)
-            |> Map.ofSeq)
+        lock lockObj (fun () -> values |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq)
 
-    member _.Logs =
-        lock lockObj (fun () -> logs |> Seq.toList)
+    member _.Logs = lock lockObj (fun () -> logs |> Seq.toList)
 
     member _.Clone() =
         // F# strings are immutable; copy is by value. Artifact store handle is intentionally shared.
@@ -686,11 +674,14 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
             match artifactStore with
             | Some store -> Context(artifactStore = store, offloadThresholdBytes = thresholdBytes)
             | None -> Context(offloadThresholdBytes = thresholdBytes)
+
         lock lockObj (fun () ->
             for kv in values do
                 ctx.Set(kv.Key, kv.Value)
+
             for log in logs do
                 ctx.AppendLog(log))
+
         ctx
 
     member _.ApplyUpdates(updates: Map<string, string>) =
@@ -698,12 +689,9 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
             for kv in updates do
                 values[kv.Key] <- withOffload kv.Key kv.Value)
 
-    member _.Keys =
-        lock lockObj (fun () ->
-            values.Keys |> Seq.toList)
+    member _.Keys = lock lockObj (fun () -> values.Keys |> Seq.toList)
 
-    member _.Count =
-        lock lockObj (fun () -> values.Count)
+    member _.Count = lock lockObj (fun () -> values.Count)
 
     /// Project context through a fidelity mode, returning a filtered clone
     member this.Project(fidelity: FidelityMode, ?truncateLimit: int) : Context =
@@ -723,28 +711,42 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
                 charCount
             else
                 let remaining = charLimit - charCount
+
                 let stored =
-                    if value.Length > remaining then value.Substring(0, remaining)
-                    else value
+                    if value.Length > remaining then
+                        value.Substring(0, remaining)
+                    else
+                        value
+
                 ctx.Set(key, stored)
                 charCount + key.Length + stored.Length
 
         match fidelity with
-        | FidelityMode.Full ->
-            this.Clone()
+        | FidelityMode.Full -> this.Clone()
         | FidelityMode.Truncate ->
             let ctx = createProjectedContext ()
+
             lock lockObj (fun () ->
                 for kv in values do
                     let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
-                    let v = if resolved.Length > charLimit then resolved.Substring(0, charLimit) else resolved
+
+                    let v =
+                        if resolved.Length > charLimit then
+                            resolved.Substring(0, charLimit)
+                        else
+                            resolved
+
                     ctx.Set(kv.Key, v)
+
                 copyLogs ctx)
+
             ctx
         | FidelityMode.Compact ->
             let ctx = createProjectedContext ()
+
             lock lockObj (fun () ->
                 let mutable charCount = 0
+
                 for kv in values do
                     if kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome" then
                         let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
@@ -756,33 +758,49 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
                         charCount <- setWithinBudget ctx kv.Key resolved charCount
 
                 copyLogs ctx)
+
             ctx
         | FidelityMode.SummaryLow
         | FidelityMode.SummaryMedium ->
             let ctx = createProjectedContext ()
+
             lock lockObj (fun () ->
                 let mutable charCount = 0
+
                 for kv in values do
                     let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
                     charCount <- setWithinBudget ctx kv.Key resolved charCount
 
                 copyLogs ctx)
+
             ctx
         | FidelityMode.SummaryHigh ->
             let ctx = createProjectedContext ()
+
             lock lockObj (fun () ->
                 let summary =
                     values
                     |> Seq.map (fun kv ->
                         let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
-                        let v = if resolved.Length > 50 then resolved.Substring(0, 50) + "..." else resolved
+
+                        let v =
+                            if resolved.Length > 50 then
+                                resolved.Substring(0, 50) + "..."
+                            else
+                                resolved
+
                         $"{kv.Key}={v}")
                     |> String.concat "; "
+
                 let truncated =
-                    if summary.Length > charLimit then summary.Substring(0, charLimit)
-                    else summary
+                    if summary.Length > charLimit then
+                        summary.Substring(0, charLimit)
+                    else
+                        summary
+
                 ctx.Set("context_summary", truncated)
                 copyLogs ctx)
+
             ctx
 
 /// Checkpoint for crash recovery
@@ -830,14 +848,10 @@ module ShapeMapping =
         if node.NodeType <> "" then
             node.NodeType
         else
-            shapeToHandlerType
-            |> Map.tryFind node.Shape
-            |> Option.defaultValue "codergen"
+            shapeToHandlerType |> Map.tryFind node.Shape |> Option.defaultValue "codergen"
 
     let isTerminal (node: Node) =
-        node.Shape = "Msquare"
-        || resolveHandlerType node = "exit"
+        node.Shape = "Msquare" || resolveHandlerType node = "exit"
 
     let isStart (node: Node) =
-        node.Shape = "Mdiamond"
-        || resolveHandlerType node = "start"
+        node.Shape = "Mdiamond" || resolveHandlerType node = "start"
