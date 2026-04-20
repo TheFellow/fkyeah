@@ -1316,7 +1316,9 @@ type OpenAIAdapter(apiKey: string) =
 
 /// Real Gemini API adapter (v1beta generateContent)
 type GeminiAdapter(apiKey: string) =
-    let client = new HttpClient(Timeout = Timeout.InfiniteTimeSpan)
+    // 10-minute transport cap on the initial POST. The SSE loop has its own
+    // idle timeout; this guards against stalled connects or headers.
+    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
 
     let tryGetGeminiOptions (request: Request) =
         request.ProviderOptions
