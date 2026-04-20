@@ -215,7 +215,7 @@ module Validation =
                     let node = kv.Value
                     let model = node.LlmModel
                     if model <> "" && (classify model).IsNone then
-                        diags.Add(Diagnostic.Warning(
+                        diags.Add(Diagnostic.Error(
                             "model_known",
                             sprintf "Node '%s' references unknown model '%s'; run 'attractor --models' for the known catalog"
                                 node.Id model,
@@ -229,7 +229,7 @@ module Validation =
                         for rule in parsed.Rules do
                             for decl in rule.Declarations do
                                 if decl.Property = "llm_model" && (classify decl.Value).IsNone then
-                                    diags.Add(Diagnostic.Warning(
+                                    diags.Add(Diagnostic.Error(
                                         "model_known",
                                         sprintf "Stylesheet references unknown model '%s' (selector matches nodes in this graph); run 'attractor --models' for the known catalog"
                                             decl.Value,

@@ -474,7 +474,7 @@ module ValidationTests =
             diags
             |> List.tryFind (fun d -> d.Rule = "model_known" && d.NodeId = "plan")
         Assert.True(diag.IsSome)
-        Assert.Equal(Severity.Warning, diag.Value.Severity)
+        Assert.Equal(Severity.Error, diag.Value.Severity)
         Assert.Contains("claude-sonnet-99", diag.Value.Message)
         Assert.Contains("attractor --models", diag.Value.Message)
 
@@ -495,7 +495,7 @@ module ValidationTests =
             diags
             |> List.tryFind (fun d -> d.Rule = "model_known")
         Assert.True(diag.IsSome)
-        Assert.Equal(Severity.Warning, diag.Value.Severity)
+        Assert.Equal(Severity.Error, diag.Value.Severity)
         Assert.Contains("gpt-7-mythic", diag.Value.Message)
 
     [<Fact>]
