@@ -281,20 +281,43 @@ module private HttpAdapterHelpers =
             cts.Dispose()
             raiseCancellation request
 
-    let parseSse (reader: StreamReader) =
+    /// Idle timeout between SSE chunks. If the upstream stalls mid-response
+    /// (TCP half-open, server wedge, etc.) we surface a TimeoutError instead
+    /// of blocking forever in reader.ReadLine.
+    let sseIdleTimeoutMs = 120_000
+
+    let parseSse (reader: StreamReader) (outer: CancellationToken) =
         seq {
             let mutable eventName = ""
             let dataLines = ResizeArray<string>()
+            let mutable finished = false
 
-            while not reader.EndOfStream do
-                let line = reader.ReadLine()
-                if isNull line then
-                    ()
-                elif line.StartsWith("event:") then
-                    eventName <- line.Substring("event:".Length).Trim()
-                elif line.StartsWith("data:") then
-                    dataLines.Add(line.Substring("data:".Length).TrimStart())
-                elif line = "" then
+            while not finished do
+                let cts = CancellationTokenSource.CreateLinkedTokenSource(outer)
+                cts.CancelAfter(sseIdleTimeoutMs)
+                let mutable lineResult: string = null
+                let mutable cancelled = false
+                try
+                    try
+                        lineResult <- reader.ReadLineAsync(cts.Token).AsTask().GetAwaiter().GetResult()
+                    with :? OperationCanceledException ->
+                        cancelled <- true
+                finally
+                    cts.Dispose()
+
+                if cancelled then
+                    if outer.IsCancellationRequested then
+                        raise (AbortError("SSE read cancelled"))
+                    else
+                        raise (TimeoutError(sprintf "SSE stream idle timeout (no data within %dms)" sseIdleTimeoutMs))
+
+                if isNull lineResult then
+                    finished <- true
+                elif lineResult.StartsWith("event:") then
+                    eventName <- lineResult.Substring("event:".Length).Trim()
+                elif lineResult.StartsWith("data:") then
+                    dataLines.Add(lineResult.Substring("data:".Length).TrimStart())
+                elif lineResult = "" then
                     if dataLines.Count > 0 then
                         let name = if eventName = "" then "message" else eventName
                         let data = String.concat "\n" dataLines
@@ -552,7 +575,9 @@ module private HttpAdapterHelpers =
 
 /// Real Anthropic Messages API adapter
 type AnthropicAdapter(apiKey: string) =
-    let client = new HttpClient(Timeout = Timeout.InfiniteTimeSpan)
+    // 10-minute transport cap on the initial POST. The SSE loop has its own
+    // idle timeout; this guards against stalled connects or headers.
+    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
     let baseUrl =
         match Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") with
         | null
@@ -835,7 +860,7 @@ type AnthropicAdapter(apiKey: string) =
 
                 yield StreamStart
 
-                for (eventName, data) in HttpAdapterHelpers.parseSse reader do
+                for (eventName, data) in HttpAdapterHelpers.parseSse reader cts.Token do
                     if data <> "[DONE]" then
                         rawEvents.Add(sprintf "%s:%s" eventName data)
                         match eventName with
@@ -985,7 +1010,9 @@ type AnthropicAdapter(apiKey: string) =
 
 /// Real OpenAI Responses API adapter
 type OpenAIAdapter(apiKey: string) =
-    let client = new HttpClient(Timeout = Timeout.InfiniteTimeSpan)
+    // 10-minute transport cap on the initial POST. The SSE loop has its own
+    // idle timeout; this guards against stalled connects or headers.
+    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
     let baseUrl =
         match Environment.GetEnvironmentVariable("OPENAI_BASE_URL") with
         | null
@@ -1148,7 +1175,7 @@ type OpenAIAdapter(apiKey: string) =
 
                 yield StreamStart
 
-                for (eventName, data) in HttpAdapterHelpers.parseSse reader do
+                for (eventName, data) in HttpAdapterHelpers.parseSse reader cts.Token do
                     if data <> "[DONE]" then
                         rawEvents.Add(sprintf "%s:%s" eventName data)
                         match eventName with
@@ -1476,7 +1503,7 @@ type GeminiAdapter(apiKey: string) =
 
                 yield StreamStart
 
-                for (_eventName, data) in HttpAdapterHelpers.parseSse reader do
+                for (_eventName, data) in HttpAdapterHelpers.parseSse reader cts.Token do
                     if data <> "[DONE]" then
                         rawEvents.Add(data)
 
