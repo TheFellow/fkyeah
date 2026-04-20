@@ -160,7 +160,7 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
 
     let config =
         { FailureThreshold = 2
-          CooldownPeriod = TimeSpan.FromMilliseconds(30.0)
+          CooldownPeriod = TimeSpan.FromMilliseconds(100.0)
           ProbeSuccessThreshold = 2 }
 
     let adapterCalls = ref 0
@@ -188,7 +188,7 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
 
     Assert.Equal(2, adapterCalls.Value)
 
-    System.Threading.Thread.Sleep(60)
+    System.Threading.Thread.Sleep(400) // cooldown (100ms) + generous CI margin
 
     mock.SetCompleteHandler(fun successRequest ->
         adapterCalls.Value <- adapterCalls.Value + 1

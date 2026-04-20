@@ -1517,6 +1517,14 @@ module Sprint001Coverage =
 
     [<Fact>]
     let ``Parallel tool execution completes in near single-tool time`` () =
+        // Five tools at 500ms each. Sequential would be ~2500ms; parallel is ~500ms
+        // plus thread-pool scheduling overhead. A 2000ms ceiling is comfortably below
+        // the serial floor (proves parallelism) while giving CI 4x headroom over
+        // the nominal 500ms parallel time.
+        let toolSleepMs = 500
+        let toolCount = 5
+        let ceilingMs = 2000L
+
         let tool =
             { Definition =
                 { Name = "slow"
@@ -1524,11 +1532,11 @@ module Sprint001Coverage =
                   Parameters = """{"type":"object"}""" }
               Execute =
                 Some(fun _ ->
-                    System.Threading.Thread.Sleep(500)
+                    System.Threading.Thread.Sleep(toolSleepMs)
                     "ok") }
 
         let calls =
-            [ for i in 1..3 ->
+            [ for i in 1..toolCount ->
                   { Id = $"call_{i}"
                     Name = "slow"
                     Arguments = "{}"
@@ -1537,9 +1545,12 @@ module Sprint001Coverage =
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let results = Generation.executeAllTools [ tool ] calls
         sw.Stop()
-        Assert.Equal(3, results.Length)
-        // Parallel: ~500ms. Sequential would be ~1500ms. 2000ms threshold proves parallelism with CI headroom.
-        Assert.True(sw.ElapsedMilliseconds < 2000L, $"Expected parallel execution, got {sw.ElapsedMilliseconds}ms")
+        Assert.Equal(toolCount, results.Length)
+
+        Assert.True(
+            sw.ElapsedMilliseconds < ceilingMs,
+            $"Expected parallel execution (< {ceilingMs}ms), got {sw.ElapsedMilliseconds}ms"
+        )
 
     [<Fact>]
     let ``Tool argument schema validation sends error result`` () =

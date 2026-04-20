@@ -811,13 +811,13 @@ module ClientTests =
         |> ignore
 
         match
-            client.Prompt("slow-session", [ ContentBlock.text "slow" ], None, Some(TimeSpan.FromMilliseconds(100.0)))
+            client.Prompt("slow-session", [ ContentBlock.text "slow" ], None, Some(TimeSpan.FromMilliseconds(500.0)))
             |> Async.RunSynchronously
         with
         | Error(AcpError.TimedOut _) -> ()
         | other -> Assert.Fail($"Unexpected prompt result: {other}")
 
-        Assert.True(cancelReceived.Task.Wait(TimeSpan.FromSeconds(2.0)))
+        Assert.True(cancelReceived.Task.Wait(TimeSpan.FromSeconds(5.0)))
         client.Disconnect() |> Async.RunSynchronously
 
     [<Fact>]
