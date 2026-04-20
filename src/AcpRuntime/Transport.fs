@@ -180,7 +180,21 @@ module Transport =
         createTransport leftState pairState.RightToLeft.Reader pairState.LeftToRight.Writer,
         createTransport rightState pairState.LeftToRight.Reader pairState.RightToLeft.Writer
 
-    let parseSseStream (stream: Stream) (ct: CancellationToken) : IAsyncEnumerable<ParsedSseEvent> =
+    /// Default: 2 minutes between non-heartbeat events. Heartbeat-only traffic
+    /// (SSE comment lines `:foo`, `event: ping|keepalive|heartbeat`) will not
+    /// refresh this budget, so a server that sends only pings will eventually
+    /// raise TimeoutException.
+    [<Literal>]
+    let DefaultSseIdleTimeoutMs = 120_000
+
+    let private isHeartbeatEventType (eventType: string) =
+        match eventType with
+        | "ping"
+        | "keepalive"
+        | "heartbeat" -> true
+        | _ -> false
+
+    let parseSseStreamWithIdleTimeout (stream: Stream) (ct: CancellationToken) (idleTimeoutMs: int) : IAsyncEnumerable<ParsedSseEvent> =
         taskSeq {
             use reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true)
 
@@ -189,6 +203,7 @@ module Transport =
             let mutable retryMs: int option = None
             let mutable lastEventId: string option = None
             let mutable seenField = false
+            let progress = Stopwatch.StartNew()
 
             let emitEvent () =
                 if seenField then
@@ -198,11 +213,14 @@ module Transport =
                           EventType = eventType
                           RetryMs = retryMs
                           LastEventId = lastEventId }
+                    let wasHeartbeat = isHeartbeatEventType eventType
                     dataLines.Clear()
                     eventType <- "message"
                     retryMs <- None
                     lastEventId <- None
                     seenField <- false
+                    if not wasHeartbeat then
+                        progress.Restart()
                     Some eventData
                 else
                     None
@@ -223,38 +241,66 @@ module Transport =
             let mutable keepReading = true
 
             while keepReading && not ct.IsCancellationRequested do
-                let! line = reader.ReadLineAsync()
-                if isNull line then
-                    keepReading <- false
-                    match emitEvent () with
-                    | Some eventData -> yield eventData
-                    | None -> ()
-                elif line = "" then
-                    match emitEvent () with
-                    | Some eventData -> yield eventData
-                    | None -> ()
-                elif line.StartsWith(":", StringComparison.Ordinal) then
-                    ()
-                else
-                    let fieldName, value = parseField line
-                    match fieldName with
-                    | "data" ->
-                        seenField <- true
-                        dataLines.Add(value)
-                    | "event" ->
-                        seenField <- true
-                        eventType <- if value = "" then "message" else value
-                    | "id" ->
-                        seenField <- true
-                        lastEventId <- Some value
-                    | "retry" ->
-                        match Int32.TryParse(value) with
-                        | true, parsed ->
+                let elapsed = int progress.ElapsedMilliseconds
+                let remaining = idleTimeoutMs - elapsed
+                if remaining <= 0 then
+                    raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
+
+                let idleCts = new CancellationTokenSource()
+                idleCts.CancelAfter(remaining)
+                use linked = CancellationTokenSource.CreateLinkedTokenSource(ct, idleCts.Token)
+
+                let mutable line: string = null
+                let mutable idleFired = false
+                try
+                    let! read = reader.ReadLineAsync(linked.Token).AsTask()
+                    line <- read
+                with :? OperationCanceledException ->
+                    if ct.IsCancellationRequested then
+                        keepReading <- false
+                    else
+                        idleFired <- true
+                idleCts.Dispose()
+
+                if idleFired then
+                    raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
+
+                if keepReading then
+                    if isNull line then
+                        keepReading <- false
+                        match emitEvent () with
+                        | Some eventData -> yield eventData
+                        | None -> ()
+                    elif line = "" then
+                        match emitEvent () with
+                        | Some eventData -> yield eventData
+                        | None -> ()
+                    elif line.StartsWith(":", StringComparison.Ordinal) then
+                        // SSE comment — consume, do not count as progress.
+                        ()
+                    else
+                        let fieldName, value = parseField line
+                        match fieldName with
+                        | "data" ->
                             seenField <- true
-                            retryMs <- Some parsed
+                            dataLines.Add(value)
+                        | "event" ->
+                            seenField <- true
+                            eventType <- if value = "" then "message" else value
+                        | "id" ->
+                            seenField <- true
+                            lastEventId <- Some value
+                        | "retry" ->
+                            match Int32.TryParse(value) with
+                            | true, parsed ->
+                                seenField <- true
+                                retryMs <- Some parsed
+                            | _ -> ()
                         | _ -> ()
-                    | _ -> ()
         }
+
+    let parseSseStream (stream: Stream) (ct: CancellationToken) : IAsyncEnumerable<ParsedSseEvent> =
+        parseSseStreamWithIdleTimeout stream ct DefaultSseIdleTimeoutMs
 
     let createStdioTransport (command: string) (args: string list) (workingDirectory: string option) =
         let syncRoot = obj ()

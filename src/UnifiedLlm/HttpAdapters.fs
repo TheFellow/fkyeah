@@ -2,11 +2,91 @@ namespace UnifiedLlm
 
 open System
 open System.Collections.Generic
+open System.Diagnostics
 open System.IO
 open System.Net.Http
 open System.Text
 open System.Text.Json
 open System.Threading
+
+/// SSE parsing with heartbeat-aware idle timeout.
+/// Heartbeat lines (SSE comments `:foo` and `event: ping|keepalive|heartbeat`)
+/// are consumed but do not refresh the idle budget — so a stream that sends
+/// only pings will still trip TimeoutError within the budget.
+module SseParsing =
+
+    /// Default: 2 minutes between non-heartbeat events.
+    [<Literal>]
+    let DefaultIdleTimeoutMs = 120_000
+
+    let isHeartbeatEvent (eventName: string) =
+        match eventName with
+        | "ping"
+        | "keepalive"
+        | "heartbeat" -> true
+        | _ -> false
+
+    /// Parse SSE event stream, raising TimeoutError if no non-heartbeat event
+    /// is yielded within idleTimeoutMs, or AbortError if outer cancels.
+    let parseWithIdleTimeout (reader: StreamReader) (outer: CancellationToken) (idleTimeoutMs: int) =
+        seq {
+            let mutable eventName = ""
+            let dataLines = ResizeArray<string>()
+            let mutable finished = false
+            let progress = Stopwatch.StartNew()
+
+            while not finished do
+                let elapsed = int progress.ElapsedMilliseconds
+                let remaining = idleTimeoutMs - elapsed
+                if remaining <= 0 then
+                    raise (TimeoutError(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
+
+                let cts = CancellationTokenSource.CreateLinkedTokenSource(outer)
+                cts.CancelAfter(remaining)
+                let mutable line: string = null
+                let mutable cancelled = false
+                try
+                    try
+                        line <- reader.ReadLineAsync(cts.Token).AsTask().GetAwaiter().GetResult()
+                    with :? OperationCanceledException ->
+                        cancelled <- true
+                finally
+                    cts.Dispose()
+
+                if cancelled then
+                    if outer.IsCancellationRequested then
+                        raise (AbortError("SSE read cancelled"))
+                    else
+                        raise (TimeoutError(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
+
+                if isNull line then
+                    finished <- true
+                elif line.StartsWith(":") then
+                    // SSE comment / keepalive — consume, do not count as progress
+                    ()
+                elif line.StartsWith("event:") then
+                    eventName <- line.Substring("event:".Length).Trim()
+                elif line.StartsWith("data:") then
+                    dataLines.Add(line.Substring("data:".Length).TrimStart())
+                elif line = "" then
+                    if dataLines.Count > 0 then
+                        let name = if eventName = "" then "message" else eventName
+                        let data = String.concat "\n" dataLines
+                        if not (isHeartbeatEvent name) then
+                            progress.Restart()
+                        yield name, data
+                        eventName <- ""
+                        dataLines.Clear()
+
+            if dataLines.Count > 0 then
+                let name = if eventName = "" then "message" else eventName
+                let data = String.concat "\n" dataLines
+                yield name, data
+        }
+
+    /// Parse SSE with default idle timeout.
+    let parse (reader: StreamReader) (outer: CancellationToken) =
+        parseWithIdleTimeout reader outer DefaultIdleTimeoutMs
 
 /// Global cancellation support — call Cancel() to abort all in-flight HTTP calls
 module HttpCancellation =
@@ -281,55 +361,8 @@ module private HttpAdapterHelpers =
             cts.Dispose()
             raiseCancellation request
 
-    /// Idle timeout between SSE chunks. If the upstream stalls mid-response
-    /// (TCP half-open, server wedge, etc.) we surface a TimeoutError instead
-    /// of blocking forever in reader.ReadLine.
-    let sseIdleTimeoutMs = 120_000
-
     let parseSse (reader: StreamReader) (outer: CancellationToken) =
-        seq {
-            let mutable eventName = ""
-            let dataLines = ResizeArray<string>()
-            let mutable finished = false
-
-            while not finished do
-                let cts = CancellationTokenSource.CreateLinkedTokenSource(outer)
-                cts.CancelAfter(sseIdleTimeoutMs)
-                let mutable lineResult: string = null
-                let mutable cancelled = false
-                try
-                    try
-                        lineResult <- reader.ReadLineAsync(cts.Token).AsTask().GetAwaiter().GetResult()
-                    with :? OperationCanceledException ->
-                        cancelled <- true
-                finally
-                    cts.Dispose()
-
-                if cancelled then
-                    if outer.IsCancellationRequested then
-                        raise (AbortError("SSE read cancelled"))
-                    else
-                        raise (TimeoutError(sprintf "SSE stream idle timeout (no data within %dms)" sseIdleTimeoutMs))
-
-                if isNull lineResult then
-                    finished <- true
-                elif lineResult.StartsWith("event:") then
-                    eventName <- lineResult.Substring("event:".Length).Trim()
-                elif lineResult.StartsWith("data:") then
-                    dataLines.Add(lineResult.Substring("data:".Length).TrimStart())
-                elif lineResult = "" then
-                    if dataLines.Count > 0 then
-                        let name = if eventName = "" then "message" else eventName
-                        let data = String.concat "\n" dataLines
-                        yield name, data
-                        eventName <- ""
-                        dataLines.Clear()
-
-            if dataLines.Count > 0 then
-                let name = if eventName = "" then "message" else eventName
-                let data = String.concat "\n" dataLines
-                yield name, data
-        }
+        SseParsing.parse reader outer
 
     let extractMessagePartsFromAnthropic (content: JsonElement) =
         let contentParts = ResizeArray<ContentPart>()

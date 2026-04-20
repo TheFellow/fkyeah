@@ -19,6 +19,7 @@
     <Compile Include="PromptCachingTests.fs" />
     <Compile Include="AnthropicThinkingShapeTests.fs" />
     <Compile Include="AbortTimeoutTests.fs" />
+    <Compile Include="SseParsingTests.fs" />
     <Compile Include="IntegrationTests.fs" />
     <Compile Include="LiveApiTests.fs" />
   </ItemGroup>
