@@ -15,3 +15,6 @@ analyzers/bin/
 
 # FAKE build tool artifacts
 .fake
+
+# Claude Code local settings
+.claude/
