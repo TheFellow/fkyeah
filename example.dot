@@ -3,7 +3,7 @@ digraph hello_pipeline {
 
     start     [shape=Mdiamond]
     plan      [shape=box, prompt="Plan how to create a hello world script for: $goal"]
-    implement [shape=box, prompt="Write the code based on the plan", goal_gate=true]
+    implement [shape=box, prompt="Write the code based on the plan", goal_gate=true, retry_target="plan"]
     review    [shape=box, prompt="Review the code for correctness"]
     done      [shape=Msquare]
 
