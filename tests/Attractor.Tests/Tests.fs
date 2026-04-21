@@ -625,6 +625,42 @@ module ValidationTests =
         let diags = Validation.validate graph None
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
 
+    [<Fact>]
+    let ``cumulative_turns terminates on cycles through a coding_agent node`` () =
+        // Regression: a retry loop that includes a coding_agent (shape=tab)
+        // would cause cumulative_turns' BFS to re-enqueue each cycle pass
+        // with ever-growing cumulative, hanging validation indefinitely.
+        let dot =
+            """
+        digraph Test {
+            graph [goal="demo"]
+            start     [shape=Mdiamond]
+            plan      [shape=box, prompt="plan"]
+            implement [shape=tab, prompt="do it", goal_gate=true, retry_target="plan", max_turns=8]
+            run       [shape=parallelogram, tool_command="true", timeout="5s"]
+            review    [shape=box, prompt="review"]
+            done      [shape=Msquare]
+
+            start -> plan
+            plan -> implement
+            implement -> run     [condition="outcome=success"]
+            implement -> plan    [condition="outcome=fail"]
+            run -> review        [condition="outcome=success"]
+            run -> implement     [condition="outcome=fail"]
+            review -> done       [condition="outcome=success"]
+            review -> implement  [condition="outcome=fail"]
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+
+        // Wrap in a task with a hard deadline so a regression surfaces as a
+        // test failure rather than a CI hang.
+        let task =
+            System.Threading.Tasks.Task.Run(fun () -> Validation.validate graph None |> ignore)
+
+        Assert.True(task.Wait(System.TimeSpan.FromSeconds(5.0)), "Validation must terminate within 5s")
+
 // ============================================================================
 // 11.3 Execution Engine
 // ============================================================================

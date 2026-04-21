@@ -987,9 +987,13 @@ module Validation =
                 match graph.FindStartNode() with
                 | None -> []
                 | Some startNode ->
-                    let diags = ResizeArray<Diagnostic>()
-                    // BFS tracking cumulative turns per thread along each path
-                    // State: (nodeId, cumulative turns on current thread)
+                    let diags = Dictionary<string, Diagnostic>()
+                    // BFS tracking cumulative turns per thread along each path.
+                    // Cap cumulative at 2x threshold so cycles that include a
+                    // coding_agent terminate: once cumulative exceeds the cap,
+                    // the warning has already fired for downstream agent nodes
+                    // and further propagation adds no new diagnostics.
+                    let cap = threshold * 2
                     let visited = Dictionary<string, int>()
                     let queue = Queue<string * int>()
                     queue.Enqueue(startNode.Id, 0)
@@ -1000,7 +1004,7 @@ module Validation =
                         match graph.Nodes |> Map.tryFind nodeId with
                         | None -> ()
                         | Some node ->
-                            let cumulative =
+                            let rawCumulative =
                                 if isAgent node then
                                     // If node has its own thread_id, it gets a fresh session
                                     if node.ThreadId <> "" then
@@ -1009,7 +1013,10 @@ module Validation =
                                         cumulativePrior + getMaxTurns node
                                 else
                                     cumulativePrior
-                            // Only warn once per node, using worst-case (highest) cumulative
+
+                            let cumulative = min rawCumulative cap
+                            // Only propagate when cumulative grows for this node.
+                            // `cap` prevents unbounded growth across retry cycles.
                             let shouldProcess =
                                 match visited.TryGetValue(nodeId) with
                                 | true, prev -> cumulative > prev
@@ -1018,20 +1025,26 @@ module Validation =
                             if shouldProcess then
                                 visited[nodeId] <- cumulative
 
-                                if isAgent node && node.ThreadId = "" && cumulativePrior >= threshold then
-                                    diags.Add(
+                                // Emit at most one cumulative_turns warning per node;
+                                // a retry cycle would otherwise produce one per pass.
+                                if
+                                    isAgent node
+                                    && node.ThreadId = ""
+                                    && cumulativePrior >= threshold
+                                    && not (diags.ContainsKey(nodeId))
+                                then
+                                    diags[nodeId] <-
                                         Diagnostic.Warning(
                                             "cumulative_turns",
                                             $"Node '{nodeId}' starts at ~{cumulativePrior} cumulative turns on the shared session; add thread_id to give it a fresh session",
                                             nodeId = nodeId,
                                             fix = $"Add thread_id attribute to node '{nodeId}'"
                                         )
-                                    )
 
                                 for edge in graph.OutgoingEdges(nodeId) do
                                     queue.Enqueue(edge.ToNode, cumulative)
 
-                    diags |> Seq.toList }
+                    diags.Values |> Seq.toList }
 
     /// Rule: Warn when coding_agent/tab nodes have very low max_turns
     let lowMaxTurnsRule: ILintRule =

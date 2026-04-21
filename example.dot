@@ -3,14 +3,17 @@ digraph hello_pipeline {
 
     start     [shape=Mdiamond]
     plan      [shape=box, prompt="Plan how to create a hello world script for: $goal"]
-    implement [shape=box, prompt="Write the code based on the plan", goal_gate=true, retry_target="plan"]
-    review    [shape=box, prompt="Review the code for correctness"]
+    implement [shape=tab, prompt="Write the planned script to hello.py in the working directory", goal_gate=true, retry_target="plan", max_turns=30, thread_id="impl"]
+    run       [shape=parallelogram, tool_command="python3 hello.py", timeout="10s"]
+    review    [shape=box, prompt="Review the execution output. Did the script produce the expected greeting?"]
     done      [shape=Msquare]
 
     start -> plan
     plan -> implement
-    implement -> review    [condition="outcome=success"]
-    implement -> plan      [condition="outcome=fail", label="Retry"]
-    review -> done         [condition="outcome=success"]
-    review -> implement    [condition="outcome=fail", label="Fix"]
+    implement -> run      [condition="outcome=success"]
+    implement -> plan     [condition="outcome=fail", label="Retry"]
+    run -> review         [condition="outcome=success"]
+    run -> implement      [condition="outcome=fail", label="Fix"]
+    review -> done        [condition="outcome=success"]
+    review -> implement   [condition="outcome=fail", label="Revise"]
 }
