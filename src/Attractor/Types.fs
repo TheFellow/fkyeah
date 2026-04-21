@@ -514,6 +514,8 @@ module KnownAttributes =
               "max_turns"
               "max_tool_rounds"
               "command_timeout"
+              "success_criteria_command"
+              "success_criteria_timeout_ms"
               "max_cycles"
               "manager.max_cycles"
               "wait_ms"

@@ -77,8 +77,31 @@ module Transport =
     /// (SSE comment lines `:foo`, `event: ping|keepalive|heartbeat`) will not
     /// refresh this budget, so a server that sends only pings will eventually
     /// raise TimeoutException.
-    [<Literal>]
-    let DefaultSseIdleTimeoutMs = 120_000
+    let private tryParsePositiveMillisecondsFromSecondsEnvVar (envVarName: string) : int option =
+        let rawValue = Environment.GetEnvironmentVariable(envVarName)
+
+        if String.IsNullOrWhiteSpace(rawValue) then
+            None
+        else
+            match
+                Double.TryParse(rawValue, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture)
+            with
+            | true, seconds when seconds > 0.0 ->
+                let milliseconds = seconds * 1000.0
+
+                if milliseconds <= float Int32.MaxValue then
+                    Some(int milliseconds)
+                else
+                    None
+            | _ -> None
+
+    let private resolveDefaultSseIdleTimeoutMs () : int =
+        tryParsePositiveMillisecondsFromSecondsEnvVar "ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS"
+        |> Option.orElseWith (fun () ->
+            tryParsePositiveMillisecondsFromSecondsEnvVar "ATTRACTOR_AGENT_INACTIVITY_TIMEOUT_SECONDS")
+        |> Option.defaultValue 120_000
+
+    let DefaultSseIdleTimeoutMs () : int = resolveDefaultSseIdleTimeoutMs ()
 
     let private isHeartbeatEventType (eventType: string) =
         match eventType with
@@ -211,7 +234,7 @@ module Transport =
         }
 
     let parseSseStream (stream: Stream) (cancellationToken: CancellationToken) : IAsyncEnumerable<ParsedSseEvent> =
-        parseSseStreamWithIdleTimeout stream cancellationToken DefaultSseIdleTimeoutMs
+        parseSseStreamWithIdleTimeout stream cancellationToken (DefaultSseIdleTimeoutMs())
 
     let createStdioTransport command args env =
         let syncRoot = obj ()

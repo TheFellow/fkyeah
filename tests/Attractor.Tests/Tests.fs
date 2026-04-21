@@ -1282,6 +1282,12 @@ module HandlerTests =
         Directory.CreateDirectory(dir) |> ignore
         dir
 
+    let private createGraph (graphAttributes: (string * AttrValue) list) =
+        { Name = "test"
+          Nodes = Map.empty
+          Edges = []
+          GraphAttributes = Map.ofList graphAttributes }
+
     [<Fact>]
     let ``Start handler returns SUCCESS immediately`` () =
         let handler = Handlers.StartHandler() :> IHandler
@@ -1405,6 +1411,89 @@ module HandlerTests =
         Assert.True(File.Exists(Path.Combine(logsRoot, "plan", "002", "response.md")))
         Assert.True(File.Exists(Path.Combine(logsRoot, "plan", "003", "response.md")))
         Assert.True(File.Exists(Path.Combine(logsRoot, "plan", "response.md")))
+
+    [<Fact>]
+    let ``Codergen success criteria command keeps success and captures stdout`` () =
+        let handler = Handlers.CodergenHandler() :> IHandler
+        let workingDir = createTempDir ()
+
+        let node =
+            { Id = "plan"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "box"
+                      "prompt", AttrValue.String "Do work"
+                      "cwd", AttrValue.String workingDir
+                      "success_criteria_command", AttrValue.String "printf 'contract-ok'" ] }
+
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), createGraph [], logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Equal("contract-ok", outcome.ContextUpdates["contract_check_output"])
+
+    [<Fact>]
+    let ``Codergen success criteria command can override backend success to failure`` () =
+        let backend =
+            { new ICodergenBackend with
+                member _.Run(_, _, _) = Result.Ok "backend response" }
+
+        let handler = Handlers.CodergenHandler(backend) :> IHandler
+        let workingDir = createTempDir ()
+
+        let node =
+            { Id = "plan"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "box"
+                      "prompt", AttrValue.String "Do work"
+                      "cwd", AttrValue.String workingDir
+                      "success_criteria_command", AttrValue.String "printf 'contract-failed'; exit 1" ] }
+
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), createGraph [], logsRoot)
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Equal("success criteria failed", outcome.FailureReason)
+        Assert.Equal("contract-failed", outcome.ContextUpdates["contract_check_output"])
+
+    [<Fact>]
+    let ``Codergen success criteria timeout overrides outcome to failure`` () =
+        let handler = Handlers.CodergenHandler() :> IHandler
+        let workingDir = createTempDir ()
+
+        let node =
+            { Id = "plan"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "box"
+                      "prompt", AttrValue.String "Do work"
+                      "cwd", AttrValue.String workingDir
+                      "success_criteria_command", AttrValue.String "sleep 1"
+                      "success_criteria_timeout_ms", AttrValue.Integer 100 ] }
+
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), createGraph [], logsRoot)
+        Assert.Equal(StageStatus.Fail, outcome.Status)
+        Assert.Equal("success criteria timed out", outcome.FailureReason)
+
+    [<Fact>]
+    let ``Codergen success criteria command receives graph attributes as environment variables`` () =
+        let handler = Handlers.CodergenHandler() :> IHandler
+        let workingDir = createTempDir ()
+
+        let node =
+            { Id = "plan"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "box"
+                      "prompt", AttrValue.String "Do work"
+                      "cwd", AttrValue.String workingDir
+                      "success_criteria_command", AttrValue.String "env | grep '^TEST_GRAPH_ENV=expected$'" ] }
+
+        let graph = createGraph [ "TEST_GRAPH_ENV", AttrValue.String "expected" ]
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), graph, logsRoot)
+        Assert.Equal(StageStatus.Success, outcome.Status)
+        Assert.Contains("TEST_GRAPH_ENV=expected", outcome.ContextUpdates["contract_check_output"])
 
     [<Fact>]
     let ``Tab shape resolves to coding_agent handler type`` () =
@@ -5930,6 +6019,8 @@ module Sprint013AttributeValidationTests =
               "max_turns"
               "max_tool_rounds"
               "command_timeout"
+              "success_criteria_command"
+              "success_criteria_timeout_ms"
               "acp_command"
               "acp_url"
               "acp_transport"
@@ -6111,6 +6202,27 @@ module Sprint013AttributeValidationTests =
             exit [shape=Msquare]
             start -> agent [label="Go", condition="outcome=success", weight=1, fidelity=compact, thread_id="t", loop_restart=false]
             agent -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        Assert.False(diags |> List.exists (fun d -> d.Rule = "attribute_known"))
+
+    [<Fact>]
+    let ``attribute_known accepts success criteria attributes`` () =
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [
+                shape=box,
+                prompt="Do work",
+                success_criteria_command="printf ok",
+                success_criteria_timeout_ms=2500
+            ]
+            exit [shape=Msquare]
+            start -> plan -> exit
         }
         """
 

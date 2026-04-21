@@ -16,8 +16,31 @@ open System.Threading
 module SseParsing =
 
     /// Default: 2 minutes between non-heartbeat events.
-    [<Literal>]
-    let DefaultIdleTimeoutMs = 120_000
+    let private tryParsePositiveMillisecondsFromSecondsEnvVar (envVarName: string) : int option =
+        let rawValue = Environment.GetEnvironmentVariable(envVarName)
+
+        if String.IsNullOrWhiteSpace(rawValue) then
+            None
+        else
+            match
+                Double.TryParse(rawValue, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture)
+            with
+            | true, seconds when seconds > 0.0 ->
+                let milliseconds = seconds * 1000.0
+
+                if milliseconds <= float Int32.MaxValue then
+                    Some(int milliseconds)
+                else
+                    None
+            | _ -> None
+
+    let private resolveDefaultIdleTimeoutMs () : int =
+        tryParsePositiveMillisecondsFromSecondsEnvVar "ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS"
+        |> Option.orElseWith (fun () ->
+            tryParsePositiveMillisecondsFromSecondsEnvVar "ATTRACTOR_AGENT_INACTIVITY_TIMEOUT_SECONDS")
+        |> Option.defaultValue 120_000
+
+    let DefaultIdleTimeoutMs () : int = resolveDefaultIdleTimeoutMs ()
 
     let isHeartbeatEvent (eventName: string) =
         match eventName with
@@ -90,7 +113,7 @@ module SseParsing =
 
     /// Parse SSE with default idle timeout.
     let parse (reader: StreamReader) (outer: CancellationToken) =
-        parseWithIdleTimeout reader outer DefaultIdleTimeoutMs
+        parseWithIdleTimeout reader outer (DefaultIdleTimeoutMs())
 
 /// Global cancellation support — call Cancel() to abort all in-flight HTTP calls
 module HttpCancellation =

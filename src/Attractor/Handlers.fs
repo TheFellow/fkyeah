@@ -18,6 +18,18 @@ module Handlers =
         else
             text
 
+    let private capAt (maxChars: int) (text: string) =
+        if String.IsNullOrEmpty(text) then ""
+        elif text.Length > maxChars then text.Substring(0, maxChars)
+        else text
+
+    let private combineCommandOutput (stdout: string) (stderr: string) =
+        match String.IsNullOrWhiteSpace(stdout), String.IsNullOrWhiteSpace(stderr) with
+        | false, false -> stdout + Environment.NewLine + stderr
+        | false, true -> stdout
+        | true, false -> stderr
+        | true, true -> ""
+
     let private inferProviderFromModel (model: string) =
         let lower = model.ToLowerInvariant()
 
@@ -269,6 +281,99 @@ module Handlers =
 
                 Result.Error $"Hook failed with exit code {proc.ExitCode}: {details}"
 
+    type private SuccessCriteriaResult =
+        | Passed of output: string
+        | Failed of output: string
+        | TimedOut of output: string
+
+    let private runSuccessCriteriaCommand
+        (command: string)
+        (workingDir: string)
+        (node: Node)
+        (graph: Graph)
+        (rootDir: string)
+        (logsRoot: string)
+        (timeoutMs: int)
+        : SuccessCriteriaResult =
+        let psi = System.Diagnostics.ProcessStartInfo("/bin/sh")
+        psi.ArgumentList.Add("-c")
+        psi.ArgumentList.Add(command)
+        psi.RedirectStandardOutput <- true
+        psi.RedirectStandardError <- true
+        psi.UseShellExecute <- false
+        psi.WorkingDirectory <- workingDir
+        psi.EnvironmentVariables["ATTRACTOR_STAGE_DIR"] <- rootDir
+        psi.EnvironmentVariables["ATTRACTOR_LOGS_ROOT"] <- logsRoot
+        psi.EnvironmentVariables["ATTRACTOR_NODE_ID"] <- node.Id
+        psi.EnvironmentVariables["ATTRACTOR_CWD"] <- workingDir
+
+        for kv in graph.GraphAttributes do
+            if not (psi.EnvironmentVariables.ContainsKey(kv.Key)) then
+                psi.EnvironmentVariables[kv.Key] <- kv.Value.AsString()
+
+        try
+            use proc = System.Diagnostics.Process.Start(psi)
+            let stdoutTask = proc.StandardOutput.ReadToEndAsync()
+            let stderrTask = proc.StandardError.ReadToEndAsync()
+            let completed = proc.WaitForExit(timeoutMs)
+
+            if not completed then
+                try
+                    proc.Kill(true)
+                with _ ->
+                    ()
+
+                proc.WaitForExit()
+
+                let combinedOutput =
+                    combineCommandOutput stdoutTask.Result stderrTask.Result |> capAt 4000
+
+                TimedOut combinedOutput
+            else
+                let stdout = stdoutTask.Result
+                let stderr = stderrTask.Result
+
+                if proc.ExitCode = 0 then
+                    Passed(capAt 4000 stdout)
+                else
+                    Failed(combineCommandOutput stdout stderr |> capAt 4000)
+        with ex ->
+            Failed(capAt 4000 ex.Message)
+
+    let private applySuccessCriteriaCommand
+        (node: Node)
+        (graph: Graph)
+        (logsRoot: string)
+        (rootDir: string)
+        (workingDir: string)
+        (outcome: Outcome)
+        : Outcome =
+        let command = node.GetAttrString("success_criteria_command", "").Trim()
+
+        match outcome.Status, command with
+        | (StageStatus.Success | StageStatus.PartialSuccess), "" -> outcome
+        | (StageStatus.Success | StageStatus.PartialSuccess), _ ->
+            let timeoutMs =
+                node.GetAttr("success_criteria_timeout_ms")
+                |> Option.bind (fun value -> value.AsInt())
+                |> Option.defaultValue 30000
+
+            let withContractOutput (output: string) =
+                { outcome with
+                    ContextUpdates = outcome.ContextUpdates |> Map.add "contract_check_output" output }
+
+            match runSuccessCriteriaCommand command workingDir node graph rootDir logsRoot timeoutMs with
+            | Passed output -> withContractOutput output
+            | Failed output ->
+                { withContractOutput output with
+                    Status = StageStatus.Fail
+                    FailureReason = "success criteria failed" }
+            | TimedOut output ->
+                { withContractOutput output with
+                    Status = StageStatus.Fail
+                    FailureReason = "success criteria timed out" }
+        | _ -> outcome
+
     /// Write a status.json file for a node outcome
     let writeStatus (stageDir: string) (rootDir: string) (outcome: Outcome) =
         HandlerArtifacts.writeStatus stageDir rootDir outcome
@@ -293,6 +398,7 @@ module Handlers =
 
                 // 2. Write prompt and context snapshot to logs
                 let stageDir, rootDir = resolveStageDirs logsRoot node context
+                let workingDir = resolveWorkingDir node graph ""
                 writeStageFile stageDir rootDir "prompt.md" prompt
                 let contextSnapshot = context.Snapshot()
 
@@ -352,8 +458,11 @@ module Handlers =
                             | None ->
                                 Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
 
-                        writeStatus stageDir rootDir outcome
-                        outcome
+                        let finalOutcome =
+                            applySuccessCriteriaCommand node graph logsRoot rootDir workingDir outcome
+
+                        writeStatus stageDir rootDir finalOutcome
+                        finalOutcome
                 | None ->
                     let responseText = $"[Simulated] Response for stage: {node.Id}"
                     writeStageFile stageDir rootDir "response.md" responseText
@@ -367,8 +476,11 @@ module Handlers =
                         | None ->
                             Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
 
-                    writeStatus stageDir rootDir outcome
-                    outcome
+                    let finalOutcome =
+                        applySuccessCriteriaCommand node graph logsRoot rootDir workingDir outcome
+
+                    writeStatus stageDir rootDir finalOutcome
+                    finalOutcome
 
     /// Coding agent handler: full multi-turn coding session with tool access.
     type CodingAgentHandler(llmClient: Client, ?defaultWorkingDir: string) =

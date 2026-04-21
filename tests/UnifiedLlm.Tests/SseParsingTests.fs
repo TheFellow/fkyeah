@@ -23,6 +23,32 @@ type private TestPipe() =
 
     member _.Complete() = pipe.Writer.Complete()
 
+let private envVarLock = obj ()
+
+let private withIdleTimeoutEnvVars
+    (llmTimeoutSeconds: string option)
+    (agentTimeoutSeconds: string option)
+    (action: unit -> 'T)
+    : 'T =
+    lock envVarLock (fun () ->
+        let llmEnvVarName = "ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS"
+        let agentEnvVarName = "ATTRACTOR_AGENT_INACTIVITY_TIMEOUT_SECONDS"
+        let previousLlm = Environment.GetEnvironmentVariable(llmEnvVarName)
+        let previousAgent = Environment.GetEnvironmentVariable(agentEnvVarName)
+
+        let setEnvVar (name: string) (value: string option) =
+            match value with
+            | Some configuredValue -> Environment.SetEnvironmentVariable(name, configuredValue)
+            | None -> Environment.SetEnvironmentVariable(name, null)
+
+        try
+            setEnvVar llmEnvVarName llmTimeoutSeconds
+            setEnvVar agentEnvVarName agentTimeoutSeconds
+            action ()
+        finally
+            Environment.SetEnvironmentVariable(llmEnvVarName, previousLlm)
+            Environment.SetEnvironmentVariable(agentEnvVarName, previousAgent))
+
 [<Fact>]
 let ``parseSse raises TimeoutError on complete silence`` () =
     let tp = TestPipe()
@@ -141,3 +167,32 @@ let ``isHeartbeatEvent classifies known heartbeat names`` () =
     Assert.True(SseParsing.isHeartbeatEvent "heartbeat")
     Assert.False(SseParsing.isHeartbeatEvent "message")
     Assert.False(SseParsing.isHeartbeatEvent "response.output_text.delta")
+
+[<Fact>]
+let ``DefaultIdleTimeoutMs honors ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS`` () =
+    let timeoutMs =
+        withIdleTimeoutEnvVars (Some "5") None (fun () -> SseParsing.DefaultIdleTimeoutMs())
+
+    Assert.Equal(5000, timeoutMs)
+
+[<Fact>]
+let ``DefaultIdleTimeoutMs honors ATTRACTOR_AGENT_INACTIVITY_TIMEOUT_SECONDS alias`` () =
+    let timeoutMs =
+        withIdleTimeoutEnvVars None (Some "1.5") (fun () -> SseParsing.DefaultIdleTimeoutMs())
+
+    Assert.Equal(1500, timeoutMs)
+
+[<Fact>]
+let ``DefaultIdleTimeoutMs falls back to default for invalid values`` () =
+    for invalidValue in [ ""; "abc"; "-1"; "0" ] do
+        let timeoutMs =
+            withIdleTimeoutEnvVars (Some invalidValue) None (fun () -> SseParsing.DefaultIdleTimeoutMs())
+
+        Assert.Equal(120000, timeoutMs)
+
+[<Fact>]
+let ``DefaultIdleTimeoutMs prefers ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS over alias`` () =
+    let timeoutMs =
+        withIdleTimeoutEnvVars (Some "5") (Some "9") (fun () -> SseParsing.DefaultIdleTimeoutMs())
+
+    Assert.Equal(5000, timeoutMs)
