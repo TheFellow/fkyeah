@@ -12,3 +12,6 @@ megaplan.dot.dot
 analyzers/.analyzerpackages/
 analyzers/obj/
 analyzers/bin/
+
+# FAKE build tool artifacts
+.fake
