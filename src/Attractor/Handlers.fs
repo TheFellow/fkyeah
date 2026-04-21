@@ -21,17 +21,17 @@ module Handlers =
     let private inferProviderFromModel (model: string) =
         let lower = model.ToLowerInvariant()
 
-        if lower.StartsWith("claude") then
+        if lower.StartsWith("claude", StringComparison.Ordinal) then
             "anthropic"
         elif
-            lower.StartsWith("gpt")
-            || lower.StartsWith("o1")
-            || lower.StartsWith("o3")
-            || lower.StartsWith("o4")
+            lower.StartsWith("gpt", StringComparison.Ordinal)
+            || lower.StartsWith("o1", StringComparison.Ordinal)
+            || lower.StartsWith("o3", StringComparison.Ordinal)
+            || lower.StartsWith("o4", StringComparison.Ordinal)
             || lower.Contains("codex")
         then
             "openai"
-        elif lower.StartsWith("gemini") then
+        elif lower.StartsWith("gemini", StringComparison.Ordinal) then
             "gemini"
         else
             "anthropic"
@@ -577,19 +577,19 @@ module Handlers =
                                 let cacheHit = (usage.CacheReadTokens |> Option.defaultValue 0) > 0
                                 let costMicros = session.CostMicrodollars
                                 let costUsd = decimal costMicros / 1_000_000m
-                                context.Set("llm.input_tokens", string usage.InputTokens)
-                                context.Set("llm.output_tokens", string usage.OutputTokens)
+                                context.Set("llm.input_tokens", ((usage.InputTokens: int).ToString()))
+                                context.Set("llm.output_tokens", ((usage.OutputTokens: int).ToString()))
                                 context.Set("llm.model", profile.Model)
                                 context.Set("llm.provider", profile.Id)
                                 context.Set("llm.last_node", node.Id)
-                                context.Set("llm.cost_microdollars", string costMicros)
+                                context.Set("llm.cost_microdollars", (costMicros: int64).ToString())
 
                                 context.Set(
                                     "llm.cost_usd",
                                     costUsd.ToString(System.Globalization.CultureInfo.InvariantCulture)
                                 )
 
-                                context.Set("llm.cache_hit", string cacheHit)
+                                context.Set("llm.cache_hit", ((cacheHit: bool).ToString()))
 
                             let contextUpdates =
                                 appendKnownLlmContext context [ "last_stage", node.Id; "last_response", finalResponse ]
@@ -895,8 +895,8 @@ module Handlers =
                                 |> Map.add $"parallel.branch.{branchId}.status" (status.ToString())
                                 |> Map.add $"parallel.{node.Id}.{branchId}.lane" lane)
                             (Map.ofList
-                                [ "parallel.success_count", string successCount
-                                  "parallel.fail_count", string failCount
+                                [ "parallel.success_count", ((successCount: int).ToString())
+                                  "parallel.fail_count", ((failCount: int).ToString())
                                   "parallel.executed_nodes", executedNodes ])
                         |> Map.add $"parallel.{node.Id}.lanes" (String.concat "," laneNames)
 
@@ -1091,7 +1091,7 @@ module Handlers =
                                         logsRoot
                                         [ "TOOL_NAME", "shell"
                                           "TOOL_RESULT", truncatedOutput
-                                          "EXIT_CODE", string exitCode
+                                          "EXIT_CODE", ((exitCode: int).ToString())
                                           "NODE_ID", node.Id ]
                                 with
                                 | Result.Error err ->
@@ -1104,7 +1104,7 @@ module Handlers =
                                           "tool.stderr", stderr
                                           "tool_stdout", truncatedOutput
                                           "tool_stderr", stderr
-                                          "tool_exit_code", string exitCode ]
+                                          "tool_exit_code", ((exitCode: int).ToString()) ]
 
                                 if exitCode = 0 then
                                     Outcome.Success(notes = $"Tool completed: {command}", contextUpdates = updates)
@@ -1203,7 +1203,7 @@ module Handlers =
                         context.Set("manager.steering", steeringMessage)
                         context.Set("manager.correction_injected", "true")
 
-                    context.Set("manager.cycle", string cycle)
+                    context.Set("manager.cycle", ((cycle: int).ToString()))
 
                     if cycle < maxCycles then
                         System.Threading.Thread.Sleep(waitMs)
@@ -1216,8 +1216,8 @@ module Handlers =
               SuggestedNextIds = []
               ContextUpdates =
                 Map.ofList
-                    [ "manager.total_cycles", string cycle
-                      "manager.turns_used", string cycle
+                    [ "manager.total_cycles", ((cycle: int).ToString())
+                      "manager.turns_used", ((cycle: int).ToString())
                       "manager.stopped", stoppedStr ]
                 |> fun updates ->
                     if lane <> "" then
@@ -1280,9 +1280,11 @@ module Handlers =
                             | StageStatus.Success
                             | StageStatus.PartialSuccess ->
                                 let baseUpdates =
-                                    [ "manager.cycle_count", string (cycle + 1)
-                                      "manager.total_cycles", string (cycle + 1)
-                                      "manager.turns_used", string (cycle + 1)
+                                    let nextCycle: int = cycle + 1
+
+                                    [ "manager.cycle_count", nextCycle.ToString()
+                                      "manager.total_cycles", nextCycle.ToString()
+                                      "manager.turns_used", nextCycle.ToString()
                                       "manager.child_status", lastChildStatus ]
                                     |> fun updates ->
                                         if lane <> "" then

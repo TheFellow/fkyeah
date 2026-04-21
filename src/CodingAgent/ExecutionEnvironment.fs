@@ -196,7 +196,7 @@ type LocalExecutionEnvironment(workingDir: string) =
             let envDict = Dictionary<string, string>()
 
             for entry in Environment.GetEnvironmentVariables() |> Seq.cast<Collections.DictionaryEntry> do
-                envDict.[string entry.Key] <- string entry.Value
+                envDict.[entry.Key.ToString()] <- entry.Value.ToString()
 
             let filteredVars = EnvVarFilter.filterEnvVars envDict
             psi.Environment.Clear()

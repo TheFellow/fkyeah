@@ -40,7 +40,7 @@ module DefaultDelegate =
                     let mutable index = 0
 
                     while index < text.Length && consumed < remaining do
-                        let current = string text[index]
+                        let current = text[index].ToString()
                         let size = Encoding.UTF8.GetByteCount(current)
 
                         if consumed + size <= remaining then
@@ -161,7 +161,7 @@ module DefaultDelegate =
 
     let private isWithinRoot (rootFull: string) (candidate: string) =
         candidate.Equals(rootFull, comparison)
-        || candidate.StartsWith(rootFull + string Path.DirectorySeparatorChar, comparison)
+        || candidate.StartsWith(rootFull + Path.DirectorySeparatorChar.ToString(), comparison)
 
     let private validatePath (rootFull: string) (requestedPath: string) =
         let combined =
@@ -293,7 +293,7 @@ module DefaultDelegate =
                                 let mutable index = 0
 
                                 while index < output.Length && consumed < maxBytes do
-                                    let current = string output[index]
+                                    let current = output[index].ToString()
                                     let size = Encoding.UTF8.GetByteCount(current)
 
                                     if consumed + size <= maxBytes then

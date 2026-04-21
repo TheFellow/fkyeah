@@ -8,7 +8,11 @@ module Conditions =
     let private parseLiteral (literal: string) : string =
         let trimmed = literal.Trim()
 
-        if trimmed.Length >= 2 && trimmed.StartsWith("\"") && trimmed.EndsWith("\"") then
+        if
+            trimmed.Length >= 2
+            && trimmed.StartsWith("\"", StringComparison.Ordinal)
+            && trimmed.EndsWith("\"", StringComparison.Ordinal)
+        then
             trimmed.Substring(1, trimmed.Length - 2)
         else
             trimmed
@@ -18,7 +22,7 @@ module Conditions =
         match key.Trim() with
         | "outcome" -> outcome.Status.ToString()
         | "preferred_label" -> outcome.PreferredLabel
-        | k when k.StartsWith("context.") ->
+        | k when k.StartsWith("context.", StringComparison.Ordinal) ->
             let contextKey = k
 
             match context.TryGet(contextKey) with

@@ -62,7 +62,9 @@ module ContextPrompt =
             |> List.choose (fun (key, value) ->
                 if
                     key <> "graph.goal"
-                    && (key.StartsWith("graph.") || key = "current_node" || key = "outcome")
+                    && (key.StartsWith("graph.", StringComparison.Ordinal)
+                        || key = "current_node"
+                        || key = "outcome")
                 then
                     Some
                         { Key = key
@@ -142,7 +144,7 @@ module ContextPrompt =
                 snapshot
                 |> Map.toList
                 |> List.choose (fun (key, value) ->
-                    if key.StartsWith("parallel.branch.") then
+                    if key.StartsWith("parallel.branch.", StringComparison.Ordinal) then
                         Some
                             { Key = key
                               Label = key
@@ -155,7 +157,7 @@ module ContextPrompt =
                 snapshot
                 |> Map.toList
                 |> List.choose (fun (key, value) ->
-                    if key.StartsWith("human.gate.") then
+                    if key.StartsWith("human.gate.", StringComparison.Ordinal) then
                         Some
                             { Key = key
                               Label = key

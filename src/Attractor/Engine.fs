@@ -513,7 +513,7 @@ module Engine =
         let maxLoopRestarts = 10
         let mutable lastEdge: Edge option = None
         let goalGateRetryVisited = System.Collections.Generic.HashSet<string>()
-        context.Set("internal.loop_restart_count", string restartCount)
+        context.Set("internal.loop_restart_count", (restartCount: int).ToString())
 
         while running do
             // Check for user cancellation (Ctrl-C)
@@ -585,7 +585,7 @@ module Engine =
                         { node with
                             Attributes =
                                 node.Attributes
-                                |> Map.add "__resolved_fidelity" (AttrValue.String(string fidelity)) }
+                                |> Map.add "__resolved_fidelity" (AttrValue.String((fidelity: FidelityMode).ToString())) }
 
                     let handlerContext =
                         if fidelity = FidelityMode.Full then
@@ -624,8 +624,8 @@ module Engine =
                         nodeVisitCounts[node.Id] <- updated
                         updated
 
-                    context.Set("node.visit_count", string visitCount)
-                    context.Set($"node.{node.Id}.visit_count", string visitCount)
+                    context.Set("node.visit_count", ((visitCount: int).ToString()))
+                    context.Set($"node.{node.Id}.visit_count", ((visitCount: int).ToString()))
 
                     // Set thread_id in context if fidelity=full and node has thread_id
                     if fidelity = FidelityMode.Full && node.ThreadId <> "" then
@@ -687,7 +687,10 @@ module Engine =
                             outcome.ContextUpdates
                             |> Map.toList
                             |> List.choose (fun (k, v) ->
-                                if k.StartsWith("parallel.branch.") && k.EndsWith(".status") then
+                                if
+                                    k.StartsWith("parallel.branch.", StringComparison.Ordinal)
+                                    && k.EndsWith(".status", StringComparison.Ordinal)
+                                then
                                     let branchId = k.Replace("parallel.branch.", "").Replace(".status", "")
                                     Some(branchId, (v = "success"))
                                 else
@@ -825,7 +828,7 @@ module Engine =
                         // Step 7: Handle loop_restart
                         if edge.LoopRestart then
                             restartCount <- restartCount + 1
-                            context.Set("internal.loop_restart_count", string restartCount)
+                            context.Set("internal.loop_restart_count", ((restartCount: int).ToString()))
 
                             if restartCount > maxLoopRestarts then
                                 lastOutcome <- Outcome.Fail($"Max loop restarts ({maxLoopRestarts}) exceeded")
@@ -853,7 +856,8 @@ module Engine =
                                 currentLogsRoot <- newLogsRoot
                                 // Reset context: keep only graph.* attributes
                                 let graphAttrs =
-                                    context.Snapshot() |> Map.filter (fun k _ -> k.StartsWith("graph."))
+                                    context.Snapshot()
+                                    |> Map.filter (fun k _ -> k.StartsWith("graph.", StringComparison.Ordinal))
 
                                 let freshContext = createContext newLogsRoot
 
@@ -861,7 +865,7 @@ module Engine =
                                     freshContext.Set(kv.Key, kv.Value)
 
                                 applyInitialContext config freshContext false
-                                freshContext.Set("internal.loop_restart_count", string restartCount)
+                                freshContext.Set("internal.loop_restart_count", ((restartCount: int).ToString()))
                                 context <- freshContext
                                 // Clear tracking state
                                 completedNodes.Clear()

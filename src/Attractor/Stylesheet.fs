@@ -63,9 +63,9 @@ module Stylesheet =
 
         if s = "*" then
             Selector.Universal
-        elif s.StartsWith(".") then
+        elif s.StartsWith(".", StringComparison.Ordinal) then
             Selector.Class(s.Substring(1))
-        elif s.StartsWith("#") then
+        elif s.StartsWith("#", StringComparison.Ordinal) then
             Selector.Id(s.Substring(1))
         elif knownShapes.Contains(s) || Regex.IsMatch(s, @"^[a-zA-Z]\w*$") then
             // Bare identifier — treat as a shape selector whether or not it's

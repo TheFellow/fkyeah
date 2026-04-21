@@ -27,6 +27,9 @@ jobs:
       - name: Lint (FSharpLint)
         run: dotnet dotnet-fsharplint lint --lint-config fsharplint.json --file-type solution Attractor.slnx
 
+      - name: Analyze (G-Research)
+        run: make analyze
+
       - name: Restore
         run: dotnet restore Attractor.slnx
 

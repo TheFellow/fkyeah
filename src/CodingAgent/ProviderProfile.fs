@@ -193,7 +193,9 @@ Knowledge cutoff: unknown
             env.WorkingDirectory
             (if isGitRepository then "true" else "false")
             (branch |> Option.defaultValue "n/a")
-            (modifiedCount |> Option.map string |> Option.defaultValue "n/a")
+            (modifiedCount
+             |> Option.map (fun (n: int) -> n.ToString())
+             |> Option.defaultValue "n/a")
             env.Platform
             env.OsVersion
             (DateTime.UtcNow.ToString("yyyy-MM-dd"))

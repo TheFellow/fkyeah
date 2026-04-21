@@ -20,23 +20,26 @@ type Duration =
     static member TryParse(s: string) : Duration option =
         let s = s.Trim()
 
-        if s.EndsWith("ms") then
+        if s.EndsWith("ms", StringComparison.Ordinal) then
             match Int64.TryParse(s.Substring(0, s.Length - 2)) with
             | true, v -> Some(Duration.FromMs v)
             | _ -> None
-        elif s.EndsWith("s") && not (s.EndsWith("ms")) then
+        elif
+            s.EndsWith("s", StringComparison.Ordinal)
+            && not (s.EndsWith("ms", StringComparison.Ordinal))
+        then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
             | true, v -> Some(Duration.FromSeconds v)
             | _ -> None
-        elif s.EndsWith("m") then
+        elif s.EndsWith("m", StringComparison.Ordinal) then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
             | true, v -> Some(Duration.FromMinutes v)
             | _ -> None
-        elif s.EndsWith("h") then
+        elif s.EndsWith("h", StringComparison.Ordinal) then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
             | true, v -> Some(Duration.FromHours v)
             | _ -> None
-        elif s.EndsWith("d") then
+        elif s.EndsWith("d", StringComparison.Ordinal) then
             match Int64.TryParse(s.Substring(0, s.Length - 1)) with
             | true, v -> Some(Duration.FromDays v)
             | _ -> None
@@ -58,10 +61,12 @@ type AttrValue =
     member this.AsString() =
         match this with
         | String s -> s
-        | Integer i -> string i
-        | Float f -> string f
+        | Integer i -> (i: int).ToString(System.Globalization.CultureInfo.InvariantCulture)
+        | Float f -> (f: float).ToString(System.Globalization.CultureInfo.InvariantCulture)
         | Boolean b -> if b then "true" else "false"
-        | Duration d -> string d.Milliseconds + "ms"
+        | Duration d ->
+            d.Milliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            + "ms"
 
     member this.AsInt() =
         match this with
@@ -616,7 +621,7 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
     let thresholdBytes = defaultArg offloadThresholdBytes (100 * 1024)
 
     let tryResolveArtifactRef (value: string) =
-        if value.StartsWith("artifact:") then
+        if value.StartsWith("artifact:", StringComparison.Ordinal) then
             match artifactStore with
             | Some store ->
                 let key = value.Substring("artifact:".Length)
@@ -628,7 +633,7 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
     let withOffload (key: string) (value: string) =
         match artifactStore with
         | Some store when
-            not (value.StartsWith("artifact:"))
+            not (value.StartsWith("artifact:", StringComparison.Ordinal))
             && Encoding.UTF8.GetByteCount(value) > thresholdBytes
             ->
             let artifactKey = sprintf "%s-%s.txt" key (Guid.NewGuid().ToString("N"))
@@ -748,12 +753,22 @@ type Context(?artifactStore: IArtifactStore, ?offloadThresholdBytes: int) =
                 let mutable charCount = 0
 
                 for kv in values do
-                    if kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome" then
+                    if
+                        kv.Key.StartsWith("graph.", StringComparison.Ordinal)
+                        || kv.Key = "current_node"
+                        || kv.Key = "outcome"
+                    then
                         let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
                         charCount <- setWithinBudget ctx kv.Key resolved charCount
 
                 for kv in values do
-                    if not (kv.Key.StartsWith("graph.") || kv.Key = "current_node" || kv.Key = "outcome") then
+                    if
+                        not (
+                            kv.Key.StartsWith("graph.", StringComparison.Ordinal)
+                            || kv.Key = "current_node"
+                            || kv.Key = "outcome"
+                        )
+                    then
                         let resolved = tryResolveArtifactRef kv.Value |> Option.defaultValue kv.Value
                         charCount <- setWithinBudget ctx kv.Key resolved charCount
 

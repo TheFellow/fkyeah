@@ -517,7 +517,7 @@ module AcpHandlers =
                                           "last_response", contextResponse
                                           $"acp.session_id.{node.Id}", promptResult.SessionId
                                           $"acp.output.{node.Id}", contextResponse
-                                          $"acp.notifications.{node.Id}.count", string notificationCount ]
+                                          $"acp.notifications.{node.Id}.count", ((notificationCount: int).ToString()) ]
 
                                 let outcome =
                                     Outcome.Success(

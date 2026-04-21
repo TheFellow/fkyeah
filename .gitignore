@@ -7,3 +7,8 @@ publish/
 *.zip
 out.png
 megaplan.dot.dot
+
+# Analyzer package download location
+analyzers/.analyzerpackages/
+analyzers/obj/
+analyzers/bin/

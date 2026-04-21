@@ -156,7 +156,7 @@ module private PatchApplier =
                 | Some k, Some p -> List.rev ((k, p, List.rev content) :: acc)
                 | _ -> List.rev acc
             | line :: rest ->
-                if line.StartsWith("*** Add File: ") then
+                if line.StartsWith("*** Add File: ", StringComparison.Ordinal) then
                     let path = line.Substring("*** Add File: ".Length).Trim()
 
                     let nextAcc =
@@ -165,7 +165,7 @@ module private PatchApplier =
                         | _ -> acc
 
                     parseSections nextAcc (Some(AddFile(path))) (Some(path)) [] rest
-                elif line.StartsWith("*** Update File: ") then
+                elif line.StartsWith("*** Update File: ", StringComparison.Ordinal) then
                     let path = line.Substring("*** Update File: ".Length).Trim()
 
                     let nextAcc =
@@ -174,7 +174,7 @@ module private PatchApplier =
                         | _ -> acc
 
                     parseSections nextAcc (Some(UpdateFile(path))) (Some(path)) [] rest
-                elif line.StartsWith("*** Delete File: ") then
+                elif line.StartsWith("*** Delete File: ", StringComparison.Ordinal) then
                     let path = line.Substring("*** Delete File: ".Length).Trim()
 
                     let nextAcc =
@@ -200,7 +200,7 @@ module private PatchApplier =
                 let text =
                     contentLines
                     |> List.choose (fun line ->
-                        if line.StartsWith("+") then
+                        if line.StartsWith("+", StringComparison.Ordinal) then
                             Some(line.Substring(1))
                         else
                             None)
@@ -232,11 +232,11 @@ module private PatchApplier =
                         | [] -> List.rev acc
                         | _ -> List.rev ((List.rev current) :: acc)
                     | line :: rest ->
-                        if line.StartsWith("@@") then
+                        if line.StartsWith("@@", StringComparison.Ordinal) then
                             match current with
                             | [] -> parseHunks acc [] rest
                             | _ -> parseHunks ((List.rev current) :: acc) [] rest
-                        elif line.StartsWith("*** ") then
+                        elif line.StartsWith("*** ", StringComparison.Ordinal) then
                             match current with
                             | [] -> List.rev acc
                             | _ -> List.rev ((List.rev current) :: acc)
@@ -250,7 +250,10 @@ module private PatchApplier =
                     let oldBlock =
                         hunkLines
                         |> List.choose (fun (line: string) ->
-                            if line.StartsWith(" ") || line.StartsWith("-") then
+                            if
+                                line.StartsWith(" ", StringComparison.Ordinal)
+                                || line.StartsWith("-", StringComparison.Ordinal)
+                            then
                                 Some(line.Substring(1))
                             else
                                 None)
@@ -259,7 +262,10 @@ module private PatchApplier =
                     let newBlock =
                         hunkLines
                         |> List.choose (fun (line: string) ->
-                            if line.StartsWith(" ") || line.StartsWith("+") then
+                            if
+                                line.StartsWith(" ", StringComparison.Ordinal)
+                                || line.StartsWith("+", StringComparison.Ordinal)
+                            then
                                 Some(line.Substring(1))
                             else
                                 None)
@@ -365,8 +371,8 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                     Warning
                     (Map.ofList
                         [ "message", sprintf "Context usage at ~%.1f%% of context window" percentage
-                          "current_tokens", string tokens
-                          "limit_tokens", string profile.ContextWindowSize
+                          "current_tokens", ((tokens: int).ToString())
+                          "limit_tokens", ((profile.ContextWindowSize: int).ToString())
                           "percentage", sprintf "%.1f" percentage ])
 
     let drainSteering () =
@@ -1041,7 +1047,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
               ProviderId = profile.Id
               Model = profile.Model
               WorkingDirectory = env.WorkingDirectory
-              State = string state
+              State = ((state: SessionState).ToString())
               UserInstructions = userInstructions
               AwaitingInputRequested = awaitingInputRequested
               CurrentDepth = currentDepth
@@ -1129,10 +1135,10 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
         while keepLooping && not abortSignaled do
             // Check round limits
             if config.MaxToolRoundsPerInput > 0 && roundCount >= config.MaxToolRoundsPerInput then
-                emit TurnLimit (Map.ofList [ "round", string roundCount ])
+                emit TurnLimit (Map.ofList [ "round", ((roundCount: int).ToString()) ])
                 keepLooping <- false
             elif config.MaxTurns > 0 && countTurns () >= config.MaxTurns then
-                emit TurnLimit (Map.ofList [ "total_turns", string (countTurns ()) ])
+                emit TurnLimit (Map.ofList [ "total_turns", ((countTurns (): int).ToString()) ])
                 keepLooping <- false
             else
                 // Build LLM request

@@ -157,7 +157,7 @@ module SessionPersistence =
         | other -> failwith $"Unknown turn case '{other}'"
 
     let eventToDto (event: SessionEvent) : CheckpointDto.Event =
-        { Kind = string event.Kind
+        { Kind = ((event.Kind: EventKind).ToString())
           Timestamp = event.Timestamp
           SessionId = event.SessionId
           Data = event.Data

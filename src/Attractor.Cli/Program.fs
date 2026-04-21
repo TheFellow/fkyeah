@@ -54,16 +54,16 @@ type LlmBackend(llmClient: Client) =
                 let provider =
                     if node.LlmProvider <> "" then
                         Some node.LlmProvider
-                    else if model.StartsWith("claude") then
+                    else if model.StartsWith("claude", StringComparison.Ordinal) then
                         Some "anthropic"
                     elif
-                        model.StartsWith("gpt")
-                        || model.StartsWith("o1")
-                        || model.StartsWith("o3")
-                        || model.StartsWith("o4")
+                        model.StartsWith("gpt", StringComparison.Ordinal)
+                        || model.StartsWith("o1", StringComparison.Ordinal)
+                        || model.StartsWith("o3", StringComparison.Ordinal)
+                        || model.StartsWith("o4", StringComparison.Ordinal)
                     then
                         Some "openai"
-                    elif model.StartsWith("gemini") then
+                    elif model.StartsWith("gemini", StringComparison.Ordinal) then
                         Some "gemini"
                     else
                         None
@@ -124,16 +124,16 @@ type LlmBackend(llmClient: Client) =
                         (response.Usage.CacheReadTokens |> Option.defaultValue 0 > 0)
                 with
                 | Some cost ->
-                    context.Set("llm.cost_microdollars", string cost.TotalMicrodollars)
+                    context.Set("llm.cost_microdollars", (cost.TotalMicrodollars: int64).ToString())
 
                     context.Set(
                         "llm.cost_usd",
                         cost.TotalUsd.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     )
 
-                    context.Set("llm.input_tokens", string response.Usage.InputTokens)
-                    context.Set("llm.output_tokens", string response.Usage.OutputTokens)
-                    context.Set("llm.cache_hit", string cost.CacheHit)
+                    context.Set("llm.input_tokens", ((response.Usage.InputTokens: int).ToString()))
+                    context.Set("llm.output_tokens", ((response.Usage.OutputTokens: int).ToString()))
+                    context.Set("llm.cache_hit", (cost.CacheHit: bool).ToString())
                     context.Set("llm.model", response.Model)
                     context.Set("llm.provider", response.Provider)
                     context.Set("llm.last_node", node.Id)
@@ -624,7 +624,7 @@ let parseArgs (args: string array) =
         | "--example" -> showExample <- true
         | "models"
         | "--models" -> showModels <- true
-        | arg when not (arg.StartsWith("-")) && dotFile.IsNone -> dotFile <- Some arg
+        | arg when not (arg.StartsWith("-", StringComparison.Ordinal)) && dotFile.IsNone -> dotFile <- Some arg
         | arg ->
             eprintfn "Unknown argument: %s" arg
             showHelp <- true

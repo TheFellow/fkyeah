@@ -63,12 +63,12 @@ module SseParsing =
 
                 if isNull line then
                     finished <- true
-                elif line.StartsWith(":") then
+                elif line.StartsWith(":", StringComparison.Ordinal) then
                     // SSE comment / keepalive — consume, do not count as progress
                     ()
-                elif line.StartsWith("event:") then
+                elif line.StartsWith("event:", StringComparison.Ordinal) then
                     eventName <- line.Substring("event:".Length).Trim()
-                elif line.StartsWith("data:") then
+                elif line.StartsWith("data:", StringComparison.Ordinal) then
                     dataLines.Add(line.Substring("data:".Length).TrimStart())
                 elif line = "" then
                     if dataLines.Count > 0 then

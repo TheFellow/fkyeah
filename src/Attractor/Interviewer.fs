@@ -236,7 +236,7 @@ type ConsoleInterviewer() =
 
                 if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
-                elif response.Trim().ToLower().StartsWith("y") then
+                elif response.Trim().ToLower().StartsWith("y", StringComparison.Ordinal) then
                     Answer.Yes
                 else
                     Answer.No
@@ -246,7 +246,7 @@ type ConsoleInterviewer() =
 
                 if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
-                elif response.Trim().ToLower().StartsWith("y") then
+                elif response.Trim().ToLower().StartsWith("y", StringComparison.Ordinal) then
                     Answer.Yes
                 else
                     Answer.No
@@ -313,7 +313,7 @@ module AcceleratorKey =
                         m3.Groups[1].Value
                     else
                         // First character
-                        string label[0]
+                        label[0].ToString()
 
     /// Strip accelerator prefix from a label for display (preserves case)
     let displayLabel (label: string) : string =

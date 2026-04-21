@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.Build.NoTargets/3.7.0">
+
+  <PropertyGroup>
+    <!-- Sentinel project: download-only. Never built, never referenced. -->
+    <IsPackable>false</IsPackable>
+    <RestorePackagesPath>./.analyzerpackages/</RestorePackagesPath>
+    <TargetFramework>net10.0</TargetFramework>
+    <DisableImplicitNuGetFallbackFolder>true</DisableImplicitNuGetFallbackFolder>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageDownload Include="G-Research.FSharp.Analyzers" Version="[0.22.0]" />
+  </ItemGroup>
+
+</Project>
