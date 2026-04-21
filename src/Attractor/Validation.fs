@@ -655,6 +655,11 @@ module Validation =
                                     )
                                 )))
 
+                // Graph-level unknown attrs are Info, not Warning: the tool-command
+                // handler exposes every graph attribute as an env var, so authors
+                // legitimately declare custom pipeline parameters at this level
+                // (e.g. `planning_dir`, `target_package`). Node/edge typos still
+                // warn because those have structural runtime effects.
                 let graphDiags =
                     graph.GraphAttributes
                     |> Map.toList
@@ -663,7 +668,7 @@ module Validation =
                             None
                         else
                             let suggestion = suggestAttribute graphKnown attrName
-                            Some(Diagnostic.Warning("attribute_known", attributeMessage "Graph" attrName suggestion)))
+                            Some(Diagnostic.Info("attribute_known", attributeMessage "Graph" attrName suggestion)))
 
                 nodeDiags @ edgeDiags @ graphDiags }
 
@@ -1088,9 +1093,12 @@ module Validation =
                     if ShapeMapping.resolveHandlerType node = "tool" then
                         let outgoing = graph.OutgoingEdges(node.Id)
                         let conditionEdges = outgoing |> List.filter (fun e -> e.Condition <> "")
+                        // An unconditional edge catches whatever the conditional edges don't,
+                        // so we don't need to warn about a "missing" outcome in that case.
+                        let hasFallback = outgoing |> List.exists (fun e -> e.Condition = "")
 
-                        if conditionEdges.IsEmpty then
-                            None // fire-and-forget, no condition-based routing
+                        if conditionEdges.IsEmpty || hasFallback then
+                            None
                         else
                             let hasSuccess =
                                 conditionEdges

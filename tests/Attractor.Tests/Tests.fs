@@ -626,6 +626,53 @@ module ValidationTests =
         Assert.False(diags |> List.exists (fun d -> d.Rule = "model_known"))
 
     [<Fact>]
+    let ``attribute_known reports graph-level unknown attrs as Info`` () =
+        // Graph-level attrs are also passed as env vars to tool_commands, so
+        // authors legitimately declare custom pipeline parameters there.
+        // Info keeps the signal visible without treating it as a bug.
+        let dot =
+            """
+        digraph Test {
+            graph [goal="demo", planning_dir=".ai/plan", target_package="Thing"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            start -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+
+        let graphAttrDiags =
+            diags |> List.filter (fun d -> d.Rule = "attribute_known" && d.NodeId = "")
+
+        Assert.True(graphAttrDiags.Length >= 2, "expected at least 2 graph attr diagnostics")
+        Assert.All(graphAttrDiags, fun d -> Assert.Equal(Severity.Info, d.Severity))
+
+    [<Fact>]
+    let ``attribute_known keeps node-level unknown attrs at Warning`` () =
+        // Node attrs have runtime effects (e.g. llm_model, tool_command), so
+        // a misspelling is more likely a real bug worth warning about.
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            plan [shape=box, prompt="p", llm_modl="claude-sonnet-4-6"]
+            exit [shape=Msquare]
+            start -> plan -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+
+        let nodeDiag =
+            diags |> List.tryFind (fun d -> d.Rule = "attribute_known" && d.NodeId = "plan")
+
+        Assert.True(nodeDiag.IsSome)
+        Assert.Equal(Severity.Warning, nodeDiag.Value.Severity)
+
+    [<Fact>]
     let ``cumulative_turns terminates on cycles through a coding_agent node`` () =
         // Regression: a retry loop that includes a coding_agent (shape=tab)
         // would cause cumulative_turns' BFS to re-enqueue each cycle pass
@@ -3455,6 +3502,50 @@ module EdgeCaseTests =
         Assert.Contains("hello", output)
 
     [<Fact>]
+    let ``Tool handler exposes graph attributes as environment variables`` () =
+        let dot =
+            """
+        digraph Test {
+            graph [goal="demo", planning_dir=".ai/plan", target_package="Demo"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            show [shape=parallelogram, tool_command="printf '%s|%s' \"$planning_dir\" \"$target_package\""]
+            start -> show -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir ()
+        let config = RunConfig.Default(logsRoot)
+        let result = Engine.run graph config
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        let output = result.Context.Get("tool.output")
+        Assert.Contains(".ai/plan|Demo", output)
+
+    [<Fact>]
+    let ``Tool handler ATTRACTOR_ env vars win over a same-named graph attribute`` () =
+        // Defence-in-depth: if a pipeline author declares graph [ATTRACTOR_NODE_ID=..]
+        // the built-in value must not be clobbered.
+        let dot =
+            """
+        digraph Test {
+            graph [goal="demo", ATTRACTOR_NODE_ID="bogus"]
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            show [shape=parallelogram, tool_command="printf '%s' \"$ATTRACTOR_NODE_ID\""]
+            start -> show -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let logsRoot = createTempDir ()
+        let config = RunConfig.Default(logsRoot)
+        let result = Engine.run graph config
+        Assert.Equal(StageStatus.Success, result.FinalOutcome.Status)
+        let output = result.Context.Get("tool.output")
+        Assert.Equal("show", output.Trim())
+
+    [<Fact>]
     let ``Tool handler sets tool_stdout alias on success`` () =
         let dot =
             """
@@ -6282,6 +6373,32 @@ module ParallelogramOutcomeRoutingTests =
         Assert.False(
             diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
             "should not warn when both outcomes are routed"
+        )
+
+    [<Fact>]
+    let ``parallelogram_outcome_routing does not warn when an unconditional fallback covers the other outcome`` () =
+        // Attractor's router falls through to unconditional edges when no
+        // condition matches the current outcome, so this is a valid pattern.
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Pick [shape=parallelogram, tool_command="pick_next"]
+            Next [shape=box, prompt="Continue"]
+            start -> Pick
+            Pick -> Next
+            Pick -> exit [condition="outcome=fail"]
+            Next -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "parallelogram_outcome_routing"),
+            "should not warn when an unconditional edge provides the fallback"
         )
 
     [<Fact>]

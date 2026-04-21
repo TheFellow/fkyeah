@@ -1013,6 +1013,13 @@ module Handlers =
                             psi.EnvironmentVariables["ATTRACTOR_NODE_ID"] <- node.Id
                             psi.EnvironmentVariables["ATTRACTOR_CWD"] <- workingDir
 
+                            // Expose graph-level attributes as env vars so tool_command
+                            // scripts can reference pipeline parameters as $my_attr.
+                            // ATTRACTOR_-prefixed vars above win if there's a collision.
+                            for kv in graph.GraphAttributes do
+                                if not (psi.EnvironmentVariables.ContainsKey(kv.Key)) then
+                                    psi.EnvironmentVariables[kv.Key] <- kv.Value.AsString()
+
                             let proc = System.Diagnostics.Process.Start(psi)
 
                             // Pipe prompt to stdin if available
