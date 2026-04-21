@@ -84,25 +84,25 @@ type Message =
         |> String.concat ""
 
     /// Convenience constructors
-    static member system(text: string) =
+    static member System(text: string) =
         { Role = System
           Content = [ Text text ]
           Name = None
           ToolCallId = None }
 
-    static member user(text: string) =
+    static member User(text: string) =
         { Role = User
           Content = [ Text text ]
           Name = None
           ToolCallId = None }
 
-    static member assistant(text: string) =
+    static member Assistant(text: string) =
         { Role = Assistant
           Content = [ Text text ]
           Name = None
           ToolCallId = None }
 
-    static member toolResult(toolCallId: string, content: string, isError: bool) =
+    static member ToolResult(toolCallId: string, content: string, isError: bool) =
         { Role = Tool
           Content =
             [ ToolResult

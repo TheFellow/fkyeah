@@ -183,7 +183,7 @@ let ``B5 total timeout raises RequestTimeoutError when generation exceeds budget
             { Id = "r_final"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant ("done")
+              Message = Message.Assistant("done")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None

@@ -35,11 +35,11 @@ module MiddlewareSprint007 =
 
         let response =
             pipeline.Execute(
-                Request.Create("model", [ Message.user ("hello") ]),
+                Request.Create("model", [ Message.User("hello") ]),
                 fun request ->
                     events.Add($"handler:{request.Model}")
 
-                    Message.assistant ("ok")
+                    Message.Assistant("ok")
                     |> fun message ->
                         { Id = "r1"
                           Model = request.Model
@@ -76,12 +76,12 @@ module MiddlewareSprint007 =
 
         let emptyResponse =
             emptyPipeline.Execute(
-                Request.Create("original", [ Message.user ("hello") ]),
+                Request.Create("original", [ Message.User("hello") ]),
                 fun request ->
                     { Id = "empty"
                       Model = request.Model
                       Provider = "test"
-                      Message = Message.assistant ("ok")
+                      Message = Message.Assistant("ok")
                       FinishReason = Stop "stop"
                       Usage = Usage.Zero
                       ResponseId = None
@@ -92,12 +92,12 @@ module MiddlewareSprint007 =
 
         let singleResponse =
             singlePipeline.Execute(
-                Request.Create("original", [ Message.user ("hello") ]),
+                Request.Create("original", [ Message.User("hello") ]),
                 fun request ->
                     { Id = "single"
                       Model = request.Model
                       Provider = "test"
-                      Message = Message.assistant ("ok")
+                      Message = Message.Assistant("ok")
                       FinishReason = Stop "stop"
                       Usage = Usage.Zero
                       ResponseId = None
@@ -129,7 +129,7 @@ module MiddlewareSprint007 =
         client.RegisterAdapter(MockOpenAIAdapter())
         client.AddMiddlewareFn(Middleware.ofInterface wrapped)
 
-        let response = client.Complete(Request.Create("base", [ Message.user ("hello") ]))
+        let response = client.Complete(Request.Create("base", [ Message.User("hello") ]))
         Assert.Equal("base-wrapped", response.Model)
 
         let chain = MiddlewareChain()
@@ -137,12 +137,12 @@ module MiddlewareSprint007 =
 
         let bridged =
             chain.Execute(
-                Request.Create("chain", [ Message.user ("hello") ]),
+                Request.Create("chain", [ Message.User("hello") ]),
                 fun request ->
                     { Id = "chain"
                       Model = request.Model
                       Provider = "test"
-                      Message = Message.assistant ("ok")
+                      Message = Message.Assistant("ok")
                       FinishReason = Stop "stop"
                       Usage = Usage.Zero
                       ResponseId = None

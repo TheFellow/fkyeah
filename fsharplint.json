@@ -192,7 +192,7 @@
         }
     },
     "memberNames": {
-        "enabled": false,
+        "enabled": true,
         "config": {
             "naming": "PascalCase",
             "underscores": "AllowPrefix"

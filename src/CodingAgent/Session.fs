@@ -57,7 +57,7 @@ module HistoryConverter =
         history
         |> List.collect (fun turn ->
             match turn with
-            | UserTurn(content, _) -> [ Message.user (content) ]
+            | UserTurn(content, _) -> [ Message.User(content) ]
             | AssistantTurn(content, toolCalls, _, _, _) ->
                 let parts =
                     [ if not (String.IsNullOrEmpty(content)) then
@@ -70,9 +70,9 @@ module HistoryConverter =
                     ToolCallId = None } ]
             | ToolResultsTurn(results, _) ->
                 results
-                |> List.map (fun r -> Message.toolResult (r.ToolCallId, r.Content, r.IsError))
-            | SteeringTurn(content, _) -> [ Message.user (content) ]
-            | SystemTurn(content, _) -> [ Message.system (content) ])
+                |> List.map (fun r -> Message.ToolResult(r.ToolCallId, r.Content, r.IsError))
+            | SteeringTurn(content, _) -> [ Message.User(content) ]
+            | SystemTurn(content, _) -> [ Message.System(content) ])
 
 module private JsonArgs =
 
@@ -838,7 +838,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
             { Id = Guid.NewGuid().ToString("N")
               Model = request.Model
               Provider = profile.Id
-              Message = Message.assistant (finalText)
+              Message = Message.Assistant(finalText)
               FinishReason = Stop "stream_end"
               Usage = finishUsage |> Option.defaultValue Usage.Zero
               ResponseId = None
@@ -1141,7 +1141,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                 let toolDefs = profile.ToolDefinitions
 
                 let request =
-                    { Request.Create(profile.Model, Message.system (systemPrompt) :: messages) with
+                    { Request.Create(profile.Model, Message.System(systemPrompt) :: messages) with
                         Tools = Some toolDefs
                         ToolChoice = Some ToolChoice.Auto
                         ReasoningEffort = config.ReasoningEffort

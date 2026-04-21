@@ -8,7 +8,7 @@ let private validator = RequestValidator.fromCatalog ()
 [<Fact>]
 let ``validator rejects unknown model and invalid temperature`` () =
     let request =
-        { Request.Create("unknown-model", [ Message.user ("hello") ]) with
+        { Request.Create("unknown-model", [ Message.User("hello") ]) with
             Temperature = Some 9.0 }
 
     match validator.Validate request with
@@ -18,7 +18,7 @@ let ``validator rejects unknown model and invalid temperature`` () =
 [<Fact>]
 let ``validator rejects prompt and messages together`` () =
     let request =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             Prompt = Some "duplicate" }
 
     match validator.Validate request with
@@ -28,7 +28,7 @@ let ``validator rejects prompt and messages together`` () =
 [<Fact>]
 let ``validator rejects named tool choice when tool missing`` () =
     let request =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             ToolChoice = Some(ToolChoice.Named "missing_tool") }
 
     match validator.Validate request with
@@ -40,7 +40,7 @@ let ``validator rejects named tool choice when tool missing`` () =
 
 [<Fact>]
 let ``validator accepts valid request with known model`` () =
-    let request = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let request = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     match validator.Validate request with
     | Result.Ok _ -> ()
@@ -62,7 +62,7 @@ let ``validator accepts tools request with model that supports tools`` () =
           Parameters = "{}" }
 
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("use tools") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("use tools") ]) with
             Tools = Some [ tool ] }
 
     match validator.Validate request with
@@ -72,7 +72,7 @@ let ``validator accepts tools request with model that supports tools`` () =
 [<Fact>]
 let ``validator rejects negative temperature`` () =
     let request =
-        { Request.Create("gpt-5.4", [ Message.user ("hi") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hi") ]) with
             Temperature = Some -1.0 }
 
     match validator.Validate request with
@@ -89,7 +89,7 @@ let ``validator rejects negative temperature`` () =
 [<Fact>]
 let ``validator rejects temperature above 2`` () =
     let request =
-        { Request.Create("gpt-5.4", [ Message.user ("hi") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hi") ]) with
             Temperature = Some 3.5 }
 
     match validator.Validate request with
@@ -131,7 +131,7 @@ let ``validator reports multiple simultaneous issues`` () =
 [<Fact>]
 let ``validator accepts reasoning request against supported model`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("think hard") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("think hard") ]) with
             ReasoningEffort = Some "high" }
 
     match validator.Validate request with
@@ -141,7 +141,7 @@ let ``validator accepts reasoning request against supported model`` () =
 [<Fact>]
 let ``validator rejects ToolChoice Required with no tools`` () =
     let request =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             ToolChoice = Some ToolChoice.Required }
 
     match validator.Validate request with
@@ -158,7 +158,7 @@ let ``validator rejects ToolChoice Required with no tools`` () =
 [<Fact>]
 let ``validator rejects previous_response_id when explicit provider does not match model provider`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("hello") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("hello") ]) with
             PreviousResponseId = Some "resp_123"
             Provider = Some "openai" }
 
@@ -173,7 +173,7 @@ let ``validator rejects previous_response_id when explicit provider does not mat
 [<Fact>]
 let ``validator warns when thinking budget exceeds explicit max_tokens`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("think hard") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("think hard") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 4096 }
 
@@ -191,7 +191,7 @@ let ``validator warns when thinking budget exceeds explicit max_tokens`` () =
 [<Fact>]
 let ``validator does not warn when max_tokens exceeds thinking budget`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("think hard") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("think hard") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 40000 }
 
@@ -202,7 +202,7 @@ let ``validator does not warn when max_tokens exceeds thinking budget`` () =
 [<Fact>]
 let ``validator does not warn about thinking budget when max_tokens is not set`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("think hard") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("think hard") ]) with
             ReasoningEffort = Some "high" }
 
     match validator.Validate request with
@@ -212,7 +212,7 @@ let ``validator does not warn about thinking budget when max_tokens is not set``
 [<Fact>]
 let ``validator does not warn about thinking budget when reasoning_effort is not set`` () =
     let request =
-        { Request.Create("claude-opus-4-6", [ Message.user ("hello") ]) with
+        { Request.Create("claude-opus-4-6", [ Message.User("hello") ]) with
             MaxTokens = Some 4096 }
 
     match validator.Validate request with

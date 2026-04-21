@@ -374,9 +374,9 @@ RECORD Message:
 For common cases, factory methods create properly structured Message objects:
 
 ```
-Message.system("You are a helpful assistant.")
-Message.user("What is 2 + 2?")
-Message.assistant("The answer is 4.")
+Message.System("You are a helpful assistant.")
+Message.User("What is 2 + 2?")
+Message.Assistant("The answer is 4.")
 Message.tool_result(tool_call_id = "call_123", content = "72F and sunny", is_error = false)
 ```
 
@@ -802,7 +802,7 @@ The fundamental non-streaming call. Sends a request and returns the full respons
 ```
 response = client.complete(Request(
     model = "claude-opus-4-6",
-    messages = [Message.user("Explain photosynthesis in one paragraph")],
+    messages = [Message.User("Explain photosynthesis in one paragraph")],
     max_tokens = 500,
     temperature = 0.7
 ))
@@ -826,7 +826,7 @@ The fundamental streaming call. Returns an asynchronous iterator of StreamEvent 
 ```
 event_stream = client.stream(Request(
     model = "claude-opus-4-6",
-    messages = [Message.user("Write a short story")]
+    messages = [Message.User("Write a short story")]
 ))
 
 FOR EACH event IN event_stream:

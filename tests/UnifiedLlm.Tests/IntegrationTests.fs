@@ -9,7 +9,7 @@ let private makeResponse (request: Request) (text: string) (usage: Usage) =
     { Id = Guid.NewGuid().ToString("N")
       Model = request.Model
       Provider = request.Provider |> Option.defaultValue "openai"
-      Message = Message.assistant (text)
+      Message = Message.Assistant(text)
       FinishReason = Stop "stop"
       Usage = usage
       ResponseId = None
@@ -22,7 +22,7 @@ let private recorder () =
     { Emit = events.Add }, events
 
 let private requestFor provider model prompt =
-    { Request.Create(model, [ Message.user (prompt) ]) with
+    { Request.Create(model, [ Message.User(prompt) ]) with
         Provider = Some provider }
 
 let private eventName event =

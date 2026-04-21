@@ -22,7 +22,7 @@ module CoreInfrastructure =
         client.RegisterAdapter(MockAnthropicAdapter())
 
         let request =
-            { Request.Create("gpt-5.2", [ Message.user ("test") ]) with
+            { Request.Create("gpt-5.2", [ Message.User("test") ]) with
                 Provider = Some "openai" }
 
         let response = client.Complete(request)
@@ -40,11 +40,11 @@ module CoreInfrastructure =
         client.RegisterAdapter(MockAnthropicAdapter())
 
         let req1 =
-            { Request.Create("m", [ Message.user ("hi") ]) with
+            { Request.Create("m", [ Message.User("hi") ]) with
                 Provider = Some "openai" }
 
         let req2 =
-            { Request.Create("m", [ Message.user ("hi") ]) with
+            { Request.Create("m", [ Message.User("hi") ]) with
                 Provider = Some "anthropic" }
 
         Assert.Equal("openai", client.Complete(req1).Provider)
@@ -54,7 +54,7 @@ module CoreInfrastructure =
     let ``Default provider is used when provider is omitted`` () =
         let client = Client()
         client.RegisterAdapter(MockAnthropicAdapter())
-        let request = Request.Create("m", [ Message.user ("test") ])
+        let request = Request.Create("m", [ Message.User("test") ])
         let response = client.Complete(request)
         Assert.Equal("anthropic", response.Provider)
 
@@ -68,7 +68,7 @@ module CoreInfrastructure =
     [<Fact>]
     let ``ConfigurationError raised when no provider configured and no default`` () =
         let client = Client()
-        let request = Request.Create("m", [ Message.user ("test") ])
+        let request = Request.Create("m", [ Message.User("test") ])
         Assert.Throws<ConfigurationError>(fun () -> client.Complete(request) |> ignore)
 
     [<Fact>]
@@ -99,7 +99,7 @@ module CoreInfrastructure =
         client.RegisterAdapter(MockOpenAIAdapter())
         client.AddMiddleware(mw1)
         client.AddMiddleware(mw2)
-        let request = Request.Create("m", [ Message.user ("test") ])
+        let request = Request.Create("m", [ Message.User("test") ])
         client.Complete(request) |> ignore
         Assert.Equal<string list>([ "mw1-request"; "mw2-request"; "mw2-response"; "mw1-response" ], order)
 
@@ -170,7 +170,7 @@ module ProviderAdapters =
     [<Fact>]
     let ``Mock OpenAI adapter complete returns response`` () =
         let adapter = MockOpenAIAdapter() :> IProviderAdapter
-        let request = Request.Create("gpt-5.2", [ Message.user ("test") ])
+        let request = Request.Create("gpt-5.2", [ Message.User("test") ])
         let response = adapter.Complete(request)
         Assert.Equal("openai", response.Provider)
         Assert.True(response.Text.Length > 0)
@@ -179,14 +179,14 @@ module ProviderAdapters =
     [<Fact>]
     let ``Mock Anthropic adapter complete returns response`` () =
         let adapter = MockAnthropicAdapter() :> IProviderAdapter
-        let request = Request.Create("claude-opus-4-6", [ Message.user ("test") ])
+        let request = Request.Create("claude-opus-4-6", [ Message.User("test") ])
         let response = adapter.Complete(request)
         Assert.Equal("anthropic", response.Provider)
 
     [<Fact>]
     let ``Mock Gemini adapter complete returns response`` () =
         let adapter = MockGeminiAdapter() :> IProviderAdapter
-        let request = Request.Create("gemini-3.1-pro-preview", [ Message.user ("test") ])
+        let request = Request.Create("gemini-3.1-pro-preview", [ Message.User("test") ])
         let response = adapter.Complete(request)
         Assert.Equal("gemini", response.Provider)
 
@@ -198,7 +198,7 @@ module ProviderAdapters =
             { Id = "custom"
               Model = req.Model
               Provider = "test-provider"
-              Message = Message.assistant ("custom response")
+              Message = Message.Assistant("custom response")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -224,25 +224,25 @@ module MessageContentModel =
 
     [<Fact>]
     let ``Text-only message works`` () =
-        let msg = Message.user ("Hello world")
+        let msg = Message.User("Hello world")
         Assert.Equal("Hello world", msg.Text)
         Assert.Equal(User, msg.Role)
 
     [<Fact>]
     let ``System message convenience constructor`` () =
-        let msg = Message.system ("You are helpful")
+        let msg = Message.System("You are helpful")
         Assert.Equal(System, msg.Role)
         Assert.Equal("You are helpful", msg.Text)
 
     [<Fact>]
     let ``Assistant message convenience constructor`` () =
-        let msg = Message.assistant ("The answer is 42")
+        let msg = Message.Assistant("The answer is 42")
         Assert.Equal(Assistant, msg.Role)
         Assert.Equal("The answer is 42", msg.Text)
 
     [<Fact>]
     let ``Tool result message links correctly`` () =
-        let msg = Message.toolResult ("call_123", "72F and sunny", false)
+        let msg = Message.ToolResult("call_123", "72F and sunny", false)
         Assert.Equal(Tool, msg.Role)
         Assert.Equal(Some "call_123", msg.ToolCallId)
 
@@ -277,7 +277,7 @@ module MessageContentModel =
               Name = None
               ToolCallId = None }
 
-        let resultMsg = Message.toolResult ("call_1", "72F", false)
+        let resultMsg = Message.ToolResult("call_1", "72F", false)
 
         match assistantMsg.Content with
         | [ ToolCall data ] ->
@@ -364,7 +364,7 @@ module GenerationTests =
     [<Fact>]
     let ``generate works with full messages list`` () =
         let client = makeClient ()
-        let msgs = [ Message.user ("What is 2+2?") ]
+        let msgs = [ Message.User("What is 2+2?") ]
 
         let result =
             Generation.generate client "gpt-5.2" None (Some msgs) None None 0 (Some "openai") None None
@@ -374,7 +374,7 @@ module GenerationTests =
     [<Fact>]
     let ``generate rejects when both prompt and messages provided`` () =
         let client = makeClient ()
-        let msgs = [ Message.user ("hi") ]
+        let msgs = [ Message.User("hi") ]
 
         Assert.Throws<ValidationError>(fun () ->
             Generation.generate client "m" (Some "hi") (Some msgs) None None 0 (Some "openai") None None
@@ -456,7 +456,7 @@ module GenerationTests =
             { Id = "x"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant ("not json at all")
+              Message = Message.Assistant("not json at all")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -479,7 +479,7 @@ module GenerationTests =
             { Id = "x"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant ("""{"name":"Alice","age":30}""")
+              Message = Message.Assistant("""{"name":"Alice","age":30}""")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -589,7 +589,7 @@ module ToolCallingTests =
                 { Id = "r2"
                   Model = "m"
                   Provider = "test"
-                  Message = Message.assistant ("The weather in SF is 72F")
+                  Message = Message.Assistant("The weather in SF is 72F")
                   FinishReason = Stop "stop"
                   Usage =
                     { InputTokens = 20
@@ -800,7 +800,7 @@ module ToolCallingTests =
                 { Id = "r2"
                   Model = "m"
                   Provider = "test"
-                  Message = Message.assistant ("OK")
+                  Message = Message.Assistant("OK")
                   FinishReason = Stop "stop"
                   Usage = Usage.Zero
                   ResponseId = None
@@ -867,7 +867,7 @@ module ToolCallingTests =
                 { Id = "r2"
                   Model = "m"
                   Provider = "test"
-                  Message = Message.assistant ("Both cities checked")
+                  Message = Message.Assistant("Both cities checked")
                   FinishReason = Stop "stop"
                   Usage = Usage.Zero
                   ResponseId = None
@@ -1258,7 +1258,7 @@ module MiddlewareTests =
         let client = Client()
         client.RegisterAdapter(MockOpenAIAdapter())
         client.AddMiddleware(mw)
-        let request = Request.Create("original", [ Message.user ("test") ])
+        let request = Request.Create("original", [ Message.User("test") ])
         let response = client.Complete(request)
         Assert.Equal("modified-model", response.Model)
 
@@ -1278,7 +1278,7 @@ module MiddlewareTests =
         let client = Client()
         client.RegisterAdapter(MockOpenAIAdapter())
         client.AddMiddleware(mw)
-        client.Complete(Request.Create("m", [ Message.user ("hi") ])) |> ignore
+        client.Complete(Request.Create("m", [ Message.User("hi") ])) |> ignore
         Assert.Equal("openai", capturedProvider)
 
     [<Fact>]
@@ -1289,7 +1289,7 @@ module MiddlewareTests =
             { Id = "test"
               Model = "m"
               Provider = "p"
-              Message = Message.assistant ("ok")
+              Message = Message.Assistant("ok")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -1471,7 +1471,7 @@ module ResponseAccessorTests =
             { Id = "r"
               Model = "m"
               Provider = "p"
-              Message = Message.assistant ("just text")
+              Message = Message.Assistant("just text")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -1501,7 +1501,7 @@ module Sprint001Coverage =
 
     [<Fact>]
     let ``Request.Create initializes sprint fields`` () =
-        let req = Request.Create("m", [ Message.user ("hi") ])
+        let req = Request.Create("m", [ Message.User("hi") ])
         Assert.True(req.Temperature.IsNone)
         Assert.True(req.TopP.IsNone)
         Assert.True(req.StopSequences.IsNone)
@@ -1587,7 +1587,7 @@ module Sprint001Coverage =
                       ToolCallId = None }
                     Usage.Zero
             else
-                mkResponse "r2" "test" (Stop "stop") (Message.assistant ("done")) Usage.Zero)
+                mkResponse "r2" "test" (Stop "stop") (Message.Assistant("done")) Usage.Zero)
 
         let client = Client()
         client.RegisterAdapter(mock)
@@ -1621,7 +1621,7 @@ module Sprint001Coverage =
             if attempts = 1 then
                 raise (RateLimitError("rate limited"))
 
-            mkResponse "r" "test" (Stop "stop") (Message.assistant ("ok")) Usage.Zero)
+            mkResponse "r" "test" (Stop "stop") (Message.Assistant("ok")) Usage.Zero)
 
         let client = Client()
         client.RegisterAdapter(mock)
@@ -1688,7 +1688,7 @@ module Sprint001Coverage =
 
         mock.SetCompleteHandler(fun req ->
             capturedFormat <- req.ResponseFormat
-            mkResponse "r" "test" (Stop "stop") (Message.assistant ("""{"name":"Alice","age":30}""")) Usage.Zero)
+            mkResponse "r" "test" (Stop "stop") (Message.Assistant("""{"name":"Alice","age":30}""")) Usage.Zero)
 
         let client = Client()
         client.RegisterAdapter(mock)
@@ -1726,7 +1726,7 @@ module Sprint001Coverage =
                 Usage.Zero
 
         let secondResponse =
-            mkResponse "r2" "test" (Stop "stop") (Message.assistant ("done")) Usage.Zero
+            mkResponse "r2" "test" (Stop "stop") (Message.Assistant("done")) Usage.Zero
 
         let mock = ConfigurableMockAdapter("test")
         let mutable streamCalls = 0
@@ -1873,7 +1873,7 @@ module Sprint004Coverage =
             { Id = "resp_1"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant ("Hello world")
+              Message = Message.Assistant("Hello world")
               FinishReason = Stop "stop"
               Usage = { Usage.Zero with OutputTokens = 2 }
               ResponseId = Some "resp_1"
@@ -2038,9 +2038,9 @@ module Sprint004Coverage =
         client.RegisterAdapter(MockOpenAIAdapter())
         client.AddMiddleware(mw)
 
-        client.Complete(Request.Create("m", [ Message.user ("hi") ])) |> ignore
+        client.Complete(Request.Create("m", [ Message.User("hi") ])) |> ignore
 
-        client.Stream(Request.Create("m", [ Message.user ("hi") ]))
+        client.Stream(Request.Create("m", [ Message.User("hi") ]))
         |> Seq.toList
         |> ignore
 
@@ -2055,7 +2055,7 @@ module Sprint004Coverage =
         Assert.NotNull(buildBody)
 
         let defaultRequest =
-            Request.Create("claude-opus-4-6", [ Message.system ("You are a test assistant."); Message.user ("Hello") ])
+            Request.Create("claude-opus-4-6", [ Message.System("You are a test assistant."); Message.User("Hello") ])
 
         let defaultBody = buildBody.Invoke(adapter, [| box defaultRequest; box false |])
         let defaultJson = JsonSerializer.Serialize(defaultBody)
@@ -2085,7 +2085,7 @@ module Sprint004Coverage =
                   box (Map.ofList [ "custom_setting", box 123; "nested", box (Map.ofList [ "flag", box true ]) ]) ]
 
         let request =
-            { Request.Create("gemini-3.1-pro-preview", [ Message.user ("Hi") ]) with
+            { Request.Create("gemini-3.1-pro-preview", [ Message.User("Hi") ]) with
                 ProviderOptions = Some providerOptions }
 
         let body = buildBody.Invoke(adapter, [| box request |])
@@ -2118,7 +2118,7 @@ module Sprint005Coverage =
         Assert.NotNull(buildBody)
 
         let req =
-            Request.Create("claude-opus-4-6", [ Message.system ("System guidance"); Message.user ("Hello") ])
+            Request.Create("claude-opus-4-6", [ Message.System("System guidance"); Message.User("Hello") ])
 
         let body = buildBody.Invoke(adapter, [| box req; box false |])
         let json = JsonSerializer.Serialize(body)
@@ -2192,7 +2192,7 @@ module Sprint005Coverage =
             { Id = "r_warn"
               Model = "m"
               Provider = "test"
-              Message = Message.assistant ("ok")
+              Message = Message.Assistant("ok")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -2290,7 +2290,7 @@ module Sprint005Coverage =
                 { Id = "r_final"
                   Model = "m"
                   Provider = "test"
-                  Message = Message.assistant ("done")
+                  Message = Message.Assistant("done")
                   FinishReason = Stop "stop"
                   Usage = Usage.Zero
                   ResponseId = None

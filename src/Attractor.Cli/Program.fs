@@ -104,7 +104,7 @@ type LlmBackend(llmClient: Client) =
                     |> Option.bind (fun v -> if v <> "" then Some v else None)
 
                 let messages =
-                    [ UnifiedLlm.Message.system (systemMsg); UnifiedLlm.Message.user (prompt) ]
+                    [ UnifiedLlm.Message.System(systemMsg); UnifiedLlm.Message.User(prompt) ]
 
                 let request =
                     { Request.Create(model, messages) with

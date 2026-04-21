@@ -359,14 +359,14 @@ module Generation =
 
         let baseMessages =
             match prompt with
-            | Some p -> [ Message.user (p) ]
+            | Some p -> [ Message.User(p) ]
             | Option.None ->
                 match messages with
                 | Some m -> m
                 | Option.None -> []
 
         match system with
-        | Some s -> Message.system (s) :: baseMessages
+        | Some s -> Message.System(s) :: baseMessages
         | Option.None -> baseMessages
 
     let private tryParseJsonDocument (json: string) =
@@ -621,7 +621,7 @@ module Generation =
                 for result in toolResults do
                     conversation <-
                         conversation
-                        @ [ Message.toolResult (result.ToolCallId, result.Content, result.IsError) ]
+                        @ [ Message.ToolResult(result.ToolCallId, result.Content, result.IsError) ]
 
         let lastStep = steps |> List.last
 
@@ -884,7 +884,7 @@ module Generation =
                         for result in toolResults do
                             conversation <-
                                 conversation
-                                @ [ Message.toolResult (result.ToolCallId, result.Content, result.IsError) ]
+                                @ [ Message.ToolResult(result.ToolCallId, result.Content, result.IsError) ]
 
                         yield StepFinish(stepIndex, Some response)
                         stepIndex <- stepIndex + 1
@@ -921,7 +921,7 @@ module Generation =
         : StreamObjectResult<'T> =
 
         let request =
-            { Request.Create(model, [ Message.user (prompt) ]) with
+            { Request.Create(model, [ Message.User(prompt) ]) with
                 Provider = provider
                 ResponseFormat = Some(ResponseFormat.JsonSchema("generated_object", schema, true)) }
 

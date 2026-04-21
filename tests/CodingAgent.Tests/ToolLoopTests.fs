@@ -56,7 +56,7 @@ let ``C3 read edit verify tool loop updates file and records tool turns`` () =
                       { Id = "r4"
                         Model = "m"
                         Provider = "test"
-                        Message = Message.assistant ("Edit verified.")
+                        Message = Message.Assistant("Edit verified.")
                         FinishReason = Stop "stop"
                         Usage = Usage.Zero
                         ResponseId = None
@@ -112,7 +112,7 @@ let ``mutating tool clears cached read results before subsequent cacheable tool 
                       { Id = "r4"
                         Model = "m"
                         Provider = "test"
-                        Message = Message.assistant ("Cache refreshed.")
+                        Message = Message.Assistant("Cache refreshed.")
                         FinishReason = Stop "stop"
                         Usage = Usage.Zero
                         ResponseId = None

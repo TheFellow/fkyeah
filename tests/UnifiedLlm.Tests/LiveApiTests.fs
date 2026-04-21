@@ -594,7 +594,7 @@ module InvalidApiKeyError =
         let model = LiveApiHelpers.modelFor provider
 
         let request =
-            { Request.Create(model, [ Message.user ("hello") ]) with
+            { Request.Create(model, [ Message.User("hello") ]) with
                 Provider = Some provider }
 
         let ex =
@@ -734,7 +734,7 @@ module ProviderOptionsPassthrough =
             | _ -> None
 
         let request =
-            { Request.Create(model, [ Message.user ("Say hello in one word.") ]) with
+            { Request.Create(model, [ Message.User("Say hello in one word.") ]) with
                 Provider = Some provider
                 ProviderOptions = providerOptions }
 

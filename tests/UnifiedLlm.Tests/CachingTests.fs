@@ -7,7 +7,7 @@ open UnifiedLlm
 
 [<Fact>]
 let ``cache key is deterministic for identical request`` () =
-    let request = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let request = Request.Create("gpt-5.4", [ Message.User("hello") ])
     Assert.Equal(CacheKey.fromRequest request, CacheKey.fromRequest request)
 
 [<Fact>]
@@ -22,13 +22,13 @@ let ``cache store persists llm responses to filesystem`` () =
                     PersistencePath = Some root }
 
         let key =
-            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("hello") ]))
+            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("hello") ]))
 
         let response =
             { Id = "r1"
               Model = "gpt-5.4"
               Provider = "openai"
-              Message = Message.assistant ("cached")
+              Message = Message.Assistant("cached")
               FinishReason = Stop "stop"
               Usage = Usage.Zero
               ResponseId = None
@@ -62,7 +62,7 @@ let ``cached response replays streaming finish event`` () =
         { Id = "r1"
           Model = "gpt-5.4"
           Provider = "openai"
-          Message = Message.assistant ("hello")
+          Message = Message.Assistant("hello")
           FinishReason = Stop "stop"
           Usage = Usage.Zero
           ResponseId = None
@@ -86,7 +86,7 @@ let private makeTestResponse (text: string) =
     { Id = "r-test"
       Model = "gpt-5.4"
       Provider = "openai"
-      Message = Message.assistant (text)
+      Message = Message.Assistant(text)
       FinishReason = Stop "stop"
       Usage = Usage.Zero
       ResponseId = None
@@ -101,18 +101,18 @@ let private makeTestEntry (text: string) =
 
 [<Fact>]
 let ``cache key differs when model changes`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
-    let r2 = Request.Create("claude-opus-4-6", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
+    let r2 = Request.Create("claude-opus-4-6", [ Message.User("hello") ])
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
 let ``cache key differs when temperature changes`` () =
     let r1 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             Temperature = Some 0.5 }
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             Temperature = Some 1.0 }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
@@ -124,30 +124,30 @@ let ``cache key differs when tools change`` () =
           Description = "desc"
           Parameters = "{}" }
 
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             Tools = Some [ tool ] }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
 let ``cache key differs when tool_choice changes`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             ToolChoice = Some ToolChoice.Auto }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
 let ``cache key differs when reasoning_effort changes`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             ReasoningEffort = Some "high" }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
@@ -157,7 +157,7 @@ let ``cache miss on fresh store returns None`` () =
     let store = CacheStore.fileSystem CacheConfig.Default
 
     let key =
-        CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("never-seen") ]))
+        CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("never-seen") ]))
 
     let result = Async.RunSynchronously(store.TryGetLlm key)
     Assert.True(result.IsNone)
@@ -174,7 +174,7 @@ let ``cache hit within TTL returns Some entry`` () =
                     PersistencePath = Some root }
 
         let key =
-            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("hit-test") ]))
+            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("hit-test") ]))
 
         Async.RunSynchronously(store.PutLlm key (makeTestEntry "hit"))
         let result = Async.RunSynchronously(store.TryGetLlm key)
@@ -200,7 +200,7 @@ let ``cache eviction at MaxEntries keeps count at limit`` () =
 
         for i in 0..maxEntries do
             let key =
-                CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ($"evict-{i}") ]))
+                CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User($"evict-{i}") ]))
 
             Async.RunSynchronously(store.PutLlm key (makeTestEntry $"entry-{i}"))
 
@@ -287,7 +287,7 @@ let ``cache Clear removes all entries`` () =
     let store = CacheStore.fileSystem CacheConfig.Default
 
     let key =
-        CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("clear-test") ]))
+        CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("clear-test") ]))
 
     Async.RunSynchronously(store.PutLlm key (makeTestEntry "to-clear"))
     Assert.True(store.Count() > 0)
@@ -306,7 +306,7 @@ let ``concurrent read/write does not throw exceptions`` () =
                     PersistencePath = Some root }
 
         let key =
-            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("concurrent") ]))
+            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("concurrent") ]))
 
         Async.RunSynchronously(store.PutLlm key (makeTestEntry "seed"))
 
@@ -316,7 +316,7 @@ let ``concurrent read/write does not throw exceptions`` () =
                for i in 0..49 ->
                    System.Threading.Tasks.Task.Run(fun () ->
                        let k =
-                           CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ($"concurrent-w-{i}") ]))
+                           CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User($"concurrent-w-{i}") ]))
 
                        Async.RunSynchronously(store.PutLlm k (makeTestEntry $"w-{i}"))) |]
 
@@ -340,30 +340,30 @@ let ``cache key for tool call is deterministic`` () =
 
 [<Fact>]
 let ``cache key differs when response_format changes`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             ResponseFormat = Some ResponseFormat.JsonObject }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
 let ``cache key differs when previous_response_id changes`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             PreviousResponseId = Some "resp-123" }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
 let ``cache key differs when stop_sequences change`` () =
-    let r1 = Request.Create("gpt-5.4", [ Message.user ("hello") ])
+    let r1 = Request.Create("gpt-5.4", [ Message.User("hello") ])
 
     let r2 =
-        { Request.Create("gpt-5.4", [ Message.user ("hello") ]) with
+        { Request.Create("gpt-5.4", [ Message.User("hello") ]) with
             StopSequences = Some [ "STOP" ] }
 
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
@@ -380,7 +380,7 @@ let ``cache store drops corrupted persisted entry and returns miss`` () =
                     PersistencePath = Some root }
 
         let key =
-            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.user ("corrupt-me") ]))
+            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("corrupt-me") ]))
 
         let path = Path.Combine(root, "llm", CacheKey.value key + ".json")
         Directory.CreateDirectory(Path.GetDirectoryName(path)) |> ignore

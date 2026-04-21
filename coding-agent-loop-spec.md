@@ -249,7 +249,7 @@ FUNCTION process_input(session, user_input):
 
         request = Request(
             model           = session.provider_profile.model,
-            messages        = [Message.system(system_prompt)] + messages,
+            messages        = [Message.System(system_prompt)] + messages,
             tools           = tool_defs,
             tool_choice     = "auto",
             reasoning_effort = session.config.reasoning_effort,
