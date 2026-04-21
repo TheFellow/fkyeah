@@ -68,11 +68,10 @@ module Stylesheet =
         elif s.StartsWith("#") then
             Selector.Id(s.Substring(1))
         elif knownShapes.Contains(s) || Regex.IsMatch(s, @"^[a-zA-Z]\w*$") then
-            // Bare identifier that could be a shape name
-            if knownShapes.Contains(s) then
-                Selector.Shape(s)
-            else
-                Selector.Shape(s) // treat any bare word as a shape selector
+            // Bare identifier — treat as a shape selector whether or not it's
+            // in the known-shapes set. (Unknown bare words are reported by the
+            // shape_unknown lint, not here.)
+            Selector.Shape(s)
         else
             Selector.Universal
 

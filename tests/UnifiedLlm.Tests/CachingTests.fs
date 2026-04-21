@@ -76,7 +76,7 @@ let ``cached response replays streaming finish event`` () =
     Assert.True(
         events
         |> List.exists (function
-            | Finish(_, _, _) -> true
+            | Finish _ -> true
             | _ -> false)
     )
 

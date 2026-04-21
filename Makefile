@@ -3,7 +3,7 @@ CLI_PROJECT := src/Attractor.Cli/Attractor.Cli.fsproj
 PUBLISH_DIR := $(shell mktemp -d)
 RID := osx-arm64
 
-.PHONY: build test publish install conformance clean format format-check tools
+.PHONY: build test publish install conformance clean format format-check lint tools
 
 tools:
 	dotnet tool restore
@@ -13,6 +13,9 @@ format: tools
 
 format-check: tools
 	dotnet fantomas --check src tests
+
+lint: tools
+	dotnet dotnet-fsharplint lint --lint-config fsharplint.json --file-type solution Attractor.slnx
 
 build:
 	dotnet build

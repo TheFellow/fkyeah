@@ -172,7 +172,7 @@ type ConsoleInterviewer() =
 
                 let response = Console.ReadLine()
 
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
+                if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 else
                     Answer.FromText(response.Trim())
@@ -187,7 +187,7 @@ type ConsoleInterviewer() =
                 printf "  Enter key or label > "
                 let response = Console.ReadLine()
 
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
+                if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 else
                     let response = response.Trim()
@@ -213,7 +213,7 @@ type ConsoleInterviewer() =
                 printf "  Enter keys > "
                 let response = Console.ReadLine()
 
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
+                if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 else
                     let selected =
@@ -234,7 +234,7 @@ type ConsoleInterviewer() =
                 printf "  [Y/N] > "
                 let response = Console.ReadLine()
 
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
+                if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 elif response.Trim().ToLower().StartsWith("y") then
                     Answer.Yes
@@ -244,7 +244,7 @@ type ConsoleInterviewer() =
                 printf "  [Y/N] > "
                 let response = Console.ReadLine()
 
-                if response = null || UnifiedLlm.HttpCancellation.isCancelled () then
+                if isNull response || UnifiedLlm.HttpCancellation.isCancelled () then
                     Answer.Skipped
                 elif response.Trim().ToLower().StartsWith("y") then
                     Answer.Yes

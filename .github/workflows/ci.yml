@@ -24,6 +24,9 @@ jobs:
       - name: Format check (fantomas)
         run: dotnet fantomas --check src tests
 
+      - name: Lint (FSharpLint)
+        run: dotnet dotnet-fsharplint lint --lint-config fsharplint.json --file-type solution Attractor.slnx
+
       - name: Restore
         run: dotnet restore Attractor.slnx
 

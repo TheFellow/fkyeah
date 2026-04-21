@@ -1123,19 +1123,11 @@ let serve (port: int) =
 
                 let simulate =
                     let mutable v = Unchecked.defaultof<JsonElement>
-
-                    if root.TryGetProperty("simulate", &v) && v.ValueKind = JsonValueKind.False then
-                        false
-                    else
-                        true
+                    not (root.TryGetProperty("simulate", &v) && v.ValueKind = JsonValueKind.False)
 
                 let autoApprove =
                     let mutable v = Unchecked.defaultof<JsonElement>
-
-                    if root.TryGetProperty("auto_approve", &v) && v.ValueKind = JsonValueKind.True then
-                        true
-                    else
-                        false
+                    root.TryGetProperty("auto_approve", &v) && v.ValueKind = JsonValueKind.True
 
                 match startRun dot simulate autoApprove with
                 | Result.Ok run ->

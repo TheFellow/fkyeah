@@ -1703,7 +1703,7 @@ module Sprint001Coverage =
                 None
 
         match capturedFormat with
-        | Some(ResponseFormat.JsonSchema(_, _, _)) -> ()
+        | Some(ResponseFormat.JsonSchema _) -> ()
         | _ -> Assert.Fail("Expected JsonSchema response format")
 
     [<Fact>]

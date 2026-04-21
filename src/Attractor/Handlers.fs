@@ -446,7 +446,7 @@ module Handlers =
                                             [ "TOOL_NAME", toolCall.Name
                                               "TOOL_ARGS", toolCall.Arguments
                                               "NODE_ID", node.Id ]
-                                        |> Result.map (fun _ -> ())
+                                        |> Result.map ignore
                                     elif kind = CodingAgent.ToolCallHookPhase.Post then
                                         let resultContent =
                                             toolResult |> Option.map (fun r -> r.Content) |> Option.defaultValue ""

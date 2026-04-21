@@ -174,7 +174,7 @@ module private HttpAdapterHelpers =
             |> Map.ofSeq
             |> Some
 
-    let rec tryAsObjMap (value: obj) : Map<string, obj> option =
+    let tryAsObjMap (value: obj) : Map<string, obj> option =
         match value with
         | null -> None
         | :? Map<string, obj> as m -> Some m

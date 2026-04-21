@@ -29,7 +29,7 @@ let ``parseSse raises TimeoutError on complete silence`` () =
     use reader = new StreamReader(tp.ReadStream(), Encoding.UTF8)
     let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 300
     let sw = Stopwatch.StartNew()
-    let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter (fun _ -> ()))
+    let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter ignore)
     Assert.Contains("idle", ex.Message.ToLowerInvariant())
     Assert.InRange(sw.ElapsedMilliseconds, 200L, 3000L)
 
@@ -53,7 +53,7 @@ let ``parseSse ping events do not refresh idle timer`` () =
     try
         let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 300
         let sw = Stopwatch.StartNew()
-        let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter (fun _ -> ()))
+        let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter ignore)
         Assert.Contains("idle", ex.Message.ToLowerInvariant())
         // Must fire within a small multiple of the budget despite constant ping traffic.
         Assert.InRange(sw.ElapsedMilliseconds, 200L, 3000L)
@@ -87,7 +87,7 @@ let ``parseSse SSE comment lines do not refresh idle timer`` () =
     try
         let events = SseParsing.parseWithIdleTimeout reader CancellationToken.None 300
         let sw = Stopwatch.StartNew()
-        let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter (fun _ -> ()))
+        let ex = Assert.Throws<TimeoutError>(fun () -> events |> Seq.iter ignore)
         Assert.Contains("idle", ex.Message.ToLowerInvariant())
         Assert.InRange(sw.ElapsedMilliseconds, 200L, 3000L)
     finally
@@ -132,7 +132,7 @@ let ``parseSse outer cancellation raises AbortError`` () =
             outer.Cancel())
 
     let events = SseParsing.parseWithIdleTimeout reader outer.Token 5000
-    Assert.Throws<AbortError>(fun () -> events |> Seq.iter (fun _ -> ())) |> ignore
+    Assert.Throws<AbortError>(fun () -> events |> Seq.iter ignore) |> ignore
 
 [<Fact>]
 let ``isHeartbeatEvent classifies known heartbeat names`` () =

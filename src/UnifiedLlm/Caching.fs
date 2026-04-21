@@ -165,8 +165,8 @@ module CacheKey =
             writer.WriteString("id", toolCall.Id)
             writer.WriteStartObject("metadata")
 
-            for pair in toolCall.Metadata |> Map.toSeq |> Seq.sortBy fst do
-                writer.WriteString(pair |> fst, pair |> snd)
+            for key, value in toolCall.Metadata |> Map.toSeq |> Seq.sortBy fst do
+                writer.WriteString(key, value)
 
             writer.WriteEndObject()
             writer.WriteString("name", toolCall.Name)
@@ -260,8 +260,8 @@ module CacheStore =
     let private writeStringMap (writer: Utf8JsonWriter) (name: string) (values: Map<string, string>) =
         writer.WriteStartObject(name)
 
-        for pair in values |> Map.toSeq |> Seq.sortBy fst do
-            writer.WriteString(pair |> fst, pair |> snd)
+        for key, value in values |> Map.toSeq |> Seq.sortBy fst do
+            writer.WriteString(key, value)
 
         writer.WriteEndObject()
 
