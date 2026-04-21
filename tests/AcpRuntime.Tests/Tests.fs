@@ -624,7 +624,7 @@ module DefaultDelegateTests =
             match
                 delegateImpl.TerminalCreate
                     { Command = "/bin/sh"
-                      Args = [ "-c"; "sleep 0.3; exit 7" ]
+                      Args = [ "-c"; "sleep 1; exit 7" ]
                       WorkingDirectory = None
                       Environment = Map.empty }
                 |> Async.RunSynchronously
@@ -637,13 +637,13 @@ module DefaultDelegateTests =
         let first =
             delegateImpl.TerminalWaitForExit
                 { TerminalId = terminalId
-                  TimeoutMs = Some 50 }
+                  TimeoutMs = Some 100 }
             |> Async.RunSynchronously
 
         let second =
             delegateImpl.TerminalWaitForExit
                 { TerminalId = terminalId
-                  TimeoutMs = Some 1000 }
+                  TimeoutMs = Some 3000 }
             |> Async.RunSynchronously
 
         match first with
