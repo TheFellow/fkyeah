@@ -3,6 +3,9 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- Any function marked [<TailCall>] that is not genuinely tail-recursive
+         is a compile error, not a warning. Keeps the attribute meaningful. -->
+    <WarningsAsErrors>$(WarningsAsErrors);FS3569</WarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

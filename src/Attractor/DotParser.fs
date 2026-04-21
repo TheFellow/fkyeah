@@ -339,6 +339,7 @@ module DotParser =
         | GraphAttrDecl of key: string * value: AttrValue
         | SubgraphBlock of name: string option * statements: ParsedStatement list
 
+    [<TailCall>]
     let rec private parseStatement (state: ParseState) : ParsedStatement option =
         state.TryConsume(Token.Semicolon) |> ignore
 

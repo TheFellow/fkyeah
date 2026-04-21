@@ -183,6 +183,7 @@ module private HttpAdapterHelpers =
         | :? JsonElement as je -> tryConvertJsonElementMap je
         | _ -> None
 
+    [<TailCall>]
     let rec tryAsBool (value: obj) : bool option =
         match value with
         | null -> None
@@ -206,6 +207,7 @@ module private HttpAdapterHelpers =
             | _ -> None
         | _ -> None
 
+    [<TailCall>]
     let rec toProviderOptionPayload (value: obj) : obj =
         match value with
         | :? Map<string, obj> as m ->
