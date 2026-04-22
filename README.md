@@ -11,7 +11,7 @@ Built from three [NLSpecs](https://github.com/strongdm/attractor#terminology):
 - [Coding Agent Loop Specification](https://github.com/strongdm/attractor/blob/main/coding-agent-loop-spec.md) — agentic loop with tool execution
 - [Unified LLM Client Specification](https://github.com/strongdm/attractor/blob/main/unified-llm-spec.md) — multi-provider LLM client
 
-**946 tests (779 unit + 167 conformance). Zero warnings. One binary.**
+**~940 tests (unit + 172-test conformance suite). Zero warnings. One binary.**
 
 ## Quick Start
 
@@ -23,6 +23,9 @@ export GEMINI_API_KEY=AI...
 
 # Learn the DOT schema
 attractor schema
+
+# List known models (and their aliases) for llm_model=
+attractor models
 
 # See a working example
 attractor example
@@ -104,6 +107,18 @@ node [max_turns=40, max_tool_rounds=25, cwd=".", thread_id="review", system_prom
       acp_preset="codex", command_timeout=120000]
 ```
 
+LLM nodes can declare a post-stage contract via `success_criteria_command`. When a
+stage would otherwise succeed, the engine runs the command via `/bin/sh -c` in the
+node's working directory. Exit 0 keeps Success and captures stdout into
+`contract_check_output`; non-zero exit or `success_criteria_timeout_ms` expiry
+overrides the outcome to Fail with the command's combined output recorded. The
+subprocess inherits `ATTRACTOR_*` env vars plus every graph-level attribute.
+
+```
+node [prompt="...", success_criteria_command="dotnet test ./MyPackage.Tests",
+      success_criteria_timeout_ms=60000]
+```
+
 `thread_id` is a session partition key — nodes sharing the same `thread_id` share a persistent session (conversation history, tool state). Nodes with different `thread_id` values get independent sessions. Give late-pipeline nodes their own `thread_id` to avoid cumulative turn exhaustion.
 
 ### Edge Conditions
@@ -125,6 +140,15 @@ Edges with `loop_restart=true` restart the pipeline with fresh logs and context.
 ### Auto Status
 
 Tool nodes with `auto_status=true` automatically synthesize a Success outcome if the tool exits successfully but doesn't write a `status.json` file. This simplifies pipelines where tools don't need to communicate structured results back to the engine.
+
+### Graph attributes as env vars
+
+`tool_command` subprocesses inherit every graph-level attribute as an environment variable, so you can parameterize pipelines by declaring config at the top and referencing it as `$my_var` in shell commands (built-in `ATTRACTOR_*` vars win on collision):
+
+```dot
+graph [goal="...", target_package="Billing", planning_dir=".ai/billing"]
+init [shape=parallelogram, tool_command="mkdir -p \"$planning_dir\" && echo $target_package"]
+```
 
 ### Model Stylesheet
 
@@ -328,6 +352,20 @@ examples/                17 reference DOT pipelines
 dotnet build Attractor.slnx          # build everything
 dotnet test Attractor.slnx           # run all unit tests
 make install                          # publish + install to ~/bin/attractor
+make format                           # Fantomas formatter (auto-fix)
+make lint                             # FSharpLint (style/quality rules)
+make analyze                          # G-Research.FSharp.Analyzers
+make conformance                      # full 172-test conformance suite
+```
+
+CI gates `format-check`, `lint`, and `analyze` in addition to build + test; PRs with unformatted code, lint warnings, or analyzer findings fail.
+
+### Runtime tuning
+
+```
+ATTRACTOR_LLM_INACTIVITY_TIMEOUT_SECONDS     SSE idle timeout per stream.
+                                              Default 120. Also aliased as
+                                              ATTRACTOR_AGENT_INACTIVITY_TIMEOUT_SECONDS.
 ```
 
 ## For LLM Agents
@@ -335,10 +373,11 @@ make install                          # publish + install to ~/bin/attractor
 If you're a coding agent and need to generate an Attractor pipeline:
 
 1. Run `attractor schema` to get the complete DOT schema reference
-2. Run `attractor example` to see a valid pipeline that exercises most features
-3. Write your `.dot` file
-4. Run `attractor --validate your-file.dot` to check it
-5. Run `attractor your-file.dot --auto-approve` to execute it
+2. Run `attractor models` to see supported `llm_model=` values and aliases
+3. Run `attractor example` to see a valid pipeline that exercises most features
+4. Write your `.dot` file
+5. Run `attractor --validate your-file.dot` to check it
+6. Run `attractor your-file.dot --auto-approve` to execute it
 
 The schema output is designed to fit in your context window and covers every attribute, shape, condition syntax, edge selection algorithm, validation rule, and artifact path.
 
