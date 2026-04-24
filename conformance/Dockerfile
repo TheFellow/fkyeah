@@ -52,6 +52,9 @@ ENV MOCK_LLM_SERVER=/app/mock-llm-server/MockLlmServer
 ENV MOCK_MCP_SERVER=/app/mock-mcp-server/MockMcpServer
 ENV MOCK_ACP_AGENT=/app/mock-acp-agent/MockAcpAgent
 
+# Copy example pipelines (some conformance tests validate the shipped examples)
+COPY examples/ /examples/
+
 # Copy conformance tests
 WORKDIR /conformance
 COPY conformance/ .
