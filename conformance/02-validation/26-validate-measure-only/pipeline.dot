@@ -1,0 +1,6 @@
+digraph validate_measure_only_positive {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    Validate [shape=tab, prompt="Run go build ./... and go test ./...; if they fail, try to fix and rerun."]
+    start -> Validate -> exit
+}

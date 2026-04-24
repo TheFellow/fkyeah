@@ -1,0 +1,6 @@
+digraph tool_with_timeout {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    Gate [shape=parallelogram, tool_command="grep -q OK .ai/status.txt", timeout="10s"]
+    start -> Gate -> exit
+}

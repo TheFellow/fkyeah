@@ -1,0 +1,12 @@
+digraph partial_commit_missing_gate {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    CheckFixResult [shape=diamond]
+    CommitAndSummarize [shape=tab, prompt="git add . && git commit -m partial"]
+
+    start -> CheckFixResult
+    CheckFixResult -> CommitAndSummarize [condition="outcome=fail", label="give up - commit partial"]
+    CheckFixResult -> exit [condition="outcome=success"]
+    CommitAndSummarize -> exit
+}

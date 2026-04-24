@@ -445,6 +445,14 @@ let printSchema () =
 #   - Goal gate nodes should have retry targets (warning)
 #   - Retry target chains have no cycles (warning)
 #   - Codergen nodes should have prompt or label (warning)
+#   - loop_session_pollution: coding_agent with static thread_id reachable from loop_restart will saturate session budget across iterations (warning)
+#   - scope_gate_coverage: file-editing coding_agent can reach commit-like node without passing a scope-check tool gate (warning)
+#   - partial_commit_needs_build_gate: fail/partial edge to commit-like node is missing an intermediate build/test gate (warning)
+#   - parallelogram_needs_timeout: every tool/parallelogram node should set timeout to avoid wedged pipeline hangs (warning)
+#   - validate_measure_only: validation prompt mixes measure commands with in-node fix-loop instructions (warning)
+#   - review_gate_first_line_strict: strict anchored grep gate lacks upstream prompt requiring exact first-line token output (warning)
+#   - scratch_path_consistency: .ai scratch slug appears at multiple paths across prompts/tool_command usage (warning)
+#   - terminal_exit_on_empty_backlog: Pick/ledger backlog gate routes outcome=fail to Exit and can report cosmetic failure (info)
 #   - Synopsis: classifies pipeline as EXECUTION/PLANNING/HYBRID/ANALYSIS
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -656,8 +664,9 @@ let validate (source: string) =
     let errors = diags |> List.filter (fun d -> d.Severity = Severity.Error)
     let warnings = diags |> List.filter (fun d -> d.Severity = Severity.Warning)
     let infos = diags |> List.filter (fun d -> d.Severity = Severity.Info)
+    let informational = infos |> List.filter (fun d -> d.Rule <> "synopsis")
 
-    // Print errors and warnings
+    // Print errors, warnings, and non-synopsis informational diagnostics
     for d in errors do
         let nodeStr = if d.NodeId <> "" then $" ({d.NodeId})" else ""
         printfn "  [ERROR] %s%s: %s" d.Rule nodeStr d.Message
@@ -666,7 +675,11 @@ let validate (source: string) =
         let nodeStr = if d.NodeId <> "" then $" ({d.NodeId})" else ""
         printfn "  [WARN] %s%s: %s" d.Rule nodeStr d.Message
 
-    if errors.IsEmpty && warnings.IsEmpty then
+    for d in informational do
+        let nodeStr = if d.NodeId <> "" then $" ({d.NodeId})" else ""
+        printfn "  [INFO] %s%s: %s" d.Rule nodeStr d.Message
+
+    if errors.IsEmpty && warnings.IsEmpty && informational.IsEmpty then
         printfn "  No issues found."
 
     printfn ""

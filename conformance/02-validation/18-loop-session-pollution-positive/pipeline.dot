@@ -1,0 +1,12 @@
+digraph loop_pollution_positive {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    Implement [shape=tab, thread_id="impl", prompt="implement changes"]
+    Commit [shape=tab, prompt="git add . && git commit -m done"]
+    PickTask [shape=parallelogram, tool_command="python3 ledger.py next", timeout="10s"]
+
+    start -> Implement -> Commit -> PickTask
+    PickTask -> Implement [condition="outcome=success", loop_restart=true]
+    PickTask -> exit [condition="outcome=fail"]
+}

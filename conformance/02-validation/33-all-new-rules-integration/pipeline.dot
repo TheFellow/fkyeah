@@ -1,0 +1,19 @@
+digraph sprint014_all_rules {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    LoopImplement [shape=tab, thread_id="impl", prompt="implement edits using plan in .ai/plan.md"]
+    Validate [shape=tab, prompt="Run go build ./... and go test ./...; if they fail, try to fix and rerun. Also read .ai/plan.txt"]
+    OpusReview [shape=tab, prompt="Write APPROVED or REVISE with rationale in .ai/review.txt"]
+    CheckReview [shape=parallelogram, tool_command="grep -q '^APPROVED$' .ai/review.txt"]
+    CheckFixResult [shape=diamond]
+    CommitAndSummarize [shape=tab, prompt="git add . && git commit -m partial"]
+    PickTask [shape=parallelogram, tool_command="python3 ledger.py next"]
+
+    start -> LoopImplement -> Validate -> OpusReview -> CheckReview -> CheckFixResult
+    CheckFixResult -> CommitAndSummarize [condition="outcome=success"]
+    CheckFixResult -> CommitAndSummarize [condition="outcome=fail", label="give up - commit partial"]
+    CommitAndSummarize -> PickTask
+    PickTask -> LoopImplement [condition="outcome=success", loop_restart=true]
+    PickTask -> exit [condition="outcome=fail"]
+}

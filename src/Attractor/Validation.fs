@@ -2,6 +2,7 @@ namespace Attractor
 
 open System
 open System.Collections.Generic
+open System.Text.RegularExpressions
 
 /// Diagnostic severity levels
 [<RequireQualifiedAccess>]
@@ -750,6 +751,119 @@ module Validation =
     let private llmCliPatterns =
         [ "claude"; "codex"; "gemini"; "aider"; "cursor"; "opencode" ]
 
+    let private containsIgnoreCase (needle: string) (text: string) =
+        text.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0
+
+    let private regexIsMatch (pattern: string) (text: string) =
+        Regex.IsMatch(text, pattern, RegexOptions.IgnoreCase ||| RegexOptions.Singleline)
+
+    let private collectReachableForward (graph: Graph) (startNodeId: string) =
+        let visited = HashSet<string>()
+        let queue = Queue<string>()
+
+        if graph.Nodes |> Map.containsKey startNodeId then
+            visited.Add(startNodeId) |> ignore
+            queue.Enqueue(startNodeId)
+
+        while queue.Count > 0 do
+            let current = queue.Dequeue()
+
+            for edge in graph.OutgoingEdges(current) do
+                if visited.Add(edge.ToNode) then
+                    queue.Enqueue(edge.ToNode)
+
+        visited |> Seq.toList |> Set.ofList
+
+    let private collectReachableBackward (graph: Graph) (targetNodeId: string) =
+        let visited = HashSet<string>()
+        let queue = Queue<string>()
+
+        if graph.Nodes |> Map.containsKey targetNodeId then
+            visited.Add(targetNodeId) |> ignore
+            queue.Enqueue(targetNodeId)
+
+        while queue.Count > 0 do
+            let current = queue.Dequeue()
+
+            for edge in graph.IncomingEdges(current) do
+                if visited.Add(edge.FromNode) then
+                    queue.Enqueue(edge.FromNode)
+
+        visited |> Seq.toList |> Set.ofList
+
+    /// Nodes that sit on the cycle closed by the provided loop_restart edge.
+    /// Computed as nodes reachable from edge.ToNode that can also reach edge.FromNode.
+    let reachableInLoop (graph: Graph) (loopEdge: Edge) =
+        let forward = collectReachableForward graph loopEdge.ToNode
+        let backward = collectReachableBackward graph loopEdge.FromNode
+        Set.intersect forward backward
+
+    let private fileEditingPromptPattern = @"\b(create|modify|implement|write|edit)\b"
+
+    let private isCommitLikeNode (node: Node) =
+        ShapeMapping.resolveHandlerType node = "coding_agent"
+        && (containsIgnoreCase "git commit" node.Prompt || containsIgnoreCase "git add" node.Prompt)
+
+    let private isScopeGateNode (node: Node) =
+        ShapeMapping.resolveHandlerType node = "tool"
+        && containsIgnoreCase "scope" (node.GetAttrString("tool_command", ""))
+
+    let private isBuildOrTestGateNode (node: Node) =
+        if ShapeMapping.resolveHandlerType node <> "tool" then
+            false
+        else
+            let cmd = node.GetAttrString("tool_command", "")
+
+            regexIsMatch
+                @"\b(go build|go test|npm run build|cargo build|mvn compile|dotnet build|pytest --collect-only)\b|go test .* -run=\^\$"
+                cmd
+
+    /// Recommended timeout for a tool command based on command class heuristics.
+    let recommendParallelogramTimeout (toolCommand: string) =
+        if String.IsNullOrWhiteSpace(toolCommand) then
+            "60s"
+        elif
+            regexIsMatch
+                @"\b(go build|go test|cargo build|cargo test|dotnet build|dotnet test|npm run build|npm test|mvn compile|mvn test|pytest)\b"
+                toolCommand
+        then
+            "300s"
+        elif regexIsMatch @"\b(grep|head|test -f)\b|python3.*ledger" toolCommand then
+            "10s"
+        elif regexIsMatch @"\b(git|rg)\b|\b(bash|sh)\s+[^|;&\n]+\.sh\b" toolCommand then
+            "30s"
+        else
+            "60s"
+
+    // Conservative: fire if ANY path from fromNode to toNode lacks a build/test gate.
+    // A single unguarded branch can still commit broken code even if a parallel branch is gated.
+    let private hasUnguardedPathToCommit (graph: Graph) (fromNode: string) (toNode: string) =
+        let visited = HashSet<string * bool>()
+        let queue = Queue<string * bool>()
+        queue.Enqueue(fromNode, false)
+        visited.Add(fromNode, false) |> ignore
+
+        let mutable unguardedFound = false
+
+        while queue.Count > 0 && not unguardedFound do
+            let (current, hasBuildGate) = queue.Dequeue()
+
+            for edge in graph.OutgoingEdges(current) do
+                if edge.ToNode = toNode then
+                    if not hasBuildGate then
+                        unguardedFound <- true
+                else
+                    match graph.Nodes |> Map.tryFind edge.ToNode with
+                    | None -> ()
+                    | Some nextNode ->
+                        let nextHasBuildGate = hasBuildGate || isBuildOrTestGateNode nextNode
+                        let state = (edge.ToNode, nextHasBuildGate)
+
+                        if visited.Add(state) then
+                            queue.Enqueue(state)
+
+        unguardedFound
+
     /// Generate a pipeline synopsis (informational diagnostics describing capabilities)
     let generateSynopsis (graph: Graph) : Diagnostic list =
         let nodes = graph.Nodes |> Map.toList |> List.map snd
@@ -1165,6 +1279,355 @@ module Validation =
                     else
                         None) }
 
+    /// Rule: Warn when coding_agent nodes with fixed thread_id are reachable in loop_restart cycles.
+    let loopSessionPollutionRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "loop_session_pollution"
+
+            member _.Apply(graph) =
+                let loopEdges = graph.Edges |> List.filter (fun edge -> edge.LoopRestart)
+                let offendingNodes = Dictionary<string, string * string>()
+
+                for loopEdge in loopEdges do
+                    let inLoop = reachableInLoop graph loopEdge
+
+                    for nodeId in inLoop do
+                        match graph.Nodes |> Map.tryFind nodeId with
+                        | None -> ()
+                        | Some node ->
+                            let isCodingAgent = ShapeMapping.resolveHandlerType node = "coding_agent"
+                            let hasStaticThreadId =
+                                not (String.IsNullOrWhiteSpace(node.ThreadId))
+                                && not (node.ThreadId.Contains("${", StringComparison.Ordinal))
+
+                            if isCodingAgent && hasStaticThreadId && not (offendingNodes.ContainsKey(nodeId)) then
+                                offendingNodes[nodeId] <- (loopEdge.FromNode, loopEdge.ToNode)
+
+                offendingNodes
+                |> Seq.map (fun kv ->
+                    let nodeId = kv.Key
+                    let (fromNode, toNode) = kv.Value
+                    let node = graph.Nodes[nodeId]
+
+                    Diagnostic.Warning(
+                        "loop_session_pollution",
+                        $"Node '{nodeId}' has thread_id='{node.ThreadId}' and is reachable from loop_restart edge {fromNode}->{toNode}; this session is reused across iterations and can saturate after ~2 loops",
+                        nodeId = nodeId,
+                        fix =
+                            "Remove thread_id for fresh sessions per iteration, or use a per-iteration thread_id interpolation to avoid session saturation"
+                    ))
+                |> Seq.toList }
+
+    /// Rule: Warn when file-editing coding_agent paths can reach commit nodes without scope gates.
+    let scopeGateCoverageRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "scope_gate_coverage"
+
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    let isFileEditingAgent =
+                        ShapeMapping.resolveHandlerType node = "coding_agent"
+                        && regexIsMatch fileEditingPromptPattern node.Prompt
+
+                    if not isFileEditingAgent then
+                        None
+                    else
+                        let visited = HashSet<string * bool>()
+                        let queue = Queue<string * bool>()
+                        queue.Enqueue(node.Id, false)
+                        visited.Add(node.Id, false) |> ignore
+                        let mutable violatingCommit: string option = None
+
+                        while queue.Count > 0 && violatingCommit.IsNone do
+                            let (current, hasScopeGate) = queue.Dequeue()
+
+                            match graph.Nodes |> Map.tryFind current with
+                            | Some currentNode when current <> node.Id && isCommitLikeNode currentNode && not hasScopeGate ->
+                                violatingCommit <- Some current
+                            | _ ->
+                                for edge in graph.OutgoingEdges(current) do
+                                    match graph.Nodes |> Map.tryFind edge.ToNode with
+                                    | None -> ()
+                                    | Some nextNode ->
+                                        let nextHasScopeGate = hasScopeGate || isScopeGateNode nextNode
+                                        let nextState = (edge.ToNode, nextHasScopeGate)
+
+                                        if visited.Add(nextState) then
+                                            queue.Enqueue(nextState)
+
+                        violatingCommit
+                        |> Option.map (fun commitNodeId ->
+                            Diagnostic.Warning(
+                                "scope_gate_coverage",
+                                $"Node '{node.Id}' is a file-editing coding_agent and can reach commit-like node '{commitNodeId}' without passing through a scope gate",
+                                nodeId = node.Id,
+                                fix =
+                                    $"Add a scope-check tool node between '{node.Id}' and commit paths (tool_command should validate edits stay within planned scope)"
+                            ))) }
+
+    /// Rule: Warn when a fail/partial commit edge targets commit-like nodes without a build/test gate.
+    let partialCommitNeedsBuildGateRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "partial_commit_needs_build_gate"
+
+            member _.Apply(graph) =
+                graph.Edges
+                |> List.choose (fun edge ->
+                    let isFailEdge = containsIgnoreCase "outcome=fail" edge.Condition
+                    let isPartialLabel = regexIsMatch @"\b(partial|give up)\b" edge.Label
+
+                    if not isFailEdge || not isPartialLabel then
+                        None
+                    else
+                        match graph.Nodes |> Map.tryFind edge.ToNode with
+                        | Some targetNode when isCommitLikeNode targetNode ->
+                            let hasUnguarded = hasUnguardedPathToCommit graph edge.FromNode edge.ToNode
+
+                            if not hasUnguarded then
+                                None
+                            else
+                                Some(
+                                    Diagnostic.Warning(
+                                        "partial_commit_needs_build_gate",
+                                        $"Edge '{edge.FromNode}' -> '{edge.ToNode}' routes a fail/partial path to commit without an intermediate build/test gate",
+                                        edge = (edge.FromNode, edge.ToNode),
+                                        fix =
+                                            "Insert a tool gate running build/test checks (for Go: `go build ./... && go vet ./... && go test -count=1 -run=^$ ./...`) and route failures away from commit"
+                                    )
+                                )
+                        | _ -> None) }
+
+    /// Rule: Warn when tool/parallelogram nodes omit timeout.
+    let parallelogramNeedsTimeoutRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "parallelogram_needs_timeout"
+
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    if ShapeMapping.resolveHandlerType node = "tool" && node.Timeout.IsNone then
+                        let cmd = node.GetAttrString("tool_command", "")
+                        let suggested = recommendParallelogramTimeout cmd
+                        let sizedNote = if suggested = "60s" then " (size explicitly for this command)" else ""
+
+                        Some(
+                            Diagnostic.Warning(
+                                "parallelogram_needs_timeout",
+                                $"Tool node '{node.Id}' has no timeout; wedged commands can stall the pipeline",
+                                nodeId = node.Id,
+                                fix = $"Add timeout=\"{suggested}\"{sizedNote}"
+                            )
+                        )
+                    else
+                        None) }
+
+    /// Rule: Warn when validation nodes mix measure and fix-loop behavior in one prompt.
+    let validateMeasureOnlyRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "validate_measure_only"
+
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    if ShapeMapping.resolveHandlerType node <> "coding_agent" then
+                        None
+                    else
+                        let prompt = node.Prompt
+
+                        let hasValidationCommands =
+                            regexIsMatch @"\b(go build|go test|go vet|npm test|pytest|cargo test|mvn test|dotnet test)\b" prompt
+
+                        let hasExplicitNoFixInstruction =
+                            regexIsMatch @"do\s+not\s+(attempt|try|fix)|don't\s+(attempt|try|fix)|without\s+attempting\s+fix" prompt
+
+                        let hasFixLoopLanguage =
+                            not hasExplicitNoFixInstruction
+                            && (regexIsMatch @"if.*fail.*(fix|try|re-?run)" prompt
+                                || regexIsMatch @"attempt.*fix" prompt
+                                || regexIsMatch @"try to fix" prompt)
+
+                        if hasValidationCommands && hasFixLoopLanguage then
+                            Some(
+                                Diagnostic.Warning(
+                                    "validate_measure_only",
+                                    $"Node '{node.Id}' prompt mixes validation commands with fix-loop instructions; validation stages should measure-only",
+                                    nodeId = node.Id,
+                                    fix =
+                                        "Rewrite prompt to run checks once and report PASS/FAIL only. Route fixes to a dedicated downstream repair node."
+                                )
+                            )
+                        else
+                            None) }
+
+    /// Rule: Warn when strict anchored review grep lacks upstream first-line prompt requirements.
+    let reviewGateFirstLineStrictRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "review_gate_first_line_strict"
+
+            member _.Apply(graph) =
+                let strictTokenRegex = Regex(@"grep\s+-q\s+['""]\^([A-Z]+)\$['""]")
+
+                let upstreamCodingAgents (nodeId: string) =
+                    let visited = HashSet<string>()
+                    let queue = Queue<string>()
+                    let agents = ResizeArray<Node>()
+
+                    visited.Add(nodeId) |> ignore
+                    queue.Enqueue(nodeId)
+
+                    while queue.Count > 0 do
+                        let current = queue.Dequeue()
+
+                        for incoming in graph.IncomingEdges(current) do
+                            if visited.Add(incoming.FromNode) then
+                                match graph.Nodes |> Map.tryFind incoming.FromNode with
+                                | Some upstream ->
+                                    if ShapeMapping.resolveHandlerType upstream = "coding_agent" then
+                                        agents.Add(upstream)
+
+                                    queue.Enqueue(incoming.FromNode)
+                                | None -> ()
+
+                    agents |> Seq.toList
+
+                let promptRequiresExactFirstLine (token: string) (prompt: string) =
+                    let mentionsToken = containsIgnoreCase token prompt
+                    let hasStrictCue = regexIsMatch @"first line|line 1|exactly|on its own line|own line" prompt
+                    mentionsToken && hasStrictCue
+
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    if ShapeMapping.resolveHandlerType node <> "tool" then
+                        None
+                    else
+                        let cmd = node.GetAttrString("tool_command", "")
+                        let tokenMatch = strictTokenRegex.Match(cmd)
+
+                        if not tokenMatch.Success then
+                            None
+                        else
+                            let token = tokenMatch.Groups[1].Value
+                            let upstreamAgents = upstreamCodingAgents node.Id
+
+                            // If there is no upstream coding_agent at all, the rule's premise
+                            // (a reviewer produces the strict-first-line output) does not apply.
+                            // Suppress rather than emit misleading messaging.
+                            if upstreamAgents.IsEmpty then
+                                None
+                            else
+                                let hasStrictPrompt =
+                                    upstreamAgents
+                                    |> List.exists (fun upstream -> promptRequiresExactFirstLine token upstream.Prompt)
+
+                                if hasStrictPrompt then
+                                    None
+                                else
+                                    Some(
+                                        Diagnostic.Warning(
+                                            "review_gate_first_line_strict",
+                                            $"Gate '{node.Id}' uses strict anchor grep for '{token}', but no upstream coding_agent prompt requires '{token}' as the exact first line",
+                                            nodeId = node.Id,
+                                            fix =
+                                                $"Require reviewer output first line to be exactly `{token}` (or alternate token) on its own line, with no heading/prefix"
+                                        )
+                                    )) }
+
+    /// Rule: Warn when .ai scratch file slugs resolve to multiple distinct paths.
+    let scratchPathConsistencyRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "scratch_path_consistency"
+
+            member _.Apply(graph) =
+                let scratchPathRegex = Regex(@"\.ai/([a-zA-Z0-9_]+)\.(md|txt)")
+
+                let refs =
+                    graph.Nodes
+                    |> Map.toList
+                    |> List.collect (fun (_, node) ->
+                        let collectMatches sourceText =
+                            scratchPathRegex.Matches(sourceText)
+                            |> Seq.cast<Match>
+                            |> Seq.map (fun m -> m.Groups[1].Value, m.Value, node.Id)
+                            |> Seq.toList
+
+                        collectMatches node.Prompt @ collectMatches (node.GetAttrString("tool_command", "")))
+
+                refs
+                |> List.groupBy (fun (slug, _, _) -> slug)
+                |> List.choose (fun (slug, entries) ->
+                    let distinctPaths = entries |> List.map (fun (_, path, _) -> path) |> Set.ofList
+
+                    if distinctPaths.Count <= 1 then
+                        None
+                    else
+                        let first = entries |> List.head
+                        let second =
+                            entries
+                            |> List.tryFind (fun (_, path, _) -> path <> (let (_, firstPath, _) = first in firstPath))
+                            |> Option.defaultValue first
+
+                        let (_, firstPath, firstNode) = first
+                        let (_, secondPath, secondNode) = second
+
+                        Some(
+                            Diagnostic.Warning(
+                                "scratch_path_consistency",
+                                $"Scratch slug '{slug}' appears at multiple paths: {firstPath} (node '{firstNode}') and {secondPath} (node '{secondNode}')",
+                                nodeId = firstNode,
+                                fix = "Use one canonical .ai path per slug across prompts and tool commands"
+                            )
+                        )) }
+
+    /// Rule: Note when terminal ledger/backlog checks route fail directly to Exit.
+    let terminalExitOnEmptyBacklogRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "terminal_exit_on_empty_backlog"
+
+            member _.Apply(graph) =
+                match graph.FindStartNode(), graph.FindExitNode() with
+                | Some startNode, Some exitNode ->
+                    let reachableFromStart = collectReachableForward graph startNode.Id
+
+                    graph.Nodes
+                    |> Map.toList
+                    |> List.choose (fun (_, node) ->
+                        if ShapeMapping.resolveHandlerType node <> "tool" || not (reachableFromStart.Contains(node.Id)) then
+                            None
+                        else
+                            let cmd = node.GetAttrString("tool_command", "")
+
+                            let isPickNode = node.Id.StartsWith("Pick", StringComparison.OrdinalIgnoreCase)
+                            let looksLikeLedgerCheck = regexIsMatch @"\b(ledger|next|queue|backlog)\b" cmd
+
+                            if not isPickNode && not looksLikeLedgerCheck then
+                                None
+                            else
+                                let exitsOnFail =
+                                    graph.OutgoingEdges(node.Id)
+                                    |> List.exists (fun edge ->
+                                        edge.ToNode = exitNode.Id
+                                        && containsIgnoreCase "outcome=fail" edge.Condition)
+
+                                if exitsOnFail then
+                                    Some(
+                                        { Rule = "terminal_exit_on_empty_backlog"
+                                          Severity = Severity.Info
+                                          Message =
+                                            $"Node '{node.Id}' routes outcome=fail to Exit; empty backlog can report a cosmetic pipeline failure even when work is complete"
+                                          NodeId = node.Id
+                                          Edge = None
+                                          Fix =
+                                            "Optional: emit sentinel output (e.g., NONE) with exit 0 and gate on the sentinel instead of fail-exit routing" }
+                                    )
+                                else
+                                    None)
+                | _ -> [] }
+
     /// All built-in lint rules
     let builtInRules: ILintRule list =
         [ startNodeRule
@@ -1190,7 +1653,15 @@ module Validation =
           cumulativeTurnsRule
           lowMaxTurnsRule
           parallelogramOutcomeRoutingRule
-          toolNodeLlmInvocationRule ]
+          toolNodeLlmInvocationRule
+          loopSessionPollutionRule
+          scopeGateCoverageRule
+          partialCommitNeedsBuildGateRule
+          parallelogramNeedsTimeoutRule
+          validateMeasureOnlyRule
+          reviewGateFirstLineStrictRule
+          scratchPathConsistencyRule
+          terminalExitOnEmptyBacklogRule ]
 
     /// Run validation on a graph with optional extra rules
     let validate (graph: Graph) (extraRules: ILintRule list option) : Diagnostic list =

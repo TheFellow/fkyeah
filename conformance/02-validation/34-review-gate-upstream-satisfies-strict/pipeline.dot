@@ -1,0 +1,11 @@
+digraph review_gate_satisfied {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    OpusReview [shape=tab, prompt="Review the change. The FIRST LINE of .ai/review.txt MUST be exactly APPROVED or exactly REVISE on its own line — no markdown heading, no whitespace."]
+    CheckReview [shape=parallelogram, tool_command="grep -q '^APPROVED$' .ai/review.txt", timeout="10s"]
+
+    start -> OpusReview -> CheckReview
+    CheckReview -> exit [condition="outcome=success"]
+    CheckReview -> OpusReview [condition="outcome=fail"]
+}

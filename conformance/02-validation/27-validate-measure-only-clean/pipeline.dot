@@ -1,0 +1,6 @@
+digraph validate_measure_only_clean {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    Validate [shape=tab, prompt="Run go build ./... and go test ./... once, report PASS/FAIL, do not attempt fixes."]
+    start -> Validate -> exit
+}

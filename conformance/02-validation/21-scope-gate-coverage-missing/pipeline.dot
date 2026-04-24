@@ -1,0 +1,9 @@
+digraph scope_gate_missing {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    FixFailures [shape=tab, prompt="modify files and implement fixes"]
+    CommitAndSummarize [shape=tab, prompt="git add . && git commit -m partial"]
+
+    start -> FixFailures -> CommitAndSummarize -> exit
+}

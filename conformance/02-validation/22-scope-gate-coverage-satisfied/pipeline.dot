@@ -1,0 +1,11 @@
+digraph scope_gate_ok {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+
+    FixFailures [shape=tab, prompt="implement changes and edit files"]
+    CheckScope [shape=parallelogram, tool_command="bash scripts/check_scope.sh", timeout="30s"]
+    BuildGate [shape=parallelogram, tool_command="go build ./...", timeout="300s"]
+    CommitAndSummarize [shape=tab, prompt="git add . && git commit -m done"]
+
+    start -> FixFailures -> CheckScope -> BuildGate -> CommitAndSummarize -> exit
+}

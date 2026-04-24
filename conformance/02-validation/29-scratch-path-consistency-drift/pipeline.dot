@@ -1,0 +1,7 @@
+digraph scratch_path_drift {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    Plan [shape=tab, prompt="Write plan to .ai/plan.md"]
+    Check [shape=parallelogram, tool_command="grep -q READY .ai/plan.txt", timeout="10s"]
+    start -> Plan -> Check -> exit
+}

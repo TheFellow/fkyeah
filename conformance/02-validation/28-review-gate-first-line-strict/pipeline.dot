@@ -1,0 +1,7 @@
+digraph review_gate_strict {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    OpusReview [shape=tab, prompt="Review changes and write APPROVED or REVISE with rationale in .ai/review.txt"]
+    CheckReview [shape=parallelogram, tool_command="grep -q '^APPROVED$' .ai/review.txt", timeout="10s"]
+    start -> OpusReview -> CheckReview -> exit
+}

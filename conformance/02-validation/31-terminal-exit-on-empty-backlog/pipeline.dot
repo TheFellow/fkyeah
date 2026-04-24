@@ -1,0 +1,10 @@
+digraph terminal_backlog_note {
+    start [shape=Mdiamond]
+    exit [shape=Msquare]
+    PickTask [shape=parallelogram, tool_command="python3 ledger.py next", timeout="10s"]
+    Work [shape=tab, prompt="implement selected task"]
+    start -> PickTask
+    PickTask -> Work [condition="outcome=success"]
+    PickTask -> exit [condition="outcome=fail"]
+    Work -> exit
+}
