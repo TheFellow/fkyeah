@@ -254,8 +254,11 @@ module Engine =
             if not fillMissingOnly || context.Get(kv.Key, "") = "" then
                 context.Set(kv.Key, kv.Value)
 
-    let private interpolationPattern = Regex(@"\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
-    let private escapedInterpolationPattern = Regex(@"\$\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
+    let private interpolationPattern =
+        Regex(@"\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
+
+    let private escapedInterpolationPattern =
+        Regex(@"\$\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
 
     let interpolateAttrValue (context: Context) (rawValue: string) : string =
         if String.IsNullOrEmpty(rawValue) then
@@ -265,25 +268,31 @@ module Engine =
             let mutable escapeIndex = 0
 
             let masked =
-                escapedInterpolationPattern.Replace(rawValue, fun m ->
-                    let token = $"__attr_interp_escape_{escapeIndex}__"
-                    escapeIndex <- escapeIndex + 1
-                    escapedSentinels[token] <- "${" + m.Groups.[1].Value + "}"
-                    token)
+                escapedInterpolationPattern.Replace(
+                    rawValue,
+                    fun m ->
+                        let token = $"__attr_interp_escape_{escapeIndex}__"
+                        escapeIndex <- escapeIndex + 1
+                        escapedSentinels[token] <- "${" + m.Groups.[1].Value + "}"
+                        token
+                )
 
             let interpolated =
-                interpolationPattern.Replace(masked, fun m ->
-                    let key = m.Groups.[1].Value
+                interpolationPattern.Replace(
+                    masked,
+                    fun m ->
+                        let key = m.Groups.[1].Value
 
-                    let lookupKey =
-                        if key.StartsWith("internal.", StringComparison.Ordinal) then
-                            key
-                        elif key.StartsWith("context.", StringComparison.Ordinal) then
-                            key
-                        else
-                            "context." + key
+                        let lookupKey =
+                            if key.StartsWith("internal.", StringComparison.Ordinal) then
+                                key
+                            elif key.StartsWith("context.", StringComparison.Ordinal) then
+                                key
+                            else
+                                "context." + key
 
-                    context.Get(lookupKey, m.Value))
+                        context.Get(lookupKey, m.Value)
+                )
 
             escapedSentinels
             |> Seq.fold (fun (state: string) pair -> state.Replace(pair.Key, pair.Value)) interpolated
@@ -333,7 +342,14 @@ module Engine =
 
         { node with Attributes = attrs }
 
-    let private runStructuralCommand (node: Node) (context: Context) (graph: Graph) (logsRoot: string) (suffix: string) (command: string) =
+    let private runStructuralCommand
+        (node: Node)
+        (context: Context)
+        (graph: Graph)
+        (logsRoot: string)
+        (suffix: string)
+        (command: string)
+        =
         let attrs =
             let baseAttrs =
                 [ "shape", AttrValue.String "parallelogram"
@@ -461,7 +477,9 @@ module Engine =
 
         if requiresGreenBuild <> "" then
             let command = interpolateAttrValue context requiresGreenBuild
-            let gateOutcome = runStructuralCommand node context graph logsRoot ".__requires_green_build" command
+
+            let gateOutcome =
+                runStructuralCommand node context graph logsRoot ".__requires_green_build" command
 
             if gateOutcome.Status <> StageStatus.Success then
                 let reason =
@@ -472,7 +490,9 @@ module Engine =
                 { Outcome.Fail(reason) with
                     ContextUpdates = gateOutcome.ContextUpdates }
             else
-                let primary = executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+                let primary =
+                    executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+
                 let scopeGate = node.ScopeGate.Trim()
 
                 if scopeGate = "" || primary.Status <> StageStatus.Success then
@@ -498,12 +518,14 @@ module Engine =
                             else
                                 if scopeRevert <> "" then
                                     let revertCommand = interpolateAttrValue context scopeRevert
+
                                     runStructuralCommand node context graph logsRoot ".__scope_revert" revertCommand
                                     |> ignore
 
                                 if retriesRemaining > 0 then
                                     retriesRemaining <- retriesRemaining - 1
                                     attempts <- attempts + 1
+
                                     finalOutcome <-
                                         executePrimaryWithRetry
                                             handler
@@ -523,7 +545,9 @@ module Engine =
 
                     finalOutcome
         else
-            let primary = executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+            let primary =
+                executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+
             let scopeGate = node.ScopeGate.Trim()
 
             if scopeGate = "" || primary.Status <> StageStatus.Success then
@@ -549,12 +573,14 @@ module Engine =
                         else
                             if scopeRevert <> "" then
                                 let revertCommand = interpolateAttrValue context scopeRevert
+
                                 runStructuralCommand node context graph logsRoot ".__scope_revert" revertCommand
                                 |> ignore
 
                             if retriesRemaining > 0 then
                                 retriesRemaining <- retriesRemaining - 1
                                 attempts <- attempts + 1
+
                                 finalOutcome <-
                                     executePrimaryWithRetry
                                         handler

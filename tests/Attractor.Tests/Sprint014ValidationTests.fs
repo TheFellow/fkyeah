@@ -416,7 +416,10 @@ module TerminalExitRuleAndDocsTests =
         Assert.True(fenceEnd > snippetStart, "python snippet end fence not found in external-shim-recovery.md")
 
         let snippet = markdown.Substring(snippetStart, fenceEnd - snippetStart).Trim()
-        let tmpDir = Path.Combine(Path.GetTempPath(), $"attractor-sprint014-smoke-{Guid.NewGuid():N}")
+
+        let tmpDir =
+            Path.Combine(Path.GetTempPath(), $"attractor-sprint014-smoke-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmpDir) |> ignore
         let scriptPath = Path.Combine(tmpDir, "patch_checkpoint.py")
         let fixturePath = Path.Combine(tmpDir, "checkpoint.json")

@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.11.1"
+let cliVersion = "0.12.0"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
@@ -1276,11 +1276,14 @@ let serve (port: int) =
 
 [<EntryPoint>]
 let main args =
-    if args.Length > 0 && String.Equals(args[0], "checkpoint", StringComparison.OrdinalIgnoreCase) then
+    if
+        args.Length > 0
+        && String.Equals(args[0], "checkpoint", StringComparison.OrdinalIgnoreCase)
+    then
         Checkpoint.dispatch (args |> Array.skip 1)
     else
 
-    // Handle Ctrl-C: first press cancels gracefully, second press force-exits
+        // Handle Ctrl-C: first press cancels gracefully, second press force-exits
         let mutable cancelCount = 0
 
         Console.CancelKeyPress.Add(fun e ->
@@ -1370,7 +1373,9 @@ let main args =
                 eprintfn ""
                 eprintfn "Aborted by user."
                 130
-            | :? AggregateException as ae when ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException) ->
+            | :? AggregateException as ae when
+                ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException)
+                ->
                 eprintfn ""
                 eprintfn "Aborted by user."
                 130

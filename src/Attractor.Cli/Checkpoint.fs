@@ -13,7 +13,9 @@ let private usage () =
     eprintfn "  attractor checkpoint backup <run-dir>"
 
 let private isRestartDirName (path: string) =
-    let name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+    let name =
+        Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+
     name.StartsWith("restart-", StringComparison.OrdinalIgnoreCase)
 
 let private resolveRunDir (inputDir: string) =
@@ -36,7 +38,9 @@ let private resolveRunDir (inputDir: string) =
             |> Option.defaultValue (Ok full)
 
 let private checkpointPath (runDir: string) = Path.Combine(runDir, "checkpoint.json")
-let private backupPath (runDir: string) = Path.Combine(runDir, "checkpoint.json.bak")
+
+let private backupPath (runDir: string) =
+    Path.Combine(runDir, "checkpoint.json.bak")
 
 let private ensureCheckpointExists (runDir: string) =
     let path = checkpointPath runDir
@@ -68,7 +72,12 @@ let private parseOutcome (raw: string) =
     | Some status -> Ok status
     | None -> Error $"Invalid outcome '{raw}'"
 
-let private statusToOutcome (status: StageStatus) (note: string) (failureReason: string) (updates: Map<string, string>) =
+let private statusToOutcome
+    (status: StageStatus)
+    (note: string)
+    (failureReason: string)
+    (updates: Map<string, string>)
+    =
     { Status = status
       PreferredLabel = ""
       SuggestedNextIds = []
@@ -76,13 +85,7 @@ let private statusToOutcome (status: StageStatus) (note: string) (failureReason:
       Notes = note
       FailureReason = failureReason }
 
-let private markDone
-    (runDir: string)
-    (nodeId: string)
-    (status: StageStatus)
-    (note: string)
-    (createBak: bool)
-    =
+let private markDone (runDir: string) (nodeId: string) (status: StageStatus) (note: string) (createBak: bool) =
     match loadCheckpoint runDir with
     | Error msg -> Error msg
     | Ok checkpoint ->
@@ -171,7 +174,11 @@ let private setOutcome
             | Error msg -> Error msg
             | Ok _ ->
                 let existing = checkpoint.NodeOutcomes |> Map.tryFind nodeId
-                let note = existing |> Option.map _.Notes |> Option.defaultValue "Updated via checkpoint CLI"
+
+                let note =
+                    existing
+                    |> Option.map _.Notes
+                    |> Option.defaultValue "Updated via checkpoint CLI"
 
                 let updates =
                     let baseUpdates =
@@ -215,7 +222,11 @@ let private setOutcome
                 saveCheckpoint runDir updated
         else
             let existing = checkpoint.NodeOutcomes |> Map.tryFind nodeId
-            let note = existing |> Option.map _.Notes |> Option.defaultValue "Updated via checkpoint CLI"
+
+            let note =
+                existing
+                |> Option.map _.Notes
+                |> Option.defaultValue "Updated via checkpoint CLI"
 
             let updates =
                 let baseUpdates =
@@ -320,9 +331,20 @@ let private diff (runDir: string) =
             let source = File.ReadAllText(dotPath)
             let graph = DotParser.parseOrRaise source
             let graphNodeIds = graph.Nodes |> Map.toSeq |> Seq.map fst |> Set.ofSeq
-            let completedMissing = checkpoint.CompletedNodes |> List.filter (fun id -> not (graphNodeIds.Contains(id)))
-            let outcomeMissing = checkpoint.NodeOutcomes |> Map.keys |> Seq.filter (fun id -> not (graphNodeIds.Contains(id))) |> Seq.toList
-            let unseenNodes = graphNodeIds |> Set.filter (fun id -> not (checkpoint.CompletedNodes |> List.contains id))
+
+            let completedMissing =
+                checkpoint.CompletedNodes
+                |> List.filter (fun id -> not (graphNodeIds.Contains(id)))
+
+            let outcomeMissing =
+                checkpoint.NodeOutcomes
+                |> Map.keys
+                |> Seq.filter (fun id -> not (graphNodeIds.Contains(id)))
+                |> Seq.toList
+
+            let unseenNodes =
+                graphNodeIds
+                |> Set.filter (fun id -> not (checkpoint.CompletedNodes |> List.contains id))
 
             printfn "dot_file: %s" dotPath
             printfn "checkpoint: %s" (checkpointPath runDir)

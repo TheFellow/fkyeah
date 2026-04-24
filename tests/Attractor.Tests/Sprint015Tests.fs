@@ -14,7 +14,9 @@ let private createTempDir () =
     dir
 
 let private parse (dot: string) = DotParser.parseOrRaise dot
-let private validate (dot: string) = dot |> parse |> fun g -> Validation.validate g None
+
+let private validate (dot: string) =
+    dot |> parse |> (fun g -> Validation.validate g None)
 
 module InterpolationTests =
 
@@ -38,7 +40,11 @@ module InterpolationTests =
         let context = Context()
         context.Set("context.foo", "bar")
         Assert.Equal("${foo}", Engine.interpolateAttrValue context "$${foo}")
-        Assert.Equal("literal=${foo} resolved=bar", Engine.interpolateAttrValue context "literal=$${foo} resolved=${foo}")
+
+        Assert.Equal(
+            "literal=${foo} resolved=bar",
+            Engine.interpolateAttrValue context "literal=$${foo} resolved=${foo}"
+        )
 
 module FreshSessionTests =
 
@@ -136,7 +142,10 @@ module FreshSessionTests =
             }
             """
 
-        Assert.True(diags |> List.exists (fun d -> d.Rule = "conflicting_session_attrs" && d.NodeId = "A"))
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "conflicting_session_attrs" && d.NodeId = "A")
+        )
 
 module StructuralSafetyAttrTests =
 
@@ -309,17 +318,18 @@ module CheckpointCliTests =
         context.Set("seed", "v1")
 
         let checkpoint =
-            Attractor.Checkpoint.Create(context, "start", [ "start" ], Map.empty, Map.ofList [ "start", Outcome.Success() ])
+            Attractor.Checkpoint.Create(
+                context,
+                "start",
+                [ "start" ],
+                Map.empty,
+                Map.ofList [ "start", Outcome.Success() ]
+            )
 
         Engine.saveCheckpoint runDir checkpoint
 
         let exitCode =
-            global.Checkpoint.dispatch
-                [| "mark-done"
-                   runDir
-                   "Worker"
-                   "--outcome=success"
-                   "--note=shim" |]
+            global.Checkpoint.dispatch [| "mark-done"; runDir; "Worker"; "--outcome=success"; "--note=shim" |]
 
         Assert.Equal(0, exitCode)
         Assert.True(File.Exists(Path.Combine(runDir, "checkpoint.json.bak")))
@@ -350,12 +360,7 @@ module CheckpointCliTests =
         Engine.saveCheckpoint runDir checkpoint
 
         let exitCode =
-            global.Checkpoint.dispatch
-                [| "set-outcome"
-                   runDir
-                   "Worker"
-                   "fail"
-                   "--tool-stdout=forced output" |]
+            global.Checkpoint.dispatch [| "set-outcome"; runDir; "Worker"; "fail"; "--tool-stdout=forced output" |]
 
         Assert.Equal(0, exitCode)
 
@@ -369,7 +374,10 @@ module CheckpointCliTests =
         let runDir = createTempDir ()
         let context = Context()
         context.Set("seed", "v1")
-        let checkpoint = Attractor.Checkpoint.Create(context, "start", [ "start" ], Map.empty, Map.empty)
+
+        let checkpoint =
+            Attractor.Checkpoint.Create(context, "start", [ "start" ], Map.empty, Map.empty)
+
         Engine.saveCheckpoint runDir checkpoint
 
         let originalPath = Path.Combine(runDir, "checkpoint.json")

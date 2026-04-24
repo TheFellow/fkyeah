@@ -802,7 +802,8 @@ module Validation =
 
     let private isCommitLikeNode (node: Node) =
         ShapeMapping.resolveHandlerType node = "coding_agent"
-        && (containsIgnoreCase "git commit" node.Prompt || containsIgnoreCase "git add" node.Prompt)
+        && (containsIgnoreCase "git commit" node.Prompt
+            || containsIgnoreCase "git add" node.Prompt)
 
     let private isScopeGateNode (node: Node) =
         not (String.IsNullOrWhiteSpace(node.ScopeGate))
@@ -1297,6 +1298,7 @@ module Validation =
                         | None -> ()
                         | Some node ->
                             let isCodingAgent = ShapeMapping.resolveHandlerType node = "coding_agent"
+
                             let hasStaticThreadId =
                                 not (String.IsNullOrWhiteSpace(node.ThreadId))
                                 && not (node.ThreadId.Contains("${", StringComparison.Ordinal))
@@ -1374,7 +1376,9 @@ module Validation =
                             let (current, hasScopeGate) = queue.Dequeue()
 
                             match graph.Nodes |> Map.tryFind current with
-                            | Some currentNode when current <> node.Id && isCommitLikeNode currentNode && not hasScopeGate ->
+                            | Some currentNode when
+                                current <> node.Id && isCommitLikeNode currentNode && not hasScopeGate
+                                ->
                                 violatingCommit <- Some current
                             | _ ->
                                 for edge in graph.OutgoingEdges(current) do
@@ -1447,7 +1451,12 @@ module Validation =
                     if ShapeMapping.resolveHandlerType node = "tool" && node.Timeout.IsNone then
                         let cmd = node.GetAttrString("tool_command", "")
                         let suggested = recommendParallelogramTimeout cmd
-                        let sizedNote = if suggested = "60s" then " (size explicitly for this command)" else ""
+
+                        let sizedNote =
+                            if suggested = "60s" then
+                                " (size explicitly for this command)"
+                            else
+                                ""
 
                         Some(
                             Diagnostic.Warning(
@@ -1475,10 +1484,14 @@ module Validation =
                         let prompt = node.Prompt
 
                         let hasValidationCommands =
-                            regexIsMatch @"\b(go build|go test|go vet|npm test|pytest|cargo test|mvn test|dotnet test)\b" prompt
+                            regexIsMatch
+                                @"\b(go build|go test|go vet|npm test|pytest|cargo test|mvn test|dotnet test)\b"
+                                prompt
 
                         let hasExplicitNoFixInstruction =
-                            regexIsMatch @"do\s+not\s+(attempt|try|fix)|don't\s+(attempt|try|fix)|without\s+attempting\s+fix" prompt
+                            regexIsMatch
+                                @"do\s+not\s+(attempt|try|fix)|don't\s+(attempt|try|fix)|without\s+attempting\s+fix"
+                                prompt
 
                         let hasFixLoopLanguage =
                             not hasExplicitNoFixInstruction
@@ -1532,7 +1545,10 @@ module Validation =
 
                 let promptRequiresExactFirstLine (token: string) (prompt: string) =
                     let mentionsToken = containsIgnoreCase token prompt
-                    let hasStrictCue = regexIsMatch @"first line|line 1|exactly|on its own line|own line" prompt
+
+                    let hasStrictCue =
+                        regexIsMatch @"first line|line 1|exactly|on its own line|own line" prompt
+
                     mentionsToken && hasStrictCue
 
                 graph.Nodes
@@ -1591,7 +1607,8 @@ module Validation =
                             |> Seq.map (fun m -> m.Groups[1].Value, m.Value, node.Id)
                             |> Seq.toList
 
-                        collectMatches node.Prompt @ collectMatches (node.GetAttrString("tool_command", "")))
+                        collectMatches node.Prompt
+                        @ collectMatches (node.GetAttrString("tool_command", "")))
 
                 refs
                 |> List.groupBy (fun (slug, _, _) -> slug)
@@ -1602,6 +1619,7 @@ module Validation =
                         None
                     else
                         let first = entries |> List.head
+
                         let second =
                             entries
                             |> List.tryFind (fun (_, path, _) -> path <> (let (_, firstPath, _) = first in firstPath))
@@ -1632,7 +1650,10 @@ module Validation =
                     graph.Nodes
                     |> Map.toList
                     |> List.choose (fun (_, node) ->
-                        if ShapeMapping.resolveHandlerType node <> "tool" || not (reachableFromStart.Contains(node.Id)) then
+                        if
+                            ShapeMapping.resolveHandlerType node <> "tool"
+                            || not (reachableFromStart.Contains(node.Id))
+                        then
                             None
                         else
                             let cmd = node.GetAttrString("tool_command", "")
@@ -1646,8 +1667,7 @@ module Validation =
                                 let exitsOnFail =
                                     graph.OutgoingEdges(node.Id)
                                     |> List.exists (fun edge ->
-                                        edge.ToNode = exitNode.Id
-                                        && containsIgnoreCase "outcome=fail" edge.Condition)
+                                        edge.ToNode = exitNode.Id && containsIgnoreCase "outcome=fail" edge.Condition)
 
                                 if exitsOnFail then
                                     Some(
