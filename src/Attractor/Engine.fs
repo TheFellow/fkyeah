@@ -3,6 +3,7 @@ namespace Attractor
 open System
 open System.IO
 open System.Text.Json
+open System.Text.RegularExpressions
 
 /// Backoff configuration for retries
 type BackoffConfig =
@@ -253,8 +254,121 @@ module Engine =
             if not fillMissingOnly || context.Get(kv.Key, "") = "" then
                 context.Set(kv.Key, kv.Value)
 
-    /// Execute a node with retry policy
-    let executeWithRetry
+    let private interpolationPattern = Regex(@"\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
+    let private escapedInterpolationPattern = Regex(@"\$\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
+
+    let interpolateAttrValue (context: Context) (rawValue: string) : string =
+        if String.IsNullOrEmpty(rawValue) then
+            rawValue
+        else
+            let escapedSentinels = System.Collections.Generic.Dictionary<string, string>()
+            let mutable escapeIndex = 0
+
+            let masked =
+                escapedInterpolationPattern.Replace(rawValue, fun m ->
+                    let token = $"__attr_interp_escape_{escapeIndex}__"
+                    escapeIndex <- escapeIndex + 1
+                    escapedSentinels[token] <- "${" + m.Groups.[1].Value + "}"
+                    token)
+
+            let interpolated =
+                interpolationPattern.Replace(masked, fun m ->
+                    let key = m.Groups.[1].Value
+
+                    let lookupKey =
+                        if key.StartsWith("internal.", StringComparison.Ordinal) then
+                            key
+                        elif key.StartsWith("context.", StringComparison.Ordinal) then
+                            key
+                        else
+                            "context." + key
+
+                    context.Get(lookupKey, m.Value))
+
+            escapedSentinels
+            |> Seq.fold (fun (state: string) pair -> state.Replace(pair.Key, pair.Value)) interpolated
+
+    let private withInterpolatedAttr (context: Context) (key: string) (attrs: Map<string, AttrValue>) =
+        match attrs |> Map.tryFind key with
+        | Some value ->
+            let raw = value.AsString()
+            let resolved = interpolateAttrValue context raw
+
+            if raw = resolved then
+                attrs
+            else
+                attrs |> Map.add key (AttrValue.String resolved)
+        | None -> attrs
+
+    let private generateFreshThreadId (nodeId: string) =
+        let now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+        let pid = System.Diagnostics.Process.GetCurrentProcess().Id
+        // Include a short random suffix so two visits inside the same millisecond
+        // (tight retry loops, loop_restart back-edges) still produce distinct ids.
+        let rand = Guid.NewGuid().ToString("N").Substring(0, 8)
+        $"{nodeId}-{now}-{pid}-{rand}"
+
+    let private prepareNodeForExecution (context: Context) (fidelity: FidelityMode) (node: Node) =
+        let resolvedThreadId =
+            if node.FreshSession then
+                generateFreshThreadId node.Id
+            elif node.ThreadId <> "" then
+                interpolateAttrValue context node.ThreadId
+            else
+                ""
+
+        if fidelity = FidelityMode.Full && resolvedThreadId <> "" then
+            context.Set("thread_id", resolvedThreadId)
+
+        let attrs =
+            node.Attributes
+            |> withInterpolatedAttr context "prompt"
+            |> withInterpolatedAttr context "cwd"
+            |> withInterpolatedAttr context "tool_command"
+            |> (fun current ->
+                if resolvedThreadId <> "" then
+                    current |> Map.add "thread_id" (AttrValue.String resolvedThreadId)
+                else
+                    current)
+
+        { node with Attributes = attrs }
+
+    let private runStructuralCommand (node: Node) (context: Context) (graph: Graph) (logsRoot: string) (suffix: string) (command: string) =
+        let attrs =
+            let baseAttrs =
+                [ "shape", AttrValue.String "parallelogram"
+                  "type", AttrValue.String "tool"
+                  "tool_command", AttrValue.String command ]
+                |> Map.ofList
+
+            let withCwd =
+                match node.GetAttr("cwd") with
+                | Some cwd -> baseAttrs |> Map.add "cwd" cwd
+                | None -> baseAttrs
+
+            match node.GetAttr("timeout") with
+            | Some timeout -> withCwd |> Map.add "timeout" timeout
+            | None -> withCwd
+
+        let structuralNode =
+            { Id = $"{node.Id}{suffix}"
+              Attributes = attrs }
+
+        let toolHandler = Handlers.ToolHandler() :> IHandler
+        let outcome = toolHandler.Execute(structuralNode, context, graph, logsRoot)
+        context.ApplyUpdates(outcome.ContextUpdates)
+
+        match outcome.ContextUpdates |> Map.tryFind "tool_stdout" with
+        | Some stdout -> context.Set("tool_output", stdout)
+        | None -> ()
+
+        match outcome.ContextUpdates |> Map.tryFind "tool_stderr" with
+        | Some stderr -> context.Set("tool_stderr", stderr)
+        | None -> ()
+
+        outcome
+
+    let private executePrimaryWithRetry
         (handler: IHandler)
         (node: Node)
         (context: Context)
@@ -331,6 +445,134 @@ module Engine =
                     cont <- false
 
         finalOutcome
+
+    /// Execute a node with retry policy
+    let executeWithRetry
+        (handler: IHandler)
+        (node: Node)
+        (context: Context)
+        (graph: Graph)
+        (logsRoot: string)
+        (retryPolicy: RetryPolicy)
+        (emitter: EventEmitter)
+        (nodeIndex: int)
+        : Outcome =
+        let requiresGreenBuild = node.RequiresGreenBuild.Trim()
+
+        if requiresGreenBuild <> "" then
+            let command = interpolateAttrValue context requiresGreenBuild
+            let gateOutcome = runStructuralCommand node context graph logsRoot ".__requires_green_build" command
+
+            if gateOutcome.Status <> StageStatus.Success then
+                let reason =
+                    match gateOutcome.ContextUpdates |> Map.tryFind "tool_exit_code" with
+                    | Some exitCode when exitCode <> "" -> $"pre-condition failed: {command} exited {exitCode}"
+                    | _ -> $"pre-condition failed: {gateOutcome.FailureReason}"
+
+                { Outcome.Fail(reason) with
+                    ContextUpdates = gateOutcome.ContextUpdates }
+            else
+                let primary = executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+                let scopeGate = node.ScopeGate.Trim()
+
+                if scopeGate = "" || primary.Status <> StageStatus.Success then
+                    primary
+                else
+                    let gateCommand = interpolateAttrValue context scopeGate
+                    let scopeRevert = node.ScopeRevert.Trim()
+                    let maxScopeRetries = max 0 node.ScopeGateMaxRetries
+                    let mutable attempts = 1
+                    let mutable retriesRemaining = maxScopeRetries
+                    let mutable finalOutcome = primary
+                    let mutable doneLoop = false
+
+                    while not doneLoop do
+                        if finalOutcome.Status <> StageStatus.Success then
+                            doneLoop <- true
+                        else
+                            let gateOutcome =
+                                runStructuralCommand node context graph logsRoot ".__scope_gate" gateCommand
+
+                            if gateOutcome.Status = StageStatus.Success then
+                                doneLoop <- true
+                            else
+                                if scopeRevert <> "" then
+                                    let revertCommand = interpolateAttrValue context scopeRevert
+                                    runStructuralCommand node context graph logsRoot ".__scope_revert" revertCommand
+                                    |> ignore
+
+                                if retriesRemaining > 0 then
+                                    retriesRemaining <- retriesRemaining - 1
+                                    attempts <- attempts + 1
+                                    finalOutcome <-
+                                        executePrimaryWithRetry
+                                            handler
+                                            node
+                                            context
+                                            graph
+                                            logsRoot
+                                            retryPolicy
+                                            emitter
+                                            nodeIndex
+                                else
+                                    finalOutcome <-
+                                        { Outcome.Fail($"scope_gate rejected changes after {attempts} attempts") with
+                                            ContextUpdates = gateOutcome.ContextUpdates }
+
+                                    doneLoop <- true
+
+                    finalOutcome
+        else
+            let primary = executePrimaryWithRetry handler node context graph logsRoot retryPolicy emitter nodeIndex
+            let scopeGate = node.ScopeGate.Trim()
+
+            if scopeGate = "" || primary.Status <> StageStatus.Success then
+                primary
+            else
+                let gateCommand = interpolateAttrValue context scopeGate
+                let scopeRevert = node.ScopeRevert.Trim()
+                let maxScopeRetries = max 0 node.ScopeGateMaxRetries
+                let mutable attempts = 1
+                let mutable retriesRemaining = maxScopeRetries
+                let mutable finalOutcome = primary
+                let mutable doneLoop = false
+
+                while not doneLoop do
+                    if finalOutcome.Status <> StageStatus.Success then
+                        doneLoop <- true
+                    else
+                        let gateOutcome =
+                            runStructuralCommand node context graph logsRoot ".__scope_gate" gateCommand
+
+                        if gateOutcome.Status = StageStatus.Success then
+                            doneLoop <- true
+                        else
+                            if scopeRevert <> "" then
+                                let revertCommand = interpolateAttrValue context scopeRevert
+                                runStructuralCommand node context graph logsRoot ".__scope_revert" revertCommand
+                                |> ignore
+
+                            if retriesRemaining > 0 then
+                                retriesRemaining <- retriesRemaining - 1
+                                attempts <- attempts + 1
+                                finalOutcome <-
+                                    executePrimaryWithRetry
+                                        handler
+                                        node
+                                        context
+                                        graph
+                                        logsRoot
+                                        retryPolicy
+                                        emitter
+                                        nodeIndex
+                            else
+                                finalOutcome <-
+                                    { Outcome.Fail($"scope_gate rejected changes after {attempts} attempts") with
+                                        ContextUpdates = gateOutcome.ContextUpdates }
+
+                                doneLoop <- true
+
+                finalOutcome
 
     /// Save checkpoint to disk
     let saveCheckpoint (logsRoot: string) (checkpoint: Checkpoint) =
@@ -581,7 +823,7 @@ module Engine =
                     // Resolve fidelity for this node
                     let fidelity = FidelityResolution.resolve lastEdge node graph
 
-                    let nodeForHandler =
+                    let nodeWithFidelity =
                         { node with
                             Attributes =
                                 node.Attributes
@@ -592,10 +834,6 @@ module Engine =
                             context
                         else
                             context.Project(fidelity)
-
-                    // Step 2: Execute node handler with retry policy
-                    let handler = registry.Resolve(nodeForHandler)
-                    let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
 
                     emitter.Emit(PipelineEvent.StageStarted(node.Id, nodeIndex))
                     let handlerType = ShapeMapping.resolveHandlerType node
@@ -627,9 +865,12 @@ module Engine =
                     context.Set("node.visit_count", ((visitCount: int).ToString()))
                     context.Set($"node.{node.Id}.visit_count", ((visitCount: int).ToString()))
 
-                    // Set thread_id in context if fidelity=full and node has thread_id
-                    if fidelity = FidelityMode.Full && node.ThreadId <> "" then
-                        context.Set("thread_id", node.ThreadId)
+                    // Apply runtime interpolation and session attributes just before handler handoff.
+                    let nodeForHandler = prepareNodeForExecution context fidelity nodeWithFidelity
+
+                    // Step 2: Execute node handler with retry policy
+                    let handler = registry.Resolve(nodeForHandler)
+                    let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
 
                     let outcome =
                         if visitCount > node.MaxVisits then
@@ -1096,6 +1337,12 @@ module Engine =
                 else
                     let fidelity = FidelityResolution.resolve None node graph
 
+                    let nodeWithFidelity =
+                        { node with
+                            Attributes =
+                                node.Attributes
+                                |> Map.add "__resolved_fidelity" (AttrValue.String((fidelity: FidelityMode).ToString())) }
+
                     let handlerContext =
                         if resumeDegradePending then
                             context.Set("resume.degraded_fidelity", "summary:high")
@@ -1106,13 +1353,23 @@ module Engine =
                         else
                             context.Project(fidelity)
 
-                    let handler = registry.Resolve(node)
-                    let retryPolicy = RetryPolicy.FromNode(node, graph)
                     emitter.Emit(PipelineEvent.StageStarted(node.Id, nodeIndex))
                     context.Set("current_node", node.Id)
 
+                    let nodeForHandler = prepareNodeForExecution context fidelity nodeWithFidelity
+                    let handler = registry.Resolve(nodeForHandler)
+                    let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
+
                     let outcome =
-                        executeWithRetry handler node handlerContext graph logsRoot retryPolicy emitter nodeIndex
+                        executeWithRetry
+                            handler
+                            nodeForHandler
+                            handlerContext
+                            graph
+                            logsRoot
+                            retryPolicy
+                            emitter
+                            nodeIndex
 
                     let handlerType = ShapeMapping.resolveHandlerType node
                     let statusPath = Path.Combine(logsRoot, node.Id, "status.json")

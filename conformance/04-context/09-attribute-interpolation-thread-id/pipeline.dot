@@ -1,0 +1,24 @@
+digraph InterpolatedThreadId {
+  graph [default_fidelity="full"]
+
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  Review [
+    shape=tab,
+    prompt="Review current subtask and report status.",
+    thread_id="review-${internal.loop_restart_count}",
+    max_turns=0
+  ]
+
+  Route [
+    shape=parallelogram,
+    tool_command="true",
+    timeout="2s"
+  ]
+
+  start -> Review
+  Review -> Route [condition="outcome=fail"]
+  Route -> Review [condition="context.internal.loop_restart_count=0", loop_restart=true]
+  Route -> exit [condition="context.internal.loop_restart_count=1"]
+}

@@ -268,6 +268,7 @@ Usage:
   attractor <file.dot> [options]      Run a pipeline
   attractor --validate <file.dot>     Validate without executing
   attractor --resume <dir> <file.dot> Resume from checkpoint
+  attractor checkpoint <subcommand>   Inspect/mutate checkpoint.json safely
   attractor serve [--port N]          Run HTTP server mode
   attractor schema                    Print the DOT schema reference
   attractor example                   Print an example pipeline
@@ -370,6 +371,7 @@ let printSchema () =
 #   allow_partial      Boolean   Accept PARTIAL_SUCCESS when retries exhausted.
 #   fidelity           String    Context fidelity mode override for this node.
 #   thread_id          String    Session reuse key (used with fidelity=full).
+#   fresh_session      Boolean   Generate unique thread_id per invocation (ignores thread_id).
 #   timeout            Duration  Max execution time. Quote for Graphviz compat: "500ms", "10s", "5m", "1h", "1d"
 #   llm_model          String    LLM model override (e.g. "claude-opus-4-6").
 #   llm_provider       String    LLM provider override (e.g. "anthropic").
@@ -381,6 +383,10 @@ let printSchema () =
 #                                If node also has `prompt`, it's written to prompt.txt and piped to stdin.
 #   prompt             String    For tool nodes: written to {stage_dir}/prompt.txt and piped to stdin.
 #                                Use this for long prompts that would break shell escaping in tool_command.
+#   scope_gate         String    Post-success command that must exit 0; non-zero can trigger scope_revert + retry.
+#   scope_revert       String    Best-effort command run when scope_gate fails.
+#   scope_gate_max_retries Integer Number of primary-handler re-attempts after scope_gate failure (default: 1).
+#   requires_green_build String  Pre-condition command run before handler; non-zero skips handler and fails node.
 #   max_cycles         Integer   Max supervision cycles (for house/manager_loop nodes).
 #   stop_condition_key String    Context key to check for stop (manager_loop, default: "manager.stop").
 #   human_default_choice String  Default choice on human gate timeout.
@@ -446,6 +452,7 @@ let printSchema () =
 #   - Retry target chains have no cycles (warning)
 #   - Codergen nodes should have prompt or label (warning)
 #   - loop_session_pollution: coding_agent with static thread_id reachable from loop_restart will saturate session budget across iterations (warning)
+#   - conflicting_session_attrs: fresh_session=true cannot be combined with explicit thread_id (error)
 #   - scope_gate_coverage: file-editing coding_agent can reach commit-like node without passing a scope-check tool gate (warning)
 #   - partial_commit_needs_build_gate: fail/partial edge to commit-like node is missing an intermediate build/test gate (warning)
 #   - parallelogram_needs_timeout: every tool/parallelogram node should set timeout to avoid wedged pipeline hangs (warning)
@@ -475,6 +482,13 @@ let printSchema () =
 # Comment stripping respects quoted strings — // and /* inside "..."
 # are preserved. URLs like "https://example.com" and globs like
 # "find . -name '*.go'" work correctly in tool_command values.
+#
+# Checkpoint CLI:
+#   attractor checkpoint inspect <run-dir>
+#   attractor checkpoint mark-done <run-dir> <node-id> [--outcome=success|fail] [--note=...] [--no-backup]
+#   attractor checkpoint set-outcome <run-dir> <node-id> <outcome> [--tool-stdout=...] [--no-backup]
+#   attractor checkpoint diff <run-dir>
+#   attractor checkpoint backup <run-dir>
 # ═══════════════════════════════════════════════════════════════════════════"""
 
 let printExample () =
@@ -1262,100 +1276,104 @@ let serve (port: int) =
 
 [<EntryPoint>]
 let main args =
-    // Handle Ctrl-C: first press cancels gracefully, second press force-exits
-    let mutable cancelCount = 0
-
-    Console.CancelKeyPress.Add(fun e ->
-        cancelCount <- cancelCount + 1
-        e.Cancel <- true
-        eprintfn ""
-
-        if cancelCount >= 2 then
-            eprintfn "  Force quit."
-            Environment.Exit(130)
-        else
-            eprintfn "  Interrupted (Ctrl-C). Cancelling in-flight LLM calls..."
-            eprintfn "  Press Ctrl-C again to force quit."
-            CodingAgent.AutoCheckpointRegistry.saveAll ()
-            UnifiedLlm.HttpCancellation.cancel ())
-
-    let (dotFile,
-         logsRoot,
-         validateOnly,
-         resumeDir,
-         autoApprove,
-         showHelp,
-         showSchema,
-         showExample,
-         showModels,
-         showVersion,
-         simulate,
-         quiet,
-         explicitVerbose,
-         trace,
-         cache,
-         cacheDir,
-         servePort) =
-        parseArgs args
-
-    if quiet then
-        verbose <- false
-    elif explicitVerbose then
-        verbose <- true
-
-    tracePath <- trace
-    cacheEnabled <- cache
-    cacheDirectory <- cacheDir
-
-    if showSchema then
-        printSchema ()
-        ExitSuccess
-    elif showExample then
-        printExample ()
-        ExitSuccess
-    elif showModels then
-        printModels ()
-        ExitSuccess
-    elif showVersion then
-        printfn "%s" cliVersion
-        ExitSuccess
-    elif servePort.IsSome then
-        serve servePort.Value
-    elif showHelp || (dotFile.IsNone && resumeDir.IsNone) then
-        printUsage ()
-        if showHelp then ExitSuccess else ExitConfigError
+    if args.Length > 0 && String.Equals(args[0], "checkpoint", StringComparison.OrdinalIgnoreCase) then
+        Checkpoint.dispatch (args |> Array.skip 1)
     else
 
-        try
-            match resumeDir with
-            | Some dir -> resume dir dotFile autoApprove simulate
-            | None ->
-                let file = dotFile.Value
+    // Handle Ctrl-C: first press cancels gracefully, second press force-exits
+        let mutable cancelCount = 0
 
-                if not (File.Exists(file)) then
-                    eprintfn "File not found: %s" file
-                    ExitConfigError
-                else
-                    let source = File.ReadAllText(file)
+        Console.CancelKeyPress.Add(fun e ->
+            cancelCount <- cancelCount + 1
+            e.Cancel <- true
+            eprintfn ""
 
-                    if validateOnly then
-                        validate source
+            if cancelCount >= 2 then
+                eprintfn "  Force quit."
+                Environment.Exit(130)
+            else
+                eprintfn "  Interrupted (Ctrl-C). Cancelling in-flight LLM calls..."
+                eprintfn "  Press Ctrl-C again to force quit."
+                CodingAgent.AutoCheckpointRegistry.saveAll ()
+                UnifiedLlm.HttpCancellation.cancel ())
+
+        let (dotFile,
+             logsRoot,
+             validateOnly,
+             resumeDir,
+             autoApprove,
+             showHelp,
+             showSchema,
+             showExample,
+             showModels,
+             showVersion,
+             simulate,
+             quiet,
+             explicitVerbose,
+             trace,
+             cache,
+             cacheDir,
+             servePort) =
+            parseArgs args
+
+        if quiet then
+            verbose <- false
+        elif explicitVerbose then
+            verbose <- true
+
+        tracePath <- trace
+        cacheEnabled <- cache
+        cacheDirectory <- cacheDir
+
+        if showSchema then
+            printSchema ()
+            ExitSuccess
+        elif showExample then
+            printExample ()
+            ExitSuccess
+        elif showModels then
+            printModels ()
+            ExitSuccess
+        elif showVersion then
+            printfn "%s" cliVersion
+            ExitSuccess
+        elif servePort.IsSome then
+            serve servePort.Value
+        elif showHelp || (dotFile.IsNone && resumeDir.IsNone) then
+            printUsage ()
+            if showHelp then ExitSuccess else ExitConfigError
+        else
+
+            try
+                match resumeDir with
+                | Some dir -> resume dir dotFile autoApprove simulate
+                | None ->
+                    let file = dotFile.Value
+
+                    if not (File.Exists(file)) then
+                        eprintfn "File not found: %s" file
+                        ExitConfigError
                     else
-                        let logs =
-                            logsRoot
-                            |> Option.defaultWith (fun () ->
-                                Path.Combine("attractor-logs", DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")))
+                        let source = File.ReadAllText(file)
 
-                        run source logs autoApprove simulate
-        with
-        | :? OperationCanceledException ->
-            eprintfn ""
-            eprintfn "Aborted by user."
-            130
-        | :? AggregateException as ae when ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException) ->
-            eprintfn ""
-            eprintfn "Aborted by user."
-            130
-        | ex ->
-            eprintfn "Error: %s" ex.Message
-            ExitPipelineFailure
+                        if validateOnly then
+                            validate source
+                        else
+                            let logs =
+                                logsRoot
+                                |> Option.defaultWith (fun () ->
+                                    Path.Combine("attractor-logs", DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")))
+
+                            run source logs autoApprove simulate
+            with
+            | :? OperationCanceledException ->
+                eprintfn ""
+                eprintfn "Aborted by user."
+                130
+            | :? AggregateException as ae when ae.InnerExceptions |> Seq.exists (fun e -> e :? OperationCanceledException) ->
+                eprintfn ""
+                eprintfn "Aborted by user."
+                130
+            | ex ->
+                eprintfn "Error: %s" ex.Message
+                ExitPipelineFailure

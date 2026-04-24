@@ -274,6 +274,36 @@ type Node =
         |> Option.map (fun v -> v.AsString())
         |> Option.defaultValue ""
 
+    member this.FreshSession =
+        this.Attributes
+        |> Map.tryFind "fresh_session"
+        |> Option.bind (fun v -> v.AsBool())
+        |> Option.defaultValue false
+
+    member this.ScopeGate =
+        this.Attributes
+        |> Map.tryFind "scope_gate"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ScopeRevert =
+        this.Attributes
+        |> Map.tryFind "scope_revert"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
+    member this.ScopeGateMaxRetries =
+        this.Attributes
+        |> Map.tryFind "scope_gate_max_retries"
+        |> Option.bind (fun v -> v.AsInt())
+        |> Option.defaultValue 1
+
+    member this.RequiresGreenBuild =
+        this.Attributes
+        |> Map.tryFind "requires_green_build"
+        |> Option.map (fun v -> v.AsString())
+        |> Option.defaultValue ""
+
     member this.Class =
         this.Attributes
         |> Map.tryFind "class"
@@ -493,6 +523,7 @@ module KnownAttributes =
               "fallback_retry_target"
               "fidelity"
               "thread_id"
+              "fresh_session"
               "class"
               "timeout"
               "llm_model"
@@ -505,6 +536,10 @@ module KnownAttributes =
               "tool_hooks.pre"
               "tool_hooks.post"
               "tool_command"
+              "scope_gate"
+              "scope_revert"
+              "scope_gate_max_retries"
+              "requires_green_build"
               "human.default_choice"
               "system_prompt"
               "stop_condition_key"

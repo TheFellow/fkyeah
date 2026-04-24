@@ -2,6 +2,8 @@
 
 This document describes the checkpoint format and resume behavior implemented in `src/Attractor/Engine.fs` as of Sprint 014.
 
+For operational mutation commands, see [checkpoint-cli.md](./checkpoint-cli.md).
+
 ## Logs Layout and Resume Source
 
 A run writes logs under the configured `logs_root`:
@@ -14,6 +16,8 @@ A run writes logs under the configured `logs_root`:
 On loop restart, the engine switches its active logs directory to `logs_root/restart-N` and writes subsequent `checkpoint.json` files there.
 
 `attractor --resume <dir> <file.dot>` reads exactly `<dir>/checkpoint.json` via `Engine.loadCheckpoint`. It does not auto-pick the latest `restart-N`. If the last execution happened inside `restart-3/`, resume must point at that directory.
+
+`attractor checkpoint ...` does auto-detect the latest `restart-N/` subdirectory (by mtime) when a parent run directory is passed.
 
 ## Fields That Matter for Manual Patching
 

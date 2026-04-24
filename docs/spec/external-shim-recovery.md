@@ -1,8 +1,10 @@
-# External Shim Recovery (Manual)
+# External Shim Recovery
 
 This is a break-glass recovery protocol for runs that cannot self-recover in-graph (session pollution, repeated parser failures, provider instability).
 
 Use this as an operational recovery tool, not as a normal design pattern.
+
+Preferred checkpoint mutation path: `attractor checkpoint ...` (see [checkpoint-cli.md](./checkpoint-cli.md)).
 
 ## Protocol
 
@@ -10,10 +12,20 @@ Use this as an operational recovery tool, not as a normal design pattern.
 2. Preserve and inspect plan/scope artifacts in the active logs directory.
 3. Run the coding step externally (for example `codex exec` or another out-of-graph tool) against the same plan.
 4. Verify the working tree builds/tests before resuming.
-5. Patch `checkpoint.json` to mark the stuck node as completed/successful.
+5. Mark the stuck node done with the checkpoint CLI.
 6. Resume with `attractor --resume <logs-dir> <pipeline.dot>`.
 
-## Minimal Checkpoint Patch Script
+## Preferred CLI Commands
+
+```bash
+attractor checkpoint inspect <logs-dir>
+attractor checkpoint mark-done <logs-dir> <node-id> --outcome=success --note="manual external shim recovery"
+attractor --resume <logs-dir> <pipeline.dot>
+```
+
+## Legacy Fallback: Minimal Checkpoint Patch Script
+
+If the checkpoint CLI is unavailable in your environment, the legacy Python patch script below can still be used.
 
 ```python
 #!/usr/bin/env python3

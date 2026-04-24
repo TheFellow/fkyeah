@@ -805,8 +805,9 @@ module Validation =
         && (containsIgnoreCase "git commit" node.Prompt || containsIgnoreCase "git add" node.Prompt)
 
     let private isScopeGateNode (node: Node) =
-        ShapeMapping.resolveHandlerType node = "tool"
-        && containsIgnoreCase "scope" (node.GetAttrString("tool_command", ""))
+        not (String.IsNullOrWhiteSpace(node.ScopeGate))
+        || (ShapeMapping.resolveHandlerType node = "tool"
+            && containsIgnoreCase "scope" (node.GetAttrString("tool_command", "")))
 
     let private isBuildOrTestGateNode (node: Node) =
         if ShapeMapping.resolveHandlerType node <> "tool" then
@@ -1318,6 +1319,34 @@ module Validation =
                     ))
                 |> Seq.toList }
 
+    /// Rule: Error when fresh_session=true is combined with an explicit thread_id.
+    let conflictingSessionAttrsRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "conflicting_session_attrs"
+
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.choose (fun (_, node) ->
+                    let rawThreadId = node.ThreadId.Trim()
+
+                    // When fresh_session=true, the engine ignores thread_id entirely,
+                    // so ANY non-empty thread_id is dead weight (including interpolation-only
+                    // values like "${internal.loop_restart_count}"). Flag all such cases
+                    // rather than silently accepting the unused attribute.
+                    if node.FreshSession && rawThreadId <> "" then
+                        Some(
+                            Diagnostic.Error(
+                                "conflicting_session_attrs",
+                                $"Node '{node.Id}' sets both fresh_session=true and thread_id='{node.ThreadId}' (thread_id is ignored when fresh_session=true)",
+                                nodeId = node.Id,
+                                fix =
+                                    "Use either fresh_session=true for ephemeral sessions or thread_id for reusable sessions, but not both"
+                            )
+                        )
+                    else
+                        None) }
+
     /// Rule: Warn when file-editing coding_agent paths can reach commit nodes without scope gates.
     let scopeGateCoverageRule: ILintRule =
         { new ILintRule with
@@ -1334,10 +1363,11 @@ module Validation =
                     if not isFileEditingAgent then
                         None
                     else
+                        let startsWithScopeGate = not (String.IsNullOrWhiteSpace(node.ScopeGate))
                         let visited = HashSet<string * bool>()
                         let queue = Queue<string * bool>()
-                        queue.Enqueue(node.Id, false)
-                        visited.Add(node.Id, false) |> ignore
+                        queue.Enqueue(node.Id, startsWithScopeGate)
+                        visited.Add(node.Id, startsWithScopeGate) |> ignore
                         let mutable violatingCommit: string option = None
 
                         while queue.Count > 0 && violatingCommit.IsNone do
@@ -1383,20 +1413,26 @@ module Validation =
                     else
                         match graph.Nodes |> Map.tryFind edge.ToNode with
                         | Some targetNode when isCommitLikeNode targetNode ->
-                            let hasUnguarded = hasUnguardedPathToCommit graph edge.FromNode edge.ToNode
+                            let hasStructuralBuildGate =
+                                not (String.IsNullOrWhiteSpace(targetNode.RequiresGreenBuild))
 
-                            if not hasUnguarded then
+                            if hasStructuralBuildGate then
                                 None
                             else
-                                Some(
-                                    Diagnostic.Warning(
-                                        "partial_commit_needs_build_gate",
-                                        $"Edge '{edge.FromNode}' -> '{edge.ToNode}' routes a fail/partial path to commit without an intermediate build/test gate",
-                                        edge = (edge.FromNode, edge.ToNode),
-                                        fix =
-                                            "Insert a tool gate running build/test checks (for Go: `go build ./... && go vet ./... && go test -count=1 -run=^$ ./...`) and route failures away from commit"
+                                let hasUnguarded = hasUnguardedPathToCommit graph edge.FromNode edge.ToNode
+
+                                if not hasUnguarded then
+                                    None
+                                else
+                                    Some(
+                                        Diagnostic.Warning(
+                                            "partial_commit_needs_build_gate",
+                                            $"Edge '{edge.FromNode}' -> '{edge.ToNode}' routes a fail/partial path to commit without an intermediate build/test gate",
+                                            edge = (edge.FromNode, edge.ToNode),
+                                            fix =
+                                                "Insert a tool gate running build/test checks (for Go: `go build ./... && go vet ./... && go test -count=1 -run=^$ ./...`) and route failures away from commit"
+                                        )
                                     )
-                                )
                         | _ -> None) }
 
     /// Rule: Warn when tool/parallelogram nodes omit timeout.
@@ -1655,6 +1691,7 @@ module Validation =
           parallelogramOutcomeRoutingRule
           toolNodeLlmInvocationRule
           loopSessionPollutionRule
+          conflictingSessionAttrsRule
           scopeGateCoverageRule
           partialCommitNeedsBuildGateRule
           parallelogramNeedsTimeoutRule

@@ -1,0 +1,13 @@
+digraph AttributeEscape {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  EchoPrompt [
+    shape=parallelogram,
+    prompt="literal:${context.missing} escaped=$${foo}",
+    tool_command="cat",
+    timeout="5s"
+  ]
+
+  start -> EchoPrompt -> exit
+}

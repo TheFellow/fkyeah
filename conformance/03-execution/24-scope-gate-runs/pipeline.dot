@@ -1,0 +1,12 @@
+digraph ScopeGateRuns {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  Worker [
+    shape=box,
+    prompt="Produce a short implementation note.",
+    scope_gate="echo scope_gate_ran > scope_gate_marker.txt"
+  ]
+
+  start -> Worker -> exit
+}

@@ -1,0 +1,15 @@
+digraph RequiresGreenBuildSkips {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  GuardedTool [
+    shape=parallelogram,
+    cwd=".",
+    timeout="5s",
+    requires_green_build="exit 9",
+    tool_command="echo SHOULD_NOT_RUN > requires_build_marker.txt"
+  ]
+
+  start -> GuardedTool
+  GuardedTool -> exit [condition="outcome=fail"]
+}

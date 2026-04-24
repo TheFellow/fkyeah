@@ -1,0 +1,17 @@
+digraph ScopeGateAttributeSuppression {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  FixFailures [
+    shape=tab,
+    prompt="implement updates and edit files for this task",
+    scope_gate="bash scripts/check_scope.sh"
+  ]
+
+  CommitAndSummarize [
+    shape=tab,
+    prompt="git add . && git commit -m done"
+  ]
+
+  start -> FixFailures -> CommitAndSummarize -> exit
+}

@@ -1,0 +1,65 @@
+digraph sdlc_grind_subtask {
+  graph [
+    goal="Ship each phase as commit-sized subtasks with review and safety gates",
+    default_fidelity="full"
+  ]
+
+  start [shape=Mdiamond]
+  exit  [shape=Msquare]
+
+  Plan [
+    shape=box,
+    prompt="Read docs/sprint_plan.md. Produce or update .ai/sprint_subtasks/NN-*.md with commit-sized implementation slices."
+  ]
+
+  PickSubtask [
+    shape=parallelogram,
+    timeout="10s",
+    tool_command="test -n \"$(ls -1 .ai/sprint_subtasks/*.md 2>/dev/null | head -1)\""
+  ]
+
+  Implement [
+    shape=tab,
+    thread_id="impl-${internal.loop_restart_count}",
+    scope_gate="git diff --name-only | grep -q '^src/'",
+    scope_gate_max_retries=1,
+    prompt="Implement only the selected subtask from .ai/sprint_current_subtask.md. Make focused, commit-sized changes."
+  ]
+
+  Validate [
+    shape=parallelogram,
+    timeout="300s",
+    tool_command="go build ./... && go test -count=1 -run=^$ ./..."
+  ]
+
+  Review [
+    shape=hexagon,
+    label="Review Subtask"
+  ]
+
+  Commit [
+    shape=tab,
+    requires_green_build="go build ./... && go test -count=1 -run=^$ ./...",
+    prompt="Create one focused commit for this completed subtask using git add and git commit with a clear message."
+  ]
+
+  PhaseComplete [
+    shape=box,
+    prompt="No subtasks remain. Summarize what was completed in this phase and provide any carry-forward notes."
+  ]
+
+  start -> Plan -> PickSubtask
+
+  PickSubtask -> Implement    [condition="outcome=success", label="has_subtask"]
+  PickSubtask -> PhaseComplete [condition="outcome=fail", label="none_left"]
+
+  Implement -> Validate
+  Validate -> Review    [condition="outcome=success", label="pass"]
+  Validate -> Implement [condition="outcome=fail", label="fix"]
+
+  Review -> Commit    [label="[A] Approve"]
+  Review -> Implement [label="[R] Revise"]
+
+  Commit -> PickSubtask [label="next_subtask", loop_restart=true]
+  PhaseComplete -> exit
+}

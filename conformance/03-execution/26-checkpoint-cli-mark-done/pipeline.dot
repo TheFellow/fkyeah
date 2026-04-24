@@ -1,0 +1,24 @@
+digraph CheckpointMarkDoneResume {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  Step1 [
+    shape=box,
+    prompt="Generate an initial note."
+  ]
+
+  ManualGate [
+    shape=parallelogram,
+    timeout="2s",
+    tool_command="exit 1"
+  ]
+
+  Step3 [
+    shape=parallelogram,
+    cwd=".",
+    timeout="5s",
+    tool_command="echo resumed_marker > resumed_marker.txt"
+  ]
+
+  start -> Step1 -> ManualGate -> Step3 -> exit
+}

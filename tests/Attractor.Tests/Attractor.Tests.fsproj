@@ -9,6 +9,7 @@
     <Compile Include="Tests.fs" />
     <Compile Include="Sprint014Tests.fs" />
     <Compile Include="Sprint014ValidationTests.fs" />
+    <Compile Include="Sprint015Tests.fs" />
     <Compile Include="FidelityTests.fs" />
     <Compile Include="CostAggregationTests.fs" />
     <Compile Include="LiveApiTests.fs" />
@@ -23,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Attractor\Attractor.fsproj" />
+    <ProjectReference Include="..\..\src\Attractor.Cli\Attractor.Cli.fsproj" />
   </ItemGroup>
 
 </Project>

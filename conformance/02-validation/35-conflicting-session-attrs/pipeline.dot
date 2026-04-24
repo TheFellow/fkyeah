@@ -1,0 +1,13 @@
+digraph ConflictingSessionAttrs {
+  start [shape=Mdiamond]
+  exit [shape=Msquare]
+
+  Review [
+    shape=tab,
+    thread_id="review",
+    fresh_session=true,
+    prompt="Review changes."
+  ]
+
+  start -> Review -> exit
+}

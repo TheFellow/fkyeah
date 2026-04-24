@@ -12,3 +12,4 @@ sprint_id	title	status	created_at	updated_at
 011	011: Test Coverage Hardening II	completed	2026-03-24T18:00:00.000000	2026-03-24T14:24:04.911953
 013	Attribute Validation & Schema Completeness	completed	2026-03-26T10:55:24.540914	2026-03-26T10:55:24.622627
 014	Loop-Aware Pipeline Validation & External-Shim Recovery	completed	2026-04-24T08:35:51.192471	2026-04-24T11:10:04.697220
+015	Loop-Aware Engine Primitives & First-Class Shim CLI	completed	2026-04-24T11:11:06.942659	2026-04-24T12:00:08.467253
