@@ -1030,6 +1030,7 @@ module Handlers =
                         |> List.distinct
 
                     { Status = status
+                      RawOutcome = None
                       PreferredLabel = ""
                       SuggestedNextIds = fanInTargets
                       ContextUpdates = contextUpdates
@@ -1097,6 +1098,7 @@ module Handlers =
 
                             let outcome =
                                 { Status = StageStatus.Skipped
+                                  RawOutcome = None
                                   PreferredLabel = ""
                                   SuggestedNextIds = []
                                   ContextUpdates = Map.empty
@@ -1331,6 +1333,7 @@ module Handlers =
             let status = if stopped then StageStatus.Success else StageStatus.Fail
 
             { Status = status
+              RawOutcome = None
               PreferredLabel = ""
               SuggestedNextIds = []
               ContextUpdates =

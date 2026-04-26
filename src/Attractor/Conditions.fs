@@ -20,7 +20,7 @@ module Conditions =
     /// Resolve a key to a string value from outcome and context
     let resolveKey (key: string) (outcome: Outcome) (context: Context) : string =
         match key.Trim() with
-        | "outcome" -> outcome.Status.ToString()
+        | "outcome" -> outcome.OutcomeString
         | "preferred_label" -> outcome.PreferredLabel
         | k when k.StartsWith("context.", StringComparison.Ordinal) ->
             let contextKey = k
@@ -53,6 +53,15 @@ module Conditions =
                 let key = parts[0].Trim()
                 let value = parseLiteral parts[1]
                 resolveKey key outcome context <> value
+            else
+                false
+        elif clause.Contains("==") then
+            let parts = clause.Split("==", 2, StringSplitOptions.None)
+
+            if parts.Length = 2 then
+                let key = parts[0].Trim()
+                let value = parseLiteral parts[1]
+                resolveKey key outcome context = value
             else
                 false
         elif clause.Contains("=") then

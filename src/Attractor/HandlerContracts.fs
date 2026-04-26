@@ -25,7 +25,7 @@ module HandlerArtifacts =
 
     let writeStatus (stageDir: string) (rootDir: string) (outcome: Outcome) =
         let status =
-            {| outcome = outcome.Status.ToString()
+            {| outcome = outcome.OutcomeString
                preferred_label = outcome.PreferredLabel
                suggested_next_ids = outcome.SuggestedNextIds
                context_updates = outcome.ContextUpdates

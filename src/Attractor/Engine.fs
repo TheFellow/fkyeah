@@ -609,6 +609,10 @@ module Engine =
             checkpoint.NodeOutcomes
             |> Map.map (fun _ outcome ->
                 {| status = outcome.Status.ToString()
+                   raw_outcome =
+                    match outcome.RawOutcome with
+                    | Some value -> value
+                    | None -> null
                    preferred_label = outcome.PreferredLabel
                    suggested_next_ids = outcome.SuggestedNextIds
                    context_updates = outcome.ContextUpdates
@@ -720,6 +724,7 @@ module Engine =
 
                 Some
                     { Status = status
+                      RawOutcome = statusRaw
                       PreferredLabel = preferredLabel
                       SuggestedNextIds = suggestedNextIds
                       ContextUpdates = contextUpdates
@@ -1010,7 +1015,7 @@ module Engine =
 
                     // Step 4: Apply context updates to canonical context
                     context.ApplyUpdates(outcome.ContextUpdates)
-                    context.Set("outcome", outcome.Status.ToString())
+                    context.Set("outcome", outcome.OutcomeString)
 
                     if outcome.PreferredLabel <> "" then
                         context.Set("preferred_label", outcome.PreferredLabel)
@@ -1200,6 +1205,18 @@ module Engine =
                                 else
                                     StageStatus.Success
 
+                            let rawOutcome =
+                                if outcomeJson.TryGetProperty("raw_outcome") |> fst then
+                                    let raw = outcomeJson.GetProperty("raw_outcome")
+
+                                    match raw.ValueKind with
+                                    | JsonValueKind.String -> Some(raw.GetString())
+                                    | JsonValueKind.Null
+                                    | JsonValueKind.Undefined -> None
+                                    | _ -> Some(raw.ToString())
+                                else
+                                    None
+
                             let preferredLabel =
                                 if outcomeJson.TryGetProperty("preferred_label") |> fst then
                                     outcomeJson.GetProperty("preferred_label").GetString()
@@ -1236,6 +1253,7 @@ module Engine =
 
                             p.Name,
                             { Status = status
+                              RawOutcome = rawOutcome
                               PreferredLabel = preferredLabel
                               SuggestedNextIds = suggestedNextIds
                               ContextUpdates = contextUpdates
@@ -1422,7 +1440,7 @@ module Engine =
                     completedNodes.Add(node.Id)
                     nodeOutcomes[node.Id] <- outcome
                     context.ApplyUpdates(outcome.ContextUpdates)
-                    context.Set("outcome", outcome.Status.ToString())
+                    context.Set("outcome", outcome.OutcomeString)
 
                     if outcome.PreferredLabel <> "" then
                         context.Set("preferred_label", outcome.PreferredLabel)

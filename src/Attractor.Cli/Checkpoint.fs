@@ -79,6 +79,7 @@ let private statusToOutcome
     (updates: Map<string, string>)
     =
     { Status = status
+      RawOutcome = None
       PreferredLabel = ""
       SuggestedNextIds = []
       ContextUpdates = updates
@@ -113,7 +114,7 @@ let private markDone (runDir: string) (nodeId: string) (status: StageStatus) (no
 
                 let contextValues =
                     checkpoint.ContextValues
-                    |> Map.add "outcome" (status.ToString())
+                    |> Map.add "outcome" outcome.OutcomeString
                     |> Map.add "last_stage" nodeId
                     |> Map.add "last_response" $"Marked done via checkpoint CLI: {note}"
 
@@ -146,7 +147,7 @@ let private markDone (runDir: string) (nodeId: string) (status: StageStatus) (no
 
             let contextValues =
                 checkpoint.ContextValues
-                |> Map.add "outcome" (status.ToString())
+                |> Map.add "outcome" outcome.OutcomeString
                 |> Map.add "last_stage" nodeId
                 |> Map.add "last_response" $"Marked done via checkpoint CLI: {note}"
 
@@ -203,7 +204,7 @@ let private setOutcome
                 let outcome = statusToOutcome status note failureReason updates
 
                 let contextValues =
-                    let withOutcome = checkpoint.ContextValues |> Map.add "outcome" (status.ToString())
+                    let withOutcome = checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
                     let withStage = withOutcome |> Map.add "last_stage" nodeId
 
                     match toolStdout with
@@ -251,7 +252,7 @@ let private setOutcome
             let outcome = statusToOutcome status note failureReason updates
 
             let contextValues =
-                let withOutcome = checkpoint.ContextValues |> Map.add "outcome" (status.ToString())
+                let withOutcome = checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
                 let withStage = withOutcome |> Map.add "last_stage" nodeId
 
                 match toolStdout with

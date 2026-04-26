@@ -1,0 +1,15 @@
+digraph custom_raw_outcome {
+    graph [goal="Route on custom outcome from status.json"]
+
+    start       [shape=Mdiamond]
+    writer      [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"needs_dod\"}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+    custom_path [shape=box, prompt="Custom route"]
+    fallback    [shape=box, prompt="Fallback route"]
+    done        [shape=Msquare]
+
+    start       -> writer
+    writer      -> custom_path [condition="outcome == \"needs_dod\""]
+    writer      -> fallback    [condition="outcome == \"success\""]
+    custom_path -> done
+    fallback    -> done
+}

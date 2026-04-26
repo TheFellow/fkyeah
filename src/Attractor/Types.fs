@@ -119,14 +119,21 @@ type StageStatus =
 /// Outcome of executing a node handler
 type Outcome =
     { Status: StageStatus
+      /// The raw "outcome" string emitted by a handler/agent before StageStatus.Parse coercion.
+      /// None means consumers should fall back to Status.ToString().
+      RawOutcome: string option
       PreferredLabel: string
       SuggestedNextIds: string list
       ContextUpdates: Map<string, string>
       Notes: string
       FailureReason: string }
 
+    member this.OutcomeString =
+        this.RawOutcome |> Option.defaultValue (this.Status.ToString())
+
     static member Success(?notes, ?contextUpdates) =
         { Status = StageStatus.Success
+          RawOutcome = None
           PreferredLabel = ""
           SuggestedNextIds = []
           ContextUpdates = defaultArg contextUpdates Map.empty
@@ -135,6 +142,7 @@ type Outcome =
 
     static member Fail(reason: string) =
         { Status = StageStatus.Fail
+          RawOutcome = None
           PreferredLabel = ""
           SuggestedNextIds = []
           ContextUpdates = Map.empty
@@ -143,6 +151,7 @@ type Outcome =
 
     static member Retry(reason: string) =
         { Status = StageStatus.Retry
+          RawOutcome = None
           PreferredLabel = ""
           SuggestedNextIds = []
           ContextUpdates = Map.empty
@@ -151,6 +160,7 @@ type Outcome =
 
     static member PartialSuccess(?notes) =
         { Status = StageStatus.PartialSuccess
+          RawOutcome = None
           PreferredLabel = ""
           SuggestedNextIds = []
           ContextUpdates = Map.empty
