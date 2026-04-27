@@ -1251,6 +1251,69 @@ module Validation =
                     else
                         None) }
 
+    /// Rule: Warn when implicit fan-out branches do not share a common first fan-in successor.
+    let fanoutFanInAmbiguousRule: ILintRule =
+        { new ILintRule with
+            member _.Name = "fanout_fan_in_ambiguous"
+
+            member _.Apply(graph) =
+                graph.Nodes
+                |> Map.toList
+                |> List.collect (fun (_, node) ->
+                    let outgoing = graph.OutgoingEdges(node.Id)
+
+                    let conditionalFanoutGroups =
+                        outgoing
+                        |> List.filter (fun e -> e.Condition <> "")
+                        |> List.groupBy (fun e -> e.Condition)
+                        |> List.choose (fun (_, edges) -> if edges.Length >= 2 then Some edges else None)
+
+                    let unconditional = outgoing |> List.filter (fun e -> e.Condition = "")
+
+                    let fanoutGroups =
+                        if unconditional.Length >= 2 then
+                            conditionalFanoutGroups @ [ unconditional ]
+                        else
+                            conditionalFanoutGroups
+
+                    fanoutGroups
+                    |> List.choose (fun fanoutGroup ->
+                        let branchTargets =
+                            fanoutGroup
+                            |> List.map (fun edge -> edge.ToNode)
+                            |> List.distinct
+
+                        let branchFanIns =
+                            branchTargets
+                            |> List.map (fun targetId ->
+                                let fanIn =
+                                    graph.OutgoingEdges(targetId) |> List.tryHead |> Option.map (fun e -> e.ToNode)
+
+                                targetId, fanIn)
+
+                        let distinctCandidates =
+                            branchFanIns |> List.map snd |> List.distinct
+
+                        let allTerminal = distinctCandidates |> List.forall Option.isNone
+
+                        if allTerminal || distinctCandidates.Length <= 1 then
+                            None
+                        else
+                            let details =
+                                branchFanIns
+                                |> List.map (fun (targetId, fanIn) ->
+                                    let fanInText = fanIn |> Option.defaultValue "(terminal)"
+                                    $"  - {targetId} -> {fanInText}")
+                                |> String.concat "\n"
+
+                            Some(
+                                Diagnostic.Warning(
+                                    "fanout_fan_in_ambiguous",
+                                    $"node '{node.Id}': fan-out branches converge to different first successors:\n{details}\nAuthors should add an explicit join node so all branches converge cleanly.",
+                                    nodeId = node.Id
+                                )
+                            ))) }
+
     /// Rule: Warn when parallelogram (tool) nodes invoke LLM CLIs directly via tool_command.
     /// LLM invocations from tool nodes bypass session management, turn limits, loop detection,
     /// tool exclusion, and structured outcome routing. Use a codergen or coding_agent node instead.
@@ -1709,6 +1772,7 @@ module Validation =
           cumulativeTurnsRule
           lowMaxTurnsRule
           parallelogramOutcomeRoutingRule
+          fanoutFanInAmbiguousRule
           toolNodeLlmInvocationRule
           loopSessionPollutionRule
           conflictingSessionAttrsRule

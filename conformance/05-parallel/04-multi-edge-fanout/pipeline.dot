@@ -1,0 +1,20 @@
+digraph multi_edge_fanout {
+    graph [goal="Sprint 017 multi-edge fan-out"]
+
+    start       [shape=Mdiamond]
+    exit        [shape=Msquare]
+    choose      [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"needs_dod\"}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+    branch_one  [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"context.fanout.branch.one\":\"one-done\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+    branch_two  [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"context.fanout.branch.two\":\"two-done\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+    branch_three [shape=parallelogram, tool_command="printf '%s' '{\"outcome\":\"success\",\"context_updates\":{\"context.fanout.branch.three\":\"three-done\"}}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+    fan_in      [shape=parallelogram, prompt="fanin ${context.fanout.branch.one}|${context.fanout.branch.two}|${context.fanout.branch.three}", tool_command="cat \"$ATTRACTOR_PROMPT_FILE\" > \"$ATTRACTOR_STAGE_DIR/fan_in_prompt.txt\"; printf '%s' '{\"outcome\":\"success\"}' > \"$ATTRACTOR_STAGE_DIR/status.json\""]
+
+    start -> choose
+    choose -> branch_one   [condition="outcome=needs_dod"]
+    choose -> branch_two   [condition="outcome=needs_dod"]
+    choose -> branch_three [condition="outcome=needs_dod"]
+    branch_one -> fan_in
+    branch_two -> fan_in
+    branch_three -> fan_in
+    fan_in -> exit
+}

@@ -139,6 +139,31 @@ module EdgeSelection =
                         else
                             None
 
+    /// Return ALL matching outgoing edges (for multi-edge fan-out).
+    /// Falls back to single-edge selection when only one edge qualifies.
+    let selectAllMatchingEdges (node: Node) (outcome: Outcome) (context: Context) (graph: Graph) : Edge list =
+        let edges = graph.OutgoingEdges(node.Id)
+
+        if edges.IsEmpty then
+            []
+        else
+            let conditionMatched =
+                edges
+                |> List.filter (fun e ->
+                    e.Condition <> "" && Conditions.evaluate e.Condition outcome context)
+
+            if not conditionMatched.IsEmpty then
+                conditionMatched
+            else
+                let unconditional = edges |> List.filter (fun e -> e.Condition = "")
+
+                if unconditional.Length > 1 then
+                    unconditional
+                else
+                    match selectEdge node outcome context graph with
+                    | Some edge -> [ edge ]
+                    | None -> []
+
 /// Goal gate enforcement
 module GoalGates =
 
@@ -253,6 +278,33 @@ module Engine =
         for kv in config.InitialContextValues do
             if not fillMissingOnly || context.Get(kv.Key, "") = "" then
                 context.Set(kv.Key, kv.Value)
+
+    let private tryResolveFanInEdge (edges: Edge list) (graph: Graph) : Edge option =
+        edges
+        |> List.tryPick (fun edge -> graph.OutgoingEdges(edge.ToNode) |> List.tryHead)
+
+    /// Run all fan-out branches sequentially and return the chosen fan-in edge.
+    let private runFanOut
+        (edges: Edge list)
+        (graph: Graph)
+        (initialOutcome: Outcome)
+        (isCompleted: string -> bool)
+        (shouldContinue: unit -> bool)
+        (executeBranch: Edge -> Outcome)
+        : Edge option * Outcome =
+        let mutable lastBranchOutcome = initialOutcome
+
+        for edge in edges do
+            if shouldContinue () && not (isCompleted edge.ToNode) then
+                lastBranchOutcome <- executeBranch edge
+
+        let fanInEdge =
+            if shouldContinue () then
+                tryResolveFanInEdge edges graph
+            else
+                None
+
+        fanInEdge, lastBranchOutcome
 
     let private interpolationPattern =
         Regex(@"\$\{([a-zA-Z0-9_.]+)\}", RegexOptions.Compiled)
@@ -788,6 +840,133 @@ module Engine =
         let goalGateRetryVisited = System.Collections.Generic.HashSet<string>()
         context.Set("internal.loop_restart_count", (restartCount: int).ToString())
 
+        let executeMainFanOutBranch (parentNode: Node) (branchTarget: Edge) : Outcome =
+            match graph.Nodes |> Map.tryFind branchTarget.ToNode with
+            | None ->
+                let fail = Outcome.Fail($"Edge target '{branchTarget.ToNode}' not found")
+                running <- false
+                fail
+            | Some branchNode ->
+                let branchFidelity = FidelityResolution.resolve (Some branchTarget) branchNode graph
+
+                let branchNodeWithFidelity =
+                    { branchNode with
+                        Attributes =
+                            branchNode.Attributes
+                            |> Map.add "__resolved_fidelity" (AttrValue.String((branchFidelity: FidelityMode).ToString())) }
+
+                let branchContext =
+                    if branchFidelity = FidelityMode.Full then
+                        context
+                    else
+                        context.Project(branchFidelity)
+
+                emitter.Emit(PipelineEvent.StageStarted(branchNode.Id, nodeIndex))
+                let branchHandlerType = ShapeMapping.resolveHandlerType branchNode
+                let branchStageStart = DateTimeOffset.UtcNow
+                context.Set("current_node", branchNode.Id)
+
+                let branchVisitCount =
+                    let current =
+                        match nodeVisitCounts.TryGetValue(branchNode.Id) with
+                        | true, count -> count
+                        | false, _ -> 0
+
+                    let updated = current + 1
+                    nodeVisitCounts[branchNode.Id] <- updated
+                    updated
+
+                context.Set("node.visit_count", ((branchVisitCount: int).ToString()))
+                context.Set($"node.{branchNode.Id}.visit_count", ((branchVisitCount: int).ToString()))
+
+                let branchNodeForHandler =
+                    prepareNodeForExecution context branchFidelity branchNodeWithFidelity
+
+                let branchHandler = registry.Resolve(branchNodeForHandler)
+                let branchRetryPolicy = RetryPolicy.FromNode(branchNodeForHandler, graph)
+
+                let rawBranchOutcome =
+                    if branchVisitCount > branchNode.MaxVisits then
+                        Outcome.Fail($"Node '{branchNode.Id}' exceeded max_visits ({branchNode.MaxVisits})")
+                    else
+                        executeWithRetry
+                            branchHandler
+                            branchNodeForHandler
+                            branchContext
+                            graph
+                            currentLogsRoot
+                            branchRetryPolicy
+                            emitter
+                            nodeIndex
+
+                let branchStatusPath =
+                    Path.Combine(currentLogsRoot, branchNode.Id, "status.json")
+
+                let branchOutcome =
+                    match tryLoadStatusOutcome branchStatusPath rawBranchOutcome with
+                    | Some parsed -> parsed
+                    | None ->
+                        let shouldAutoStatus =
+                            branchNode.AutoStatus && (branchHandlerType = "tool" || branchHandlerType = "codergen")
+
+                        if shouldAutoStatus && not (File.Exists(branchStatusPath)) then
+                            { rawBranchOutcome with
+                                Status = StageStatus.Success
+                                FailureReason = ""
+                                Notes =
+                                    if rawBranchOutcome.Notes <> "" then
+                                        rawBranchOutcome.Notes
+                                    else
+                                        "auto_status synthesized success (status.json not found)" }
+                        else
+                            rawBranchOutcome
+
+                let branchStageDuration = DateTimeOffset.UtcNow - branchStageStart
+
+                match branchOutcome.Status with
+                | StageStatus.Fail ->
+                    let isGateCheck =
+                        branchHandlerType = "tool"
+                        && graph.OutgoingEdges(branchNode.Id) |> List.exists (fun e -> e.Condition <> "")
+
+                    if isGateCheck then
+                        emitter.Emit(PipelineEvent.StageCompleted(branchNode.Id, nodeIndex, branchStageDuration))
+                    else
+                        emitter.Emit(
+                            PipelineEvent.StageFailed(branchNode.Id, nodeIndex, branchOutcome.FailureReason, false)
+                        )
+                | _ -> emitter.Emit(PipelineEvent.StageCompleted(branchNode.Id, nodeIndex, branchStageDuration))
+
+                completedNodes.Add(branchNode.Id)
+                nodeOutcomes[branchNode.Id] <- branchOutcome
+                context.ApplyUpdates(branchOutcome.ContextUpdates)
+                context.Set("outcome", branchOutcome.OutcomeString)
+
+                if branchOutcome.PreferredLabel <> "" then
+                    context.Set("preferred_label", branchOutcome.PreferredLabel)
+
+                match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
+                | Some lastNode, Some costMicros when lastNode = branchNode.Id ->
+                    let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+                    let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+
+                    nodeCosts[branchNode.Id] <- costMicros, inputTokens, outputTokens
+                    writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+                | _ -> writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
+                let branchCheckpoint =
+                    Checkpoint.Create(
+                        context,
+                        parentNode.Id,
+                        completedNodes |> Seq.toList,
+                        nodeRetries |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq,
+                        nodeOutcomes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+                    )
+
+                saveCheckpoint currentLogsRoot branchCheckpoint
+                emitter.Emit(PipelineEvent.CheckpointSaved(branchNode.Id))
+                branchOutcome
+
         while running do
             // Check for user cancellation (Ctrl-C)
             if UnifiedLlm.HttpCancellation.isCancelled () then
@@ -1053,8 +1232,8 @@ module Engine =
 
                     lastOutcome <- outcome
 
-                    // Step 6: Select next edge
-                    let nextEdge =
+                    // Step 6: Select next edges
+                    let nextEdges =
                         if outcome.Status = StageStatus.Fail then
                             if
                                 outcome.FailureReason.Contains(
@@ -1062,7 +1241,7 @@ module Engine =
                                     StringComparison.OrdinalIgnoreCase
                                 )
                             then
-                                None
+                                []
                             else
                                 let failEdge =
                                     graph.OutgoingEdges(node.Id)
@@ -1070,7 +1249,7 @@ module Engine =
                                     |> List.tryFind (fun e -> Conditions.evaluate e.Condition outcome context)
 
                                 match failEdge with
-                                | Some edge -> Some edge
+                                | Some edge -> [ edge ]
                                 | None ->
                                     let retryTarget =
                                         [ node.RetryTarget
@@ -1080,21 +1259,45 @@ module Engine =
                                         |> List.tryFind (fun target ->
                                             target <> "" && (graph.Nodes |> Map.containsKey target))
 
-                                    retryTarget
-                                    |> Option.map (fun target ->
-                                        { FromNode = node.Id
-                                          ToNode = target
-                                          Attributes = Map.empty })
+                                    match retryTarget with
+                                    | Some target ->
+                                        [ { FromNode = node.Id
+                                            ToNode = target
+                                            Attributes = Map.empty } ]
+                                    | None -> []
                         else
-                            EdgeSelection.selectEdge node outcome context graph
+                            EdgeSelection.selectAllMatchingEdges node outcome context graph
 
-                    match nextEdge with
-                    | None ->
+                    if nextEdges.Length > 1 then
+                        let fanInEdge, fanOutOutcome =
+                            runFanOut
+                                nextEdges
+                                graph
+                                lastOutcome
+                                completedNodes.Contains
+                                (fun () -> running)
+                                (executeMainFanOutBranch node)
+
+                        lastOutcome <- fanOutOutcome
+
+                        if running then
+                            match fanInEdge with
+                            | Some edge ->
+                                lastEdge <- Some edge
+
+                                match graph.Nodes |> Map.tryFind edge.ToNode with
+                                | Some nextNode -> currentNode <- nextNode
+                                | None ->
+                                    lastOutcome <- Outcome.Fail($"Edge target '{edge.ToNode}' not found")
+                                    running <- false
+                            | None -> running <- false
+                    elif nextEdges.IsEmpty then
                         if outcome.Status = StageStatus.Fail then
                             lastOutcome <- outcome
 
                         running <- false
-                    | Some edge ->
+                    else
+                        let edge = nextEdges.Head
                         lastEdge <- Some edge
 
                         // Step 7: Handle loop_restart
@@ -1331,26 +1534,133 @@ module Engine =
         for kv in checkpoint.NodeRetries do
             nodeRetries[kv.Key] <- kv.Value
 
-        // Find the node AFTER the checkpointed one
         let lastCompletedNode = checkpoint.CurrentNode
-        let lastNode = graph.Nodes[lastCompletedNode]
-
-        let lastOutcomeForEdge =
-            checkpoint.NodeOutcomes
-            |> Map.tryFind lastCompletedNode
-            |> Option.defaultValue (Outcome.Success())
-
-        let nextEdge = EdgeSelection.selectEdge lastNode lastOutcomeForEdge context graph
-
-        let mutable currentNode =
-            match nextEdge with
-            | Some edge -> graph.Nodes[edge.ToNode]
-            | None -> graph.Nodes[lastCompletedNode] // fallback
+        let mutable currentNode = graph.Nodes[lastCompletedNode]
 
         let mutable lastOutcome = Outcome.Success()
         let mutable running = true
         let mutable nodeIndex = completedNodes.Count
         let mutable resumeDegradePending = true
+
+        let resolveNextEdges (node: Node) (outcome: Outcome) =
+            if outcome.Status = StageStatus.Fail then
+                let failEdge =
+                    graph.OutgoingEdges(node.Id)
+                    |> List.filter (fun e -> e.Condition <> "")
+                    |> List.tryFind (fun e -> Conditions.evaluate e.Condition outcome context)
+
+                match failEdge with
+                | Some edge -> [ edge ]
+                | None ->
+                    let retryTarget =
+                        [ node.RetryTarget
+                          node.FallbackRetryTarget
+                          graph.RetryTarget
+                          graph.FallbackRetryTarget ]
+                        |> List.tryFind (fun target ->
+                            target <> "" && (graph.Nodes |> Map.containsKey target))
+
+                    match retryTarget with
+                    | Some target ->
+                        [ { FromNode = node.Id
+                            ToNode = target
+                            Attributes = Map.empty } ]
+                    | None -> []
+            else
+                EdgeSelection.selectAllMatchingEdges node outcome context graph
+
+        let executeResumeNode (incomingEdge: Edge option) (node: Node) (checkpointNodeId: string option) =
+            let fidelity = FidelityResolution.resolve incomingEdge node graph
+
+            let nodeWithFidelity =
+                { node with
+                    Attributes =
+                        node.Attributes
+                        |> Map.add "__resolved_fidelity" (AttrValue.String((fidelity: FidelityMode).ToString())) }
+
+            let handlerContext =
+                if resumeDegradePending then
+                    context.Set("resume.degraded_fidelity", "summary:high")
+                    context.Set("resume.degraded_node", node.Id)
+                    context.Project(FidelityMode.SummaryHigh)
+                elif fidelity = FidelityMode.Full then
+                    context
+                else
+                    context.Project(fidelity)
+
+            emitter.Emit(PipelineEvent.StageStarted(node.Id, nodeIndex))
+            context.Set("current_node", node.Id)
+
+            let nodeForHandler = prepareNodeForExecution context fidelity nodeWithFidelity
+            let handler = registry.Resolve(nodeForHandler)
+            let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
+
+            let rawOutcome =
+                executeWithRetry handler nodeForHandler handlerContext graph logsRoot retryPolicy emitter nodeIndex
+
+            let handlerType = ShapeMapping.resolveHandlerType node
+            let statusPath = Path.Combine(logsRoot, node.Id, "status.json")
+
+            let outcome =
+                match tryLoadStatusOutcome statusPath rawOutcome with
+                | Some parsed -> parsed
+                | None ->
+                    let shouldAutoStatus =
+                        node.AutoStatus && (handlerType = "tool" || handlerType = "codergen")
+
+                    if shouldAutoStatus && not (File.Exists(statusPath)) then
+                        { rawOutcome with
+                            Status = StageStatus.Success
+                            FailureReason = ""
+                            Notes =
+                                if rawOutcome.Notes <> "" then
+                                    rawOutcome.Notes
+                                else
+                                    "auto_status synthesized success (status.json not found)" }
+                    else
+                        rawOutcome
+
+            completedNodes.Add(node.Id)
+            nodeOutcomes[node.Id] <- outcome
+            context.ApplyUpdates(outcome.ContextUpdates)
+            context.Set("outcome", outcome.OutcomeString)
+
+            if outcome.PreferredLabel <> "" then
+                context.Set("preferred_label", outcome.PreferredLabel)
+
+            match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
+            | Some lastNode, Some costMicros when lastNode = node.Id ->
+                let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+                let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+
+                nodeCosts[node.Id] <- costMicros, inputTokens, outputTokens
+                writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+            | _ -> writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
+            let cp =
+                Checkpoint.Create(
+                    context,
+                    checkpointNodeId |> Option.defaultValue node.Id,
+                    completedNodes |> Seq.toList,
+                    nodeRetries |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq,
+                    nodeOutcomes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+                )
+
+            saveCheckpoint logsRoot cp
+
+            if resumeDegradePending then
+                resumeDegradePending <- false
+                context.Set("resume.degraded_fidelity", "restored")
+
+            outcome
+
+        let executeResumeFanOutBranch (parentNode: Node) (branchTarget: Edge) : Outcome =
+            match graph.Nodes |> Map.tryFind branchTarget.ToNode with
+            | Some branchNode -> executeResumeNode (Some branchTarget) branchNode (Some parentNode.Id)
+            | None ->
+                let fail = Outcome.Fail($"Edge target '{branchTarget.ToNode}' not found")
+                running <- false
+                fail
 
         while running do
             // Check for user cancellation (Ctrl-C)
@@ -1361,7 +1671,46 @@ module Engine =
 
                 let node = currentNode
 
-                if ShapeMapping.isTerminal node then
+                if completedNodes.Contains(node.Id) then
+                    let recordedOutcome =
+                        match nodeOutcomes.TryGetValue(node.Id) with
+                        | true, value -> value
+                        | false, _ -> Outcome.Success()
+
+                    let nextEdges = resolveNextEdges node recordedOutcome
+
+                    if nextEdges.Length > 1 then
+                        let fanInEdge, fanOutOutcome =
+                            runFanOut
+                                nextEdges
+                                graph
+                                lastOutcome
+                                completedNodes.Contains
+                                (fun () -> running)
+                                (executeResumeFanOutBranch node)
+
+                        lastOutcome <- fanOutOutcome
+
+                        if running then
+                            match fanInEdge with
+                            | Some edge ->
+                                match graph.Nodes |> Map.tryFind edge.ToNode with
+                                | Some nextNode -> currentNode <- nextNode
+                                | None ->
+                                    lastOutcome <- Outcome.Fail($"Edge target '{edge.ToNode}' not found")
+                                    running <- false
+                            | None -> running <- false
+                    elif nextEdges.IsEmpty then
+                        running <- false
+                    else
+                        let edge = nextEdges.Head
+
+                        match graph.Nodes |> Map.tryFind edge.ToNode with
+                        | Some nextNode -> currentNode <- nextNode
+                        | None ->
+                            lastOutcome <- Outcome.Fail($"Edge target '{edge.ToNode}' not found")
+                            running <- false
+                elif ShapeMapping.isTerminal node then
                     let (gateOk, failedGate) =
                         GoalGates.checkGoalGates
                             graph
@@ -1379,106 +1728,40 @@ module Engine =
                     else
                         running <- false
                 else
-                    let fidelity = FidelityResolution.resolve None node graph
-
-                    let nodeWithFidelity =
-                        { node with
-                            Attributes =
-                                node.Attributes
-                                |> Map.add "__resolved_fidelity" (AttrValue.String((fidelity: FidelityMode).ToString())) }
-
-                    let handlerContext =
-                        if resumeDegradePending then
-                            context.Set("resume.degraded_fidelity", "summary:high")
-                            context.Set("resume.degraded_node", node.Id)
-                            context.Project(FidelityMode.SummaryHigh)
-                        elif fidelity = FidelityMode.Full then
-                            context
-                        else
-                            context.Project(fidelity)
-
-                    emitter.Emit(PipelineEvent.StageStarted(node.Id, nodeIndex))
-                    context.Set("current_node", node.Id)
-
-                    let nodeForHandler = prepareNodeForExecution context fidelity nodeWithFidelity
-                    let handler = registry.Resolve(nodeForHandler)
-                    let retryPolicy = RetryPolicy.FromNode(nodeForHandler, graph)
-
-                    let outcome =
-                        executeWithRetry
-                            handler
-                            nodeForHandler
-                            handlerContext
-                            graph
-                            logsRoot
-                            retryPolicy
-                            emitter
-                            nodeIndex
-
-                    let handlerType = ShapeMapping.resolveHandlerType node
-                    let statusPath = Path.Combine(logsRoot, node.Id, "status.json")
-
-                    let outcome =
-                        match tryLoadStatusOutcome statusPath outcome with
-                        | Some parsed -> parsed
-                        | None ->
-                            let shouldAutoStatus =
-                                node.AutoStatus && (handlerType = "tool" || handlerType = "codergen")
-
-                            if shouldAutoStatus && not (File.Exists(statusPath)) then
-                                { outcome with
-                                    Status = StageStatus.Success
-                                    FailureReason = ""
-                                    Notes =
-                                        if outcome.Notes <> "" then
-                                            outcome.Notes
-                                        else
-                                            "auto_status synthesized success (status.json not found)" }
-                            else
-                                outcome
-
-                    completedNodes.Add(node.Id)
-                    nodeOutcomes[node.Id] <- outcome
-                    context.ApplyUpdates(outcome.ContextUpdates)
-                    context.Set("outcome", outcome.OutcomeString)
-
-                    if outcome.PreferredLabel <> "" then
-                        context.Set("preferred_label", outcome.PreferredLabel)
-
-                    match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
-                    | Some lastNode, Some costMicros when lastNode = node.Id ->
-                        let inputTokens =
-                            tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
-
-                        let outputTokens =
-                            tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
-
-                        nodeCosts[node.Id] <- costMicros, inputTokens, outputTokens
-                        writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
-                    | _ ->
-                        writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
-
-                    let cp =
-                        Checkpoint.Create(
-                            context,
-                            node.Id,
-                            completedNodes |> Seq.toList,
-                            nodeRetries |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq,
-                            nodeOutcomes |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-                        )
-
-                    saveCheckpoint logsRoot cp
+                    let outcome = executeResumeNode None node None
                     lastOutcome <- outcome
 
-                    let nextEdge = EdgeSelection.selectEdge node outcome context graph
+                    let nextEdges = resolveNextEdges node outcome
 
-                    match nextEdge with
-                    | None ->
+                    if nextEdges.Length > 1 then
+                        let fanInEdge, fanOutOutcome =
+                            runFanOut
+                                nextEdges
+                                graph
+                                lastOutcome
+                                completedNodes.Contains
+                                (fun () -> running)
+                                (executeResumeFanOutBranch node)
+
+                        lastOutcome <- fanOutOutcome
+
+                        if running then
+                            match fanInEdge with
+                            | Some edge ->
+                                match graph.Nodes |> Map.tryFind edge.ToNode with
+                                | Some nextNode -> currentNode <- nextNode
+                                | None ->
+                                    lastOutcome <- Outcome.Fail($"Edge target '{edge.ToNode}' not found")
+                                    running <- false
+                            | None -> running <- false
+                    elif nextEdges.IsEmpty then
                         if outcome.Status = StageStatus.Fail then
                             lastOutcome <- Outcome.Fail($"Stage '{node.Id}' failed with no outgoing fail edge")
 
                         running <- false
-                    | Some edge ->
+                    else
+                        let edge = nextEdges.Head
+
                         match graph.Nodes |> Map.tryFind edge.ToNode with
                         | Some nextNode -> currentNode <- nextNode
                         | None ->
@@ -1486,10 +1769,6 @@ module Engine =
                             running <- false
 
                     nodeIndex <- nodeIndex + 1
-
-                    if resumeDegradePending then
-                        resumeDegradePending <- false
-                        context.Set("resume.degraded_fidelity", "restored")
 
         let totalDuration = DateTimeOffset.UtcNow - startTime
 

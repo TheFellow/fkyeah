@@ -103,6 +103,11 @@ module Conditions =
 
                             if parts.Length <> 2 || String.IsNullOrWhiteSpace(parts[0]) then
                                 failwith $"Invalid clause: {c}"
+                        elif c.Contains("==") then
+                            let parts = c.Split("==", 2, StringSplitOptions.None)
+
+                            if parts.Length <> 2 || String.IsNullOrWhiteSpace(parts[0]) then
+                                failwith $"Invalid clause: {c}"
                         elif c.Contains("=") then
                             let parts = c.Split("=", 2, StringSplitOptions.None)
 

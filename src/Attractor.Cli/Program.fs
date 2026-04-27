@@ -422,6 +422,19 @@ let printSchema () =
 #   thread_id          String    Override thread ID for target node.
 #   loop_restart       Boolean   If true, restart pipeline with fresh logs and context.
 
+# FAN-OUT (multi-edge)
+#
+# When a node has multiple outgoing edges that all match the same condition,
+# OR multiple unconditional outgoing edges, the engine executes all target
+# nodes sequentially before advancing to the common fan-in successor.
+#
+# The fan-in node is the first outgoing-edge target of the first branch.
+# Authors should ensure all branches converge to the same fan-in node, or
+# the validator's fanout_fan_in_ambiguous warning will fire.
+#
+# loop_restart is IGNORED on edges that participate in fan-out.
+# For true concurrent/isolated execution, use shape=parallel instead.
+
 # ═══════════════════════════════════════════════════════════════════════════
 # EDGE SELECTION PRIORITY (5-step algorithm)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -456,6 +469,7 @@ let printSchema () =
 #   - scope_gate_coverage: file-editing coding_agent can reach commit-like node without passing a scope-check tool gate (warning)
 #   - partial_commit_needs_build_gate: fail/partial edge to commit-like node is missing an intermediate build/test gate (warning)
 #   - parallelogram_needs_timeout: every tool/parallelogram node should set timeout to avoid wedged pipeline hangs (warning)
+#   - fanout_fan_in_ambiguous: implicit fan-out branches converge to different first successors (warning)
 #   - validate_measure_only: validation prompt mixes measure commands with in-node fix-loop instructions (warning)
 #   - review_gate_first_line_strict: strict anchored grep gate lacks upstream prompt requiring exact first-line token output (warning)
 #   - scratch_path_consistency: .ai scratch slug appears at multiple paths across prompts/tool_command usage (warning)

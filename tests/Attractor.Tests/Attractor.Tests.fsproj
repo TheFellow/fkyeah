@@ -11,6 +11,7 @@
     <Compile Include="Sprint014ValidationTests.fs" />
     <Compile Include="Sprint015Tests.fs" />
     <Compile Include="Sprint016Tests.fs" />
+    <Compile Include="Sprint017Tests.fs" />
     <Compile Include="FidelityTests.fs" />
     <Compile Include="CostAggregationTests.fs" />
     <Compile Include="LiveApiTests.fs" />
