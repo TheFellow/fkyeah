@@ -149,8 +149,7 @@ module EdgeSelection =
         else
             let conditionMatched =
                 edges
-                |> List.filter (fun e ->
-                    e.Condition <> "" && Conditions.evaluate e.Condition outcome context)
+                |> List.filter (fun e -> e.Condition <> "" && Conditions.evaluate e.Condition outcome context)
 
             if not conditionMatched.IsEmpty then
                 conditionMatched
@@ -853,7 +852,9 @@ module Engine =
                     { branchNode with
                         Attributes =
                             branchNode.Attributes
-                            |> Map.add "__resolved_fidelity" (AttrValue.String((branchFidelity: FidelityMode).ToString())) }
+                            |> Map.add
+                                "__resolved_fidelity"
+                                (AttrValue.String((branchFidelity: FidelityMode).ToString())) }
 
                 let branchContext =
                     if branchFidelity = FidelityMode.Full then
@@ -899,15 +900,15 @@ module Engine =
                             emitter
                             nodeIndex
 
-                let branchStatusPath =
-                    Path.Combine(currentLogsRoot, branchNode.Id, "status.json")
+                let branchStatusPath = Path.Combine(currentLogsRoot, branchNode.Id, "status.json")
 
                 let branchOutcome =
                     match tryLoadStatusOutcome branchStatusPath rawBranchOutcome with
                     | Some parsed -> parsed
                     | None ->
                         let shouldAutoStatus =
-                            branchNode.AutoStatus && (branchHandlerType = "tool" || branchHandlerType = "codergen")
+                            branchNode.AutoStatus
+                            && (branchHandlerType = "tool" || branchHandlerType = "codergen")
 
                         if shouldAutoStatus && not (File.Exists(branchStatusPath)) then
                             { rawBranchOutcome with
@@ -947,12 +948,21 @@ module Engine =
 
                 match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
                 | Some lastNode, Some costMicros when lastNode = branchNode.Id ->
-                    let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
-                    let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+                    let inputTokens =
+                        tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+
+                    let outputTokens =
+                        tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
 
                     nodeCosts[branchNode.Id] <- costMicros, inputTokens, outputTokens
-                    writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
-                | _ -> writeCostSummary currentLogsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+
+                    writeCostSummary
+                        currentLogsRoot
+                        (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
+                | _ ->
+                    writeCostSummary
+                        currentLogsRoot
+                        (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)
 
                 let branchCheckpoint =
                     Checkpoint.Create(
@@ -1557,8 +1567,7 @@ module Engine =
                           node.FallbackRetryTarget
                           graph.RetryTarget
                           graph.FallbackRetryTarget ]
-                        |> List.tryFind (fun target ->
-                            target <> "" && (graph.Nodes |> Map.containsKey target))
+                        |> List.tryFind (fun target -> target <> "" && (graph.Nodes |> Map.containsKey target))
 
                     match retryTarget with
                     | Some target ->
@@ -1630,8 +1639,11 @@ module Engine =
 
             match context.TryGet("llm.last_node"), tryParseInt64 (context.TryGet("llm.cost_microdollars")) with
             | Some lastNode, Some costMicros when lastNode = node.Id ->
-                let inputTokens = tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
-                let outputTokens = tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
+                let inputTokens =
+                    tryParseInt (context.TryGet("llm.input_tokens")) |> Option.defaultValue 0
+
+                let outputTokens =
+                    tryParseInt (context.TryGet("llm.output_tokens")) |> Option.defaultValue 0
 
                 nodeCosts[node.Id] <- costMicros, inputTokens, outputTokens
                 writeCostSummary logsRoot (nodeCosts |> Seq.map (fun pair -> pair.Key, pair.Value) |> Map.ofSeq)

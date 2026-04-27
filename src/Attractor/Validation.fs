@@ -1279,9 +1279,7 @@ module Validation =
                     fanoutGroups
                     |> List.choose (fun fanoutGroup ->
                         let branchTargets =
-                            fanoutGroup
-                            |> List.map (fun edge -> edge.ToNode)
-                            |> List.distinct
+                            fanoutGroup |> List.map (fun edge -> edge.ToNode) |> List.distinct
 
                         let branchFanIns =
                             branchTargets
@@ -1291,8 +1289,7 @@ module Validation =
 
                                 targetId, fanIn)
 
-                        let distinctCandidates =
-                            branchFanIns |> List.map snd |> List.distinct
+                        let distinctCandidates = branchFanIns |> List.map snd |> List.distinct
 
                         let allTerminal = distinctCandidates |> List.forall Option.isNone
 

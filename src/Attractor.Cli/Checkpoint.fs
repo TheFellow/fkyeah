@@ -204,7 +204,9 @@ let private setOutcome
                 let outcome = statusToOutcome status note failureReason updates
 
                 let contextValues =
-                    let withOutcome = checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
+                    let withOutcome =
+                        checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
+
                     let withStage = withOutcome |> Map.add "last_stage" nodeId
 
                     match toolStdout with
@@ -252,7 +254,9 @@ let private setOutcome
             let outcome = statusToOutcome status note failureReason updates
 
             let contextValues =
-                let withOutcome = checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
+                let withOutcome =
+                    checkpoint.ContextValues |> Map.add "outcome" outcome.OutcomeString
+
                 let withStage = withOutcome |> Map.add "last_stage" nodeId
 
                 match toolStdout with

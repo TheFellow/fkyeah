@@ -84,6 +84,8 @@ module StatusRoundTripTests =
 
         HandlerArtifacts.writeStatus logsRoot logsRoot outcome
 
-        use doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(logsRoot, "status.json")))
+        use doc =
+            JsonDocument.Parse(File.ReadAllText(Path.Combine(logsRoot, "status.json")))
+
         let raw = doc.RootElement.GetProperty("outcome").GetString()
         Assert.Equal("needs_dod", raw)

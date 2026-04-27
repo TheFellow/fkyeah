@@ -118,15 +118,17 @@ type StageStatus =
 
 /// Outcome of executing a node handler
 type Outcome =
-    { Status: StageStatus
-      /// The raw "outcome" string emitted by a handler/agent before StageStatus.Parse coercion.
-      /// None means consumers should fall back to Status.ToString().
-      RawOutcome: string option
-      PreferredLabel: string
-      SuggestedNextIds: string list
-      ContextUpdates: Map<string, string>
-      Notes: string
-      FailureReason: string }
+    {
+        Status: StageStatus
+        /// The raw "outcome" string emitted by a handler/agent before StageStatus.Parse coercion.
+        /// None means consumers should fall back to Status.ToString().
+        RawOutcome: string option
+        PreferredLabel: string
+        SuggestedNextIds: string list
+        ContextUpdates: Map<string, string>
+        Notes: string
+        FailureReason: string
+    }
 
     member this.OutcomeString =
         this.RawOutcome |> Option.defaultValue (this.Status.ToString())

@@ -27,12 +27,7 @@ module SelectAllMatchingEdgesTests =
 
         let graph =
             { Name = "t"
-              Nodes =
-                Map.ofList
-                    [ "A", node
-                      "B", makeNode "B"
-                      "C", makeNode "C"
-                      "D", makeNode "D" ]
+              Nodes = Map.ofList [ "A", node; "B", makeNode "B"; "C", makeNode "C"; "D", makeNode "D" ]
               Edges =
                 [ makeEdge "A" "B" [ "condition", AttrValue.String "outcome=needs_dod" ]
                   makeEdge "A" "C" [ "condition", AttrValue.String "outcome=needs_dod" ]
@@ -71,19 +66,16 @@ module SelectAllMatchingEdgesTests =
 
         let graph =
             { Name = "t"
-              Nodes =
-                Map.ofList
-                    [ "A", node
-                      "B", makeNode "B"
-                      "C", makeNode "C"
-                      "D", makeNode "D" ]
+              Nodes = Map.ofList [ "A", node; "B", makeNode "B"; "C", makeNode "C"; "D", makeNode "D" ]
               Edges =
                 [ makeEdge "A" "B" [ "condition", AttrValue.String "outcome=fail" ]
                   makeEdge "A" "C" []
                   makeEdge "A" "D" [] ]
               GraphAttributes = Map.empty }
 
-        let edges = EdgeSelection.selectAllMatchingEdges node (Outcome.Success()) (Context()) graph
+        let edges =
+            EdgeSelection.selectAllMatchingEdges node (Outcome.Success()) (Context()) graph
+
         Assert.Equal<string list>([ "C"; "D" ], edges |> List.map (fun e -> e.ToNode))
 
     [<Fact>]
@@ -98,7 +90,9 @@ module SelectAllMatchingEdgesTests =
                   makeEdge "A" "C" [] ]
               GraphAttributes = Map.empty }
 
-        let edges = EdgeSelection.selectAllMatchingEdges node (Outcome.Success()) (Context()) graph
+        let edges =
+            EdgeSelection.selectAllMatchingEdges node (Outcome.Success()) (Context()) graph
+
         Assert.Equal<string list>([ "C" ], edges |> List.map (fun e -> e.ToNode))
 
     [<Fact>]
