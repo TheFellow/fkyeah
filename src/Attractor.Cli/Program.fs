@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.14.0"
+let cliVersion = "0.15.0"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
@@ -591,7 +591,7 @@ let printModels () =
 
     printfn "Reference in DOT:"
     printfn "  node_id [shape=box, llm_model=\"claude-sonnet-4-6\"]"
-    printfn "  model_stylesheet=\"* { llm_model: gpt-5.4; } .planner { llm_model: claude-opus-4-7; }\""
+    printfn "  model_stylesheet=\"* { llm_model: gpt-5.5; } .planner { llm_model: claude-opus-4-7; }\""
 
 // ============================================================================
 // Core CLI logic

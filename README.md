@@ -11,7 +11,7 @@ Built from three [NLSpecs](https://github.com/strongdm/attractor#terminology):
 - [Coding Agent Loop Specification](https://github.com/strongdm/attractor/blob/main/coding-agent-loop-spec.md) — agentic loop with tool execution
 - [Unified LLM Client Specification](https://github.com/strongdm/attractor/blob/main/unified-llm-spec.md) — multi-provider LLM client
 
-**~940 tests (unit + 172-test conformance suite). Zero warnings. One binary.**
+**~1,020 tests (unit + 208-test conformance suite). Zero warnings. One binary.**
 
 ## Quick Start
 
@@ -341,8 +341,8 @@ src/AcpRuntime/          6 modules — Agent Client Protocol (stdio/WebSocket/HT
 src/McpClient/           5 modules — Model Context Protocol client
 src/JsonRpc/             3 modules — JSON-RPC transport layer
 src/Attractor.Cli/       1 module  — CLI binary
-tests/                   779 tests across 6 test projects
-conformance/             167 tests — black-box CLI conformance suite
+tests/                   812 tests across 6 test projects
+conformance/             208 tests — black-box CLI conformance suite
 examples/                17 reference DOT pipelines
 ```
 
@@ -355,7 +355,7 @@ make install                          # publish + install to ~/bin/attractor
 make format                           # Fantomas formatter (auto-fix)
 make lint                             # FSharpLint (style/quality rules)
 make analyze                          # G-Research.FSharp.Analyzers
-make conformance                      # full 172-test conformance suite
+make conformance                      # full 208-test conformance suite
 ```
 
 CI gates `format-check`, `lint`, and `analyze` in addition to build + test; PRs with unformatted code, lint warnings, or analyzer findings fail.

@@ -65,7 +65,7 @@ conformance/
   04-context/         # 6 tests — context propagation and edge conditions
   05-parallel/        # 2 tests — fan-out/fan-in
   06-artifacts/       # 5 tests — manifest, checkpoint, stage files, outcomes
-  07-models/          # 88 tests — model matrix using codergen + tool extract/run
+  07-models/          # 96 tests — model matrix using codergen + tool extract/run
   08-coding-agent/    # 6 tests — live coding-agent tests (real file I/O via shape=tab)
     extract-run.sh    # Shared code extractor for all model tests
     01-claude-opus-4-6/
@@ -88,6 +88,7 @@ conformance/
     09-gpt-5-3-codex/
     10-gpt-5-4/
     11-claude-opus-4-7/
+    12-gpt-5-5/
 ```
 
 ## Test Matrix (07-models)
@@ -107,6 +108,7 @@ Every model proves it can generate working software in every language/scenario:
 | gpt-5.3-codex | OpenAI | `OPENAI_API_KEY` |
 | gpt-5.4 | OpenAI | `OPENAI_API_KEY` |
 | claude-opus-4-7 | Anthropic | `ANTHROPIC_API_KEY` |
+| gpt-5.5 | OpenAI | `OPENAI_API_KEY` |
 
 | Scenario | Language | Problem | Expected Output |
 |----------|----------|---------|-----------------|
@@ -161,7 +163,7 @@ pass "my test description"
 
 ## Regenerating the Model Matrix
 
-To regenerate all 72 model tests from the template:
+To regenerate all 96 model tests from the template:
 
 ```bash
 cd conformance/07-models

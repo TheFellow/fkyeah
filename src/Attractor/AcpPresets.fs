@@ -50,7 +50,7 @@ module AcpPresets =
         match kind with
         | Codex ->
             { Command = envOr "ATTRACTOR_CODEX_ACP_AGENT_BIN" "codex"
-              Args = [ "exec"; "-m"; envOr "ATTRACTOR_CODEX_MODEL" "gpt-5.3-codex" ]
+              Args = [ "exec"; "-m"; envOr "ATTRACTOR_CODEX_MODEL" "gpt-5.5" ]
               WorkingDirectory = envOr "ATTRACTOR_CODEX_ACP_CWD" workingDir
               TimeoutMs = envIntOr "ATTRACTOR_CODEX_ACP_TIMEOUT_SECONDS" (120 * 1000)
               Transport = AcpTransportKind.Stdio }

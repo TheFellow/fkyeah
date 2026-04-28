@@ -14,6 +14,8 @@ let ``resolveModel returns refreshed Opus 4.6 pricing and output ceiling`` () =
 [<Fact>]
 let ``resolveModel finds newly added models and aliases`` () =
     let gptPro = ModelCatalog.resolveModel "gpt-5.4-pro"
+    let gpt55 = ModelCatalog.resolveModel "gpt-5.5"
+    let latestGpt = ModelCatalog.resolveModel "gpt-latest"
     let opus1m = ModelCatalog.resolveModel "opus-1m"
     let haiku = ModelCatalog.resolveModel "claude-haiku-4-5"
     let geminiFlash = ModelCatalog.resolveModel "gemini-2.5-flash"
@@ -21,6 +23,14 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.True(gptPro.IsSome)
     Assert.Equal(70.0, gptPro.Value.InputCostPerMillion)
     Assert.Equal(280.0, gptPro.Value.OutputCostPerMillion)
+
+    Assert.True(gpt55.IsSome)
+    Assert.Equal(1000000, gpt55.Value.ContextWindow)
+    Assert.Equal(128000, gpt55.Value.MaxOutput)
+    Assert.Equal(5.0, gpt55.Value.InputCostPerMillion)
+    Assert.Equal(30.0, gpt55.Value.OutputCostPerMillion)
+    Assert.Equal(Some "gpt-5.5", latestGpt |> Option.map _.Id)
+    Assert.Equal("gpt-5.5", ModelCatalog.getLatestModel("openai").Value.Id)
 
     Assert.True(opus1m.IsSome)
     Assert.Equal("claude-opus-4-7[1m]", opus1m.Value.Id)
