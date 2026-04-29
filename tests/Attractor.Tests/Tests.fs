@@ -6330,6 +6330,79 @@ module CumulativeTurnsValidationTests =
         )
 
     [<Fact>]
+    let ``cumulative_turns does not warn when late nodes have fresh_session=true`` () =
+        // fresh_session=true causes Engine.fs:373 to generate a unique thread_id
+        // per visit, giving the node an isolated session — the validator must
+        // recognize this as a session boundary, same as an explicit thread_id.
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=tab, prompt="Plan", max_turns=40]
+            Implement [shape=tab, prompt="Implement", max_turns=40]
+            Review [shape=tab, prompt="Review", max_turns=40, fresh_session=true]
+            start -> Plan -> Implement -> Review -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+
+        Assert.False(
+            diags
+            |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "Review"),
+            "should not warn on Review node with fresh_session=true"
+        )
+
+    [<Fact>]
+    let ``cumulative_turns resets accumulation when fresh_session toggles mid-chain`` () =
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            A [shape=tab, prompt="A", max_turns=40]
+            B [shape=tab, prompt="B", max_turns=40, fresh_session=true]
+            C [shape=tab, prompt="C", max_turns=40]
+            start -> A -> B -> C -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+        // B's fresh_session resets accumulation; C inherits B's tally (40),
+        // so C starts at 40, well below the 60 threshold.
+        Assert.False(
+            diags |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "C"),
+            "C should not warn because B's fresh_session reset the accumulation"
+        )
+
+    [<Fact>]
+    let ``cumulative_turns warns when fresh_session=false explicitly`` () =
+        // fresh_session=false is the default — node still shares the session.
+        let dot =
+            """
+        digraph Test {
+            start [shape=Mdiamond]
+            exit [shape=Msquare]
+            Plan [shape=tab, prompt="Plan", max_turns=40]
+            Implement [shape=tab, prompt="Implement", max_turns=40]
+            Review [shape=tab, prompt="Review", max_turns=40, fresh_session=false]
+            start -> Plan -> Implement -> Review -> exit
+        }
+        """
+
+        let graph = DotParser.parseOrRaise dot
+        let diags = Validation.validate graph None
+
+        Assert.True(
+            diags
+            |> List.exists (fun d -> d.Rule = "cumulative_turns" && d.NodeId = "Review"),
+            "expected warning on Review with fresh_session=false (default)"
+        )
+
+    [<Fact>]
     let ``cumulative_turns resets accumulation when thread_id changes mid-chain`` () =
         let dot =
             """

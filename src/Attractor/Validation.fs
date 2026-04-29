@@ -1125,10 +1125,15 @@ module Validation =
                         match graph.Nodes |> Map.tryFind nodeId with
                         | None -> ()
                         | Some node ->
+                            // A node escapes the shared default session when it
+                            // sets either thread_id (reusable named session) or
+                            // fresh_session=true (engine generates a unique
+                            // thread_id per visit — see Engine.fs:373).
+                            let hasIsolatedSession (n: Node) = n.ThreadId <> "" || n.FreshSession
+
                             let rawCumulative =
                                 if isAgent node then
-                                    // If node has its own thread_id, it gets a fresh session
-                                    if node.ThreadId <> "" then
+                                    if hasIsolatedSession node then
                                         getMaxTurns node
                                     else
                                         cumulativePrior + getMaxTurns node
@@ -1150,16 +1155,16 @@ module Validation =
                                 // a retry cycle would otherwise produce one per pass.
                                 if
                                     isAgent node
-                                    && node.ThreadId = ""
+                                    && not (hasIsolatedSession node)
                                     && cumulativePrior >= threshold
                                     && not (diags.ContainsKey(nodeId))
                                 then
                                     diags[nodeId] <-
                                         Diagnostic.Warning(
                                             "cumulative_turns",
-                                            $"Node '{nodeId}' starts at ~{cumulativePrior} cumulative turns on the shared session; add thread_id to give it a fresh session",
+                                            $"Node '{nodeId}' starts at ~{cumulativePrior} cumulative turns on the shared session; add thread_id or fresh_session=true to give it a fresh session",
                                             nodeId = nodeId,
-                                            fix = $"Add thread_id attribute to node '{nodeId}'"
+                                            fix = $"Add thread_id or fresh_session=true attribute to node '{nodeId}'"
                                         )
 
                                 for edge in graph.OutgoingEdges(nodeId) do
