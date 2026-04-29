@@ -897,14 +897,12 @@ module ExecutionEngineTests =
         let outcome = Outcome.Success()
         let context = Context()
 
-        UnifiedLlm.HttpCancellation.reset ()
-
-        try
-            UnifiedLlm.HttpCancellation.cancel ()
-            let selected = EdgeSelection.selectEdge node outcome context graph
-            Assert.True(selected.IsNone)
-        finally
-            UnifiedLlm.HttpCancellation.reset ()
+        // Scope the cancellation flag so concurrent Engine tests are not
+        // affected by this test's cancel() call.
+        use _scope = UnifiedLlm.HttpCancellation.scope ()
+        UnifiedLlm.HttpCancellation.cancel ()
+        let selected = EdgeSelection.selectEdge node outcome context graph
+        Assert.True(selected.IsNone)
 
 // ============================================================================
 // 11.4 Goal Gate Enforcement

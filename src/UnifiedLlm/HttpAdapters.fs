@@ -115,19 +115,54 @@ module SseParsing =
     let parse (reader: StreamReader) (outer: CancellationToken) =
         parseWithIdleTimeout reader outer (DefaultIdleTimeoutMs())
 
-/// Global cancellation support — call Cancel() to abort all in-flight HTTP calls
+/// Process-wide cancellation, with optional per-async-context isolation.
+///
+/// Production callers (Ctrl-C handler) operate on the process-wide root cts so
+/// cancel() reaches every in-flight HTTP call regardless of thread.
+///
+/// Tests that need to call cancel()/reset() without bleeding into concurrent
+/// tests should wrap their body in `use _ = HttpCancellation.scope ()`. The
+/// scope installs a fresh CancellationTokenSource on the current ExecutionContext
+/// (via AsyncLocal). cancel/reset/isCancelled/token operate on the scoped cts
+/// for the duration of the using-block, leaving the root cts untouched.
 module HttpCancellation =
-    let mutable private cts = new CancellationTokenSource()
+    let mutable private rootCts = new CancellationTokenSource()
+    let private rootGate = obj ()
+    let private scopedCts = System.Threading.AsyncLocal<CancellationTokenSource>()
 
-    let token () = cts.Token
+    let private active () : CancellationTokenSource =
+        match scopedCts.Value with
+        | null -> rootCts
+        | cts -> cts
 
-    let cancel () = cts.Cancel()
+    let token () = (active ()).Token
 
-    let isCancelled () = cts.IsCancellationRequested
+    let cancel () = (active ()).Cancel()
+
+    let isCancelled () = (active ()).IsCancellationRequested
 
     let reset () =
-        cts.Dispose()
-        cts <- new CancellationTokenSource()
+        match scopedCts.Value with
+        | null ->
+            lock rootGate (fun () ->
+                rootCts.Dispose()
+                rootCts <- new CancellationTokenSource())
+        | cts ->
+            cts.Dispose()
+            scopedCts.Value <- new CancellationTokenSource()
+
+    /// Installs an isolated CancellationTokenSource on the current ExecutionContext.
+    /// Subsequent cancel/reset/isCancelled calls from within this async context
+    /// (until Dispose) operate on the scope's cts, not the process-wide root.
+    let scope () : System.IDisposable =
+        let prev = scopedCts.Value
+        let mine = new CancellationTokenSource()
+        scopedCts.Value <- mine
+
+        { new System.IDisposable with
+            member _.Dispose() =
+                mine.Dispose()
+                scopedCts.Value <- prev }
 
 module private HttpAdapterHelpers =
 

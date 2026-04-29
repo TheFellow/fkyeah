@@ -4,6 +4,19 @@ open System
 open Xunit
 open UnifiedLlm
 
+// Drain the agent's mailbox by querying State (PostAndAsyncReply, FIFO with
+// prior Posts). Returns the state once all queued messages have been processed
+// — eliminates the Sleep-based race where the agent could process queued
+// failures and Check back-to-back faster than the CooldownPeriod, leaving the
+// breaker stuck in Open even though the test "waited long enough".
+let private drainState (breaker: CircuitBreaker) = Async.RunSynchronously breaker.State
+
+let private requireState (breaker: CircuitBreaker) (predicate: CircuitState -> bool) (label: string) =
+    let state = drainState breaker
+
+    if not (predicate state) then
+        Assert.Fail($"{label}: unexpected state {state}")
+
 [<Fact>]
 let ``circuit breaker opens after threshold transient failures`` () =
     let breaker =
@@ -61,9 +74,8 @@ let ``failures below threshold keep circuit Closed`` () =
     breaker.RecordFailure ProviderFailureKind.Timeout
     breaker.RecordFailure ProviderFailureKind.Timeout
     breaker.RecordFailure ProviderFailureKind.Timeout
-    // 3 failures, threshold is 5 — should still be closed
-    System.Threading.Thread.Sleep(300) // let mailbox process (generous for CI)
-    let state = Async.RunSynchronously breaker.State
+    // Drain mailbox via State query (FIFO with prior Posts).
+    let state = drainState breaker
 
     match state with
     | CircuitState.Closed n -> Assert.Equal(3, n)
@@ -80,8 +92,7 @@ let ``non-transient failure does not count toward threshold`` () =
     breaker.RecordFailure ProviderFailureKind.Authentication
     breaker.RecordFailure ProviderFailureKind.Authentication
     breaker.RecordFailure ProviderFailureKind.Authentication
-    System.Threading.Thread.Sleep(300)
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
 
     match state with
     | CircuitState.Closed _ -> ()
@@ -96,7 +107,14 @@ let ``check in Open before cooldown returns Error`` () =
 
     let breaker = CircuitBreaker("test-open-check", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(300) // let mailbox process (generous for CI)
+
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
     let result = Async.RunSynchronously(breaker.Check())
     Assert.True(Result.isError result)
 
@@ -109,14 +127,24 @@ let ``check in Open after cooldown transitions to HalfOpen`` () =
 
     let breaker = CircuitBreaker("test-halfopen-transition", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(500) // wait for mailbox + cooldown to expire (generous for CI)
+    // Drain to confirm Open and start the cooldown clock from a known point.
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
+    System.Threading.Thread.Sleep(50) // 5x cooldown — generous margin
     let result = Async.RunSynchronously(breaker.Check())
     Assert.True(Result.isOk result)
-    let state = Async.RunSynchronously breaker.State
 
-    match state with
-    | CircuitState.HalfOpen _ -> ()
-    | _ -> Assert.Fail($"expected HalfOpen, got {state}")
+    requireState
+        breaker
+        (function
+        | CircuitState.HalfOpen _ -> true
+        | _ -> false)
+        "after Check"
 
 [<Fact>]
 let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` () =
@@ -127,11 +155,26 @@ let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` (
 
     let breaker = CircuitBreaker("test-halfopen-one-success", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(500) // generous for CI mailbox processing
-    Async.RunSynchronously(breaker.Check()) |> ignore // transitions to HalfOpen
+
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
+    System.Threading.Thread.Sleep(50)
+    Async.RunSynchronously(breaker.Check()) |> ignore
+
+    requireState
+        breaker
+        (function
+        | CircuitState.HalfOpen _ -> true
+        | _ -> false)
+        "after Check"
+
     breaker.RecordSuccess()
-    System.Threading.Thread.Sleep(500) // let mailbox process success
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
 
     match state with
     | CircuitState.HalfOpen(_, successes) -> Assert.Equal(1, successes)
@@ -146,12 +189,27 @@ let ``two successes in HalfOpen transitions to Closed`` () =
 
     let breaker = CircuitBreaker("test-halfopen-close", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(300)
-    Async.RunSynchronously(breaker.Check()) |> ignore // HalfOpen
+
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
+    System.Threading.Thread.Sleep(50)
+    Async.RunSynchronously(breaker.Check()) |> ignore
+
+    requireState
+        breaker
+        (function
+        | CircuitState.HalfOpen _ -> true
+        | _ -> false)
+        "after Check"
+
     breaker.RecordSuccess()
     breaker.RecordSuccess()
-    System.Threading.Thread.Sleep(300)
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
     Assert.Equal(CircuitState.Closed 0, state)
 
 [<Fact>]
@@ -163,11 +221,26 @@ let ``transient failure in HalfOpen goes back to Open`` () =
 
     let breaker = CircuitBreaker("test-halfopen-reopen", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(300)
-    Async.RunSynchronously(breaker.Check()) |> ignore // HalfOpen
+
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
+    System.Threading.Thread.Sleep(50)
+    Async.RunSynchronously(breaker.Check()) |> ignore
+
+    requireState
+        breaker
+        (function
+        | CircuitState.HalfOpen _ -> true
+        | _ -> false)
+        "after Check"
+
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(300)
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
 
     match state with
     | CircuitState.Open _ -> ()
@@ -182,11 +255,26 @@ let ``non-transient failure in HalfOpen stays HalfOpen`` () =
 
     let breaker = CircuitBreaker("test-halfopen-nontransient", config)
     breaker.RecordFailure ProviderFailureKind.Timeout
-    System.Threading.Thread.Sleep(300)
-    Async.RunSynchronously(breaker.Check()) |> ignore // HalfOpen
+
+    requireState
+        breaker
+        (function
+        | CircuitState.Open _ -> true
+        | _ -> false)
+        "after Timeout"
+
+    System.Threading.Thread.Sleep(50)
+    Async.RunSynchronously(breaker.Check()) |> ignore
+
+    requireState
+        breaker
+        (function
+        | CircuitState.HalfOpen _ -> true
+        | _ -> false)
+        "after Check"
+
     breaker.RecordFailure ProviderFailureKind.Authentication
-    System.Threading.Thread.Sleep(300)
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
 
     match state with
     | CircuitState.HalfOpen _ -> ()
@@ -226,8 +314,7 @@ let ``RecordSuccess in Closed resets consecutive failures`` () =
     breaker.RecordFailure ProviderFailureKind.Timeout
     breaker.RecordFailure ProviderFailureKind.Timeout
     breaker.RecordSuccess()
-    System.Threading.Thread.Sleep(300)
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
     Assert.Equal(CircuitState.Closed 0, state)
 
 [<Fact>]
@@ -244,8 +331,7 @@ let ``thread safety with concurrent RecordFailure posts`` () =
                System.Threading.Tasks.Task.Run(fun () -> breaker.RecordFailure ProviderFailureKind.Timeout) |]
 
     System.Threading.Tasks.Task.WaitAll(tasks)
-    System.Threading.Thread.Sleep(300) // let mailbox process all messages
-    let state = Async.RunSynchronously breaker.State
+    let state = drainState breaker
 
     match state with
     | CircuitState.Closed n -> Assert.Equal(100, n)
