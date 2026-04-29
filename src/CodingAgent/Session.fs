@@ -1151,6 +1151,7 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                         Tools = Some toolDefs
                         ToolChoice = Some ToolChoice.Auto
                         ReasoningEffort = config.ReasoningEffort
+                        MaxTokens = config.MaxTokens
                         Provider = Some profile.Id
                         ProviderOptions = config.ProviderOptions }
 

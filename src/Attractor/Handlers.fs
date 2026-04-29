@@ -536,6 +536,12 @@ module Handlers =
                         let raw = node.GetAttrString("reasoning_effort", "high").Trim()
                         if raw = "" then None else Some raw
 
+                    let maxTokens =
+                        node.GetAttr("max_tokens")
+                        |> Option.bind (fun v -> v.AsInt())
+                        |> Option.defaultValue 16384
+                        |> Some
+
                     let preHook = node.ToolHooksPre
                     let postHook = node.ToolHooksPost
 
@@ -593,6 +599,7 @@ module Handlers =
                             MaxToolRoundsPerInput = maxToolRounds
                             DefaultCommandTimeoutMs = commandTimeout
                             ReasoningEffort = reasoningEffort
+                            MaxTokens = maxTokens
                             ToolCallHook = toolCallHook }
 
                     let env = LocalExecutionEnvironment(workingDir) :> IExecutionEnvironment

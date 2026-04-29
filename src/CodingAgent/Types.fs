@@ -64,6 +64,7 @@ type SessionConfig =
       MaxCommandTimeoutMs: int
       EnableStreaming: bool
       ReasoningEffort: string option
+      MaxTokens: int option
       ProviderOptions: Map<string, obj> option
       ToolOutputLimits: Map<string, int>
       ToolLineLimits: Map<string, int>
@@ -81,6 +82,7 @@ type SessionConfig =
           MaxCommandTimeoutMs = 600000
           EnableStreaming = false
           ReasoningEffort = None
+          MaxTokens = Some 16384
           ProviderOptions = None
           ToolOutputLimits = Map.empty
           ToolLineLimits = Map.empty

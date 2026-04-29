@@ -1043,6 +1043,101 @@ module ReasoningEffortTests =
         Assert.Equal(Some "high", config2.ReasoningEffort)
 
 // ============================================================
+// 9.7b MaxTokens Tests
+// ============================================================
+
+module MaxTokensTests =
+
+    let private captureRequestMock (capture: Request -> unit) =
+        let mock = ConfigurableMockAdapter("test")
+
+        mock.SetCompleteHandler(fun req ->
+            capture req
+
+            { Id = "r"
+              Model = req.Model
+              Provider = "test"
+              Message = Message.Assistant("ok")
+              FinishReason = Stop "stop"
+              Usage = Usage.Zero
+              ResponseId = None
+              Raw = None
+              Warnings = []
+              RateLimit = None })
+
+        mock
+
+    [<Fact>]
+    let ``SessionConfig.Default.MaxTokens is 16384 to prevent truncation`` () =
+        // Regression: previously SessionConfig had no MaxTokens, so requests fell through
+        // to the Anthropic adapter's hardcoded default of 4096, truncating Sonnet plans
+        // mid-thought every turn. The default must be a generous value.
+        Assert.Equal(Some 16384, SessionConfig.Default.MaxTokens)
+
+    [<Fact>]
+    let ``MaxTokens from SessionConfig is propagated to LLM request`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = None
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            let config =
+                { SessionConfig.Default with
+                    MaxTokens = Some 32768 }
+
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("hello")
+            Assert.Equal(Some 32768, capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+    [<Fact>]
+    let ``Default Session uses 16384 MaxTokens (not adapter fallback of 4096)`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = None
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            // No config supplied — must still send MaxTokens, not None.
+            let session = Session(TestProfile("m"), env, client)
+            session.ProcessInput("hello")
+            Assert.Equal(Some 16384, capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+    [<Fact>]
+    let ``MaxTokens=None propagates as None for callers that explicitly opt out`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = Some -1
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            let config =
+                { SessionConfig.Default with
+                    MaxTokens = None }
+
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("hello")
+            Assert.Equal(None, capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+// ============================================================
 // 9.8 System Prompt Tests
 // ============================================================
 
