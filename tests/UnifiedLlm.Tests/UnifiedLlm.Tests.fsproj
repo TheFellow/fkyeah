@@ -18,6 +18,7 @@
     <Compile Include="CircuitBreakerTests.fs" />
     <Compile Include="PromptCachingTests.fs" />
     <Compile Include="AnthropicThinkingShapeTests.fs" />
+    <Compile Include="OpenAIResponsesShapeTests.fs" />
     <Compile Include="AbortTimeoutTests.fs" />
     <Compile Include="SseParsingTests.fs" />
     <Compile Include="IntegrationTests.fs" />

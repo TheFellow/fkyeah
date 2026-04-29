@@ -219,6 +219,50 @@ let ``validator does not warn about thinking budget when reasoning_effort is not
     | Result.Ok _ -> ()
     | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
 
+// gpt-5.5 reasoning coverage. The catalog flags gpt-5.5 as
+// SupportsReasoning=true; these tests pin the validator against each
+// effort value paired with a Reasoning.recommendMaxTokens-sized budget,
+// so future catalog changes that drop reasoning support fail loudly.
+
+[<Theory>]
+[<InlineData("low")>]
+[<InlineData("medium")>]
+[<InlineData("high")>]
+[<InlineData("xhigh")>]
+let ``validator accepts gpt-5.5 with reasoning_effort and recommended max_tokens`` (effort: string) =
+    let maxTokens = Reasoning.recommendMaxTokens (Some effort) 16384
+
+    let request =
+        { Request.Create("gpt-5.5", [ Message.User("plan") ]) with
+            ReasoningEffort = Some effort
+            MaxTokens = Some maxTokens }
+
+    match validator.Validate request with
+    | Result.Ok _ -> ()
+    | Result.Error issues -> Assert.Fail($"expected Ok for effort={effort}, got: {issues}")
+
+[<Fact>]
+let ``validator rejects gpt-5.5 high reasoning paired with too-small max_tokens`` () =
+    // Regression guard for the bug fixed in 0.15.2: the unbumped 16384
+    // would slip past for "low"/"medium" but must trip for "high" (32768)
+    // and "xhigh" (65536) on any model that supports reasoning.
+    let request =
+        { Request.Create("gpt-5.5", [ Message.User("plan") ]) with
+            ReasoningEffort = Some "high"
+            MaxTokens = Some 16384 }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected ThinkingBudgetExceedsMaxTokens for gpt-5.5 + high + 16384")
+    | Result.Error issues ->
+        Assert.True(
+            issues
+            |> List.exists (function
+                | ValidationIssue.ThinkingBudgetExceedsMaxTokens(modelId, mt, budget) ->
+                    modelId = "gpt-5.5" && mt = 16384 && budget = 32768
+                | _ -> false),
+            "expected ThinkingBudgetExceedsMaxTokens(gpt-5.5, 16384, 32768)"
+        )
+
 [<Fact>]
 let ``Reasoning.thinkingBudgetTokens returns expected budgets`` () =
     Assert.Equal(2048, Reasoning.thinkingBudgetTokens "low")
