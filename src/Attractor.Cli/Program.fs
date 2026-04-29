@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.15.1"
+let cliVersion = "0.15.2"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
@@ -106,10 +106,12 @@ type LlmBackend(llmClient: Client) =
                 let messages =
                     [ UnifiedLlm.Message.System(systemMsg); UnifiedLlm.Message.User(prompt) ]
 
+                let maxTokens = Reasoning.recommendMaxTokens reasoningEffort 16384
+
                 let request =
                     { Request.Create(model, messages) with
                         Provider = provider
-                        MaxTokens = Some 16384
+                        MaxTokens = Some maxTokens
                         ReasoningEffort = reasoningEffort
                         PreviousResponseId = prevResponseId }
 

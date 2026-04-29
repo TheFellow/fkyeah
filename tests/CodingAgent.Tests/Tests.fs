@@ -1137,6 +1137,103 @@ module MaxTokensTests =
         finally
             cleanupDir dir
 
+    // Regression: with reasoning_effort=high (32768 thinking budget) and the
+    // previous fixed 16384 default, Validation.fs rejected the request with
+    // ThinkingBudgetExceedsMaxTokens before the Anthropic adapter's auto-bump
+    // could run. Session must size max_tokens above the budget.
+
+    [<Fact>]
+    let ``high reasoning effort bumps MaxTokens above 32768 thinking budget`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = None
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            let config =
+                { SessionConfig.Default with
+                    ReasoningEffort = Some "high" }
+
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("hello")
+            // 16384 base ≤ 32768 budget → bumped to 32768 + 4096 headroom.
+            Assert.Equal(Some(32768 + 4096), capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+    [<Fact>]
+    let ``xhigh reasoning effort bumps MaxTokens above 65536 thinking budget`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = None
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            let config =
+                { SessionConfig.Default with
+                    ReasoningEffort = Some "xhigh" }
+
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("hello")
+            Assert.Equal(Some(65536 + 4096), capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+    [<Fact>]
+    let ``low and medium efforts leave 16384 default unchanged`` () =
+        let dir = createTempDir ()
+
+        try
+            for effort in [ "low"; "medium" ] do
+                let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+                let mutable capturedMaxTokens: int option = None
+                let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+                let client = Client()
+                client.RegisterAdapter(mock)
+
+                let config =
+                    { SessionConfig.Default with
+                        ReasoningEffort = Some effort }
+
+                let session = Session(TestProfile("m"), env, client, config)
+                session.ProcessInput("hello")
+                // Both budgets (2048, 8192) are below the 16384 default.
+                Assert.Equal(Some 16384, capturedMaxTokens)
+        finally
+            cleanupDir dir
+
+    [<Fact>]
+    let ``explicit MaxTokens already above budget is preserved`` () =
+        let dir = createTempDir ()
+
+        try
+            let env = LocalExecutionEnvironment(dir) :> IExecutionEnvironment
+            let mutable capturedMaxTokens: int option = None
+            let mock = captureRequestMock (fun req -> capturedMaxTokens <- req.MaxTokens)
+
+            let client = Client()
+            client.RegisterAdapter(mock)
+
+            let config =
+                { SessionConfig.Default with
+                    ReasoningEffort = Some "high"
+                    MaxTokens = Some 100_000 }
+
+            let session = Session(TestProfile("m"), env, client, config)
+            session.ProcessInput("hello")
+            Assert.Equal(Some 100_000, capturedMaxTokens)
+        finally
+            cleanupDir dir
+
 // ============================================================
 // 9.8 System Prompt Tests
 // ============================================================

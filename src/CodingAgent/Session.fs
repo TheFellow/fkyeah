@@ -1146,12 +1146,19 @@ type Session(profile: IProviderProfile, env: IExecutionEnvironment, client: Clie
                 let messages = HistoryConverter.toMessages (history |> Seq.toList)
                 let toolDefs = profile.ToolDefinitions
 
+                // Bump max_tokens above the thinking budget when reasoning is
+                // enabled so Validation.fs's "max_tokens > thinking budget"
+                // rule passes (e.g. Opus + high needs > 32768).
+                let effectiveMaxTokens =
+                    config.MaxTokens
+                    |> Option.map (Reasoning.recommendMaxTokens config.ReasoningEffort)
+
                 let request =
                     { Request.Create(profile.Model, Message.System(systemPrompt) :: messages) with
                         Tools = Some toolDefs
                         ToolChoice = Some ToolChoice.Auto
                         ReasoningEffort = config.ReasoningEffort
-                        MaxTokens = config.MaxTokens
+                        MaxTokens = effectiveMaxTokens
                         Provider = Some profile.Id
                         ProviderOptions = config.ProviderOptions }
 

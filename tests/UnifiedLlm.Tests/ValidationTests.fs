@@ -218,3 +218,23 @@ let ``validator does not warn about thinking budget when reasoning_effort is not
     match validator.Validate request with
     | Result.Ok _ -> ()
     | Result.Error issues -> Assert.Fail($"expected Ok but got errors: {issues}")
+
+[<Fact>]
+let ``Reasoning.thinkingBudgetTokens returns expected budgets`` () =
+    Assert.Equal(2048, Reasoning.thinkingBudgetTokens "low")
+    Assert.Equal(8192, Reasoning.thinkingBudgetTokens "medium")
+    Assert.Equal(32768, Reasoning.thinkingBudgetTokens "high")
+    Assert.Equal(65536, Reasoning.thinkingBudgetTokens "xhigh")
+    Assert.Equal(0, Reasoning.thinkingBudgetTokens "bogus")
+
+[<Fact>]
+let ``Reasoning.recommendMaxTokens bumps when requested <= budget`` () =
+    Assert.Equal(32768 + 4096, Reasoning.recommendMaxTokens (Some "high") 16384)
+    Assert.Equal(65536 + 4096, Reasoning.recommendMaxTokens (Some "xhigh") 16384)
+    Assert.Equal(8192 + 4096, Reasoning.recommendMaxTokens (Some "medium") 8192)
+
+[<Fact>]
+let ``Reasoning.recommendMaxTokens leaves requested unchanged when above budget`` () =
+    Assert.Equal(100_000, Reasoning.recommendMaxTokens (Some "high") 100_000)
+    Assert.Equal(16384, Reasoning.recommendMaxTokens (Some "low") 16384)
+    Assert.Equal(16384, Reasoning.recommendMaxTokens None 16384)

@@ -18,6 +18,40 @@ type ValidationResult = Result<Request, ValidationIssue list>
 type RequestValidator =
     { Validate: Request -> ValidationResult }
 
+/// Reasoning-effort thinking budgets and helpers for sizing max_tokens
+/// above the budget. Single source of truth shared by validation and
+/// any caller that builds requests with reasoning enabled.
+module Reasoning =
+
+    /// Headroom kept above the thinking budget when auto-sizing max_tokens.
+    /// Matches the Anthropic adapter's auto-bump (HttpAdapters.fs).
+    [<Literal>]
+    let HeadroomTokens = 4096
+
+    /// Thinking budget tokens for a reasoning-effort string. Returns 0
+    /// for unknown values (callers can treat that as "no budget rule").
+    let thinkingBudgetTokens (effort: string) =
+        match effort with
+        | "low" -> 2048
+        | "medium" -> 8192
+        | "high" -> 32768
+        | "xhigh" -> 65536
+        | _ -> 0
+
+    /// Recommend a max_tokens value that satisfies the validator's
+    /// "max_tokens > thinking budget" rule. Returns the requested value
+    /// untouched when no effort is set or it already exceeds the budget.
+    let recommendMaxTokens (effort: string option) (requested: int) =
+        match effort with
+        | Some e ->
+            let budget = thinkingBudgetTokens e
+
+            if budget > 0 && requested <= budget then
+                budget + HeadroomTokens
+            else
+                requested
+        | None -> requested
+
 module ValidationIssue =
 
     let describe issue =
@@ -85,13 +119,7 @@ module RequestValidator =
 
                     match request.ReasoningEffort, request.MaxTokens with
                     | Some effort, Some maxTokens ->
-                        let budgetTokens =
-                            match effort with
-                            | "low" -> 2048
-                            | "medium" -> 8192
-                            | "high" -> 32768
-                            | "xhigh" -> 65536
-                            | _ -> 0
+                        let budgetTokens = Reasoning.thinkingBudgetTokens effort
 
                         if budgetTokens > 0 && maxTokens <= budgetTokens then
                             issues.Add(
