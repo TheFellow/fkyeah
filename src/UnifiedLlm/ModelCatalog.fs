@@ -43,6 +43,25 @@ module ModelCatalog =
     let private models: ModelInfo list =
         [
           // Anthropic
+          { Id = "claude-opus-4-8"
+            Provider = "anthropic"
+            DisplayName = "Claude Opus 4.8"
+            ContextWindow = 1000000
+            MaxOutput = 128000
+            InputCostPerMillion = 5.0
+            OutputCostPerMillion = 25.0
+            Aliases =
+              [ "claude-opus"
+                "opus-4-8"
+                "latest-anthropic"
+                "opus-1m"
+                "claude-opus-1m"
+                "claude-opus-4-8[1m]"
+                "opus-4-8-1m" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
           { Id = "claude-opus-4-7"
             Provider = "anthropic"
             DisplayName = "Claude Opus 4.7"
@@ -50,7 +69,7 @@ module ModelCatalog =
             MaxOutput = 128000
             InputCostPerMillion = 5.0
             OutputCostPerMillion = 25.0
-            Aliases = [ "claude-opus"; "opus-4-7"; "latest-anthropic" ]
+            Aliases = [ "opus-4-7" ]
             SupportsStreaming = true
             SupportsTools = true
             SupportsReasoning = true
@@ -348,7 +367,7 @@ module ModelCatalog =
 
     let private latestByProvider =
         Map.ofList
-            [ "anthropic", "claude-opus-4-7"
+            [ "anthropic", "claude-opus-4-8"
               "openai", "gpt-5.5"
               "gemini", "gemini-3.1-pro-preview" ]
 
