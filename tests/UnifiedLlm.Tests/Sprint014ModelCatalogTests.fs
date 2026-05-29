@@ -17,6 +17,7 @@ let ``resolveModel finds newly added models and aliases`` () =
     let gpt55 = ModelCatalog.resolveModel "gpt-5.5"
     let latestGpt = ModelCatalog.resolveModel "gpt-latest"
     let opus1m = ModelCatalog.resolveModel "opus-1m"
+    let opus48Explicit1m = ModelCatalog.resolveModel "claude-opus-4-8[1m]"
     let haiku = ModelCatalog.resolveModel "claude-haiku-4-5"
     let geminiFlash = ModelCatalog.resolveModel "gemini-2.5-flash"
 
@@ -33,7 +34,9 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.Equal("gpt-5.5", ModelCatalog.getLatestModel("openai").Value.Id)
 
     Assert.True(opus1m.IsSome)
-    Assert.Equal("claude-opus-4-7[1m]", opus1m.Value.Id)
+    Assert.Equal("claude-opus-4-8", opus1m.Value.Id)
+    Assert.Equal(1000000, opus1m.Value.ContextWindow)
+    Assert.Equal(Some "claude-opus-4-8", opus48Explicit1m |> Option.map _.Id)
 
     Assert.True(haiku.IsSome)
     Assert.True(geminiFlash.IsSome)

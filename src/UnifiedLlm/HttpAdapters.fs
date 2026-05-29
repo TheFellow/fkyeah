@@ -941,7 +941,10 @@ type AnthropicAdapter(apiKey: string) =
             | _ -> None
 
         let isAdaptiveThinkingModel (m: string) =
-            m.Contains("opus-4-7") || m.Contains("sonnet-4-7") || m.Contains("haiku-4-7")
+            m.Contains("opus-4-8")
+            || m.Contains("opus-4-7")
+            || m.Contains("sonnet-4-7")
+            || m.Contains("haiku-4-7")
 
         let adaptiveEffort =
             match request.ReasoningEffort with

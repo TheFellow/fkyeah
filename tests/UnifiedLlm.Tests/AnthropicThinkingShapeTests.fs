@@ -24,9 +24,9 @@ let private tryProp (name: string) (doc: JsonDocument) =
         None
 
 [<Fact>]
-let ``Anthropic buildBody emits adaptive thinking for opus-4-7`` () =
+let ``Anthropic buildBody emits adaptive thinking for opus-4-8`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.User("plan") ]) with
+        { Request.Create("claude-opus-4-8", [ Message.User("plan") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 4096 }
 
@@ -56,7 +56,7 @@ let ``Anthropic buildBody emits adaptive thinking for opus-4-7`` () =
 [<Fact>]
 let ``Anthropic buildBody maps xhigh to high on adaptive models`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.User("plan") ]) with
+        { Request.Create("claude-opus-4-8", [ Message.User("plan") ]) with
             ReasoningEffort = Some "xhigh" }
 
     use doc = buildAnthropicBody request
@@ -82,7 +82,7 @@ let ``Anthropic buildBody keeps legacy enabled thinking for 4.6 models`` () =
 
 [<Fact>]
 let ``Anthropic buildBody omits thinking when reasoning_effort is not set`` () =
-    let request = Request.Create("claude-opus-4-7", [ Message.User("hi") ])
+    let request = Request.Create("claude-opus-4-8", [ Message.User("hi") ])
 
     use doc = buildAnthropicBody request
 
@@ -92,7 +92,7 @@ let ``Anthropic buildBody omits thinking when reasoning_effort is not set`` () =
 [<Fact>]
 let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budget`` () =
     let request =
-        { Request.Create("claude-opus-4-7", [ Message.User("plan") ]) with
+        { Request.Create("claude-opus-4-8", [ Message.User("plan") ]) with
             ReasoningEffort = Some "high"
             MaxTokens = Some 100000 }
 
@@ -102,8 +102,8 @@ let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budg
     Assert.Equal(100000, doc.RootElement.GetProperty("max_tokens").GetInt32())
 
 [<Fact>]
-let ``Anthropic buildBody adaptive path applies to sonnet-4-7 and haiku-4-7`` () =
-    for model in [ "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
+let ``Anthropic buildBody adaptive path applies to opus-4-7 sonnet-4-7 and haiku-4-7`` () =
+    for model in [ "claude-opus-4-7"; "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
         let request =
             { Request.Create(model, [ Message.User("plan") ]) with
                 ReasoningEffort = Some "medium" }
