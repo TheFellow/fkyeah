@@ -1428,6 +1428,9 @@ module HandlerTests =
         let outcome = handler.Execute(node, Context(), createGraph [], logsRoot)
         Assert.Equal(StageStatus.Success, outcome.Status)
         Assert.Equal("contract-ok", outcome.ContextUpdates["contract_check_output"])
+        let contractCheckPath = Path.Combine(logsRoot, "plan", "001", "contract-check.txt")
+        Assert.True(File.Exists(contractCheckPath))
+        Assert.StartsWith("exit_status=", File.ReadAllText(contractCheckPath))
 
     [<Fact>]
     let ``Codergen success criteria command can override backend success to failure`` () =
@@ -1452,6 +1455,31 @@ module HandlerTests =
         Assert.Equal(StageStatus.Fail, outcome.Status)
         Assert.Equal("success criteria failed", outcome.FailureReason)
         Assert.Equal("contract-failed", outcome.ContextUpdates["contract_check_output"])
+
+    [<Fact>]
+    let ``Codergen success criteria failure outcome can request retry`` () =
+        let backend =
+            { new ICodergenBackend with
+                member _.Run(_, _, _) = Result.Ok "backend response" }
+
+        let handler = Handlers.CodergenHandler(backend) :> IHandler
+        let workingDir = createTempDir ()
+
+        let node =
+            { Id = "plan"
+              Attributes =
+                Map.ofList
+                    [ "shape", AttrValue.String "box"
+                      "prompt", AttrValue.String "Do work"
+                      "cwd", AttrValue.String workingDir
+                      "success_criteria_command", AttrValue.String "printf 'contract-retry'; exit 1"
+                      "success_criteria_failure_outcome", AttrValue.String "retry" ] }
+
+        let logsRoot = createTempDir ()
+        let outcome = handler.Execute(node, Context(), createGraph [], logsRoot)
+        Assert.Equal(StageStatus.Retry, outcome.Status)
+        Assert.Equal("success criteria failed", outcome.FailureReason)
+        Assert.Equal("contract-retry", outcome.ContextUpdates["contract_check_output"])
 
     [<Fact>]
     let ``Codergen success criteria timeout overrides outcome to failure`` () =
@@ -6024,6 +6052,7 @@ module Sprint013AttributeValidationTests =
               "command_timeout"
               "success_criteria_command"
               "success_criteria_timeout_ms"
+              "success_criteria_failure_outcome"
               "acp_command"
               "acp_url"
               "acp_transport"
@@ -6222,7 +6251,8 @@ module Sprint013AttributeValidationTests =
                 shape=box,
                 prompt="Do work",
                 success_criteria_command="printf ok",
-                success_criteria_timeout_ms=2500
+                success_criteria_timeout_ms=2500,
+                success_criteria_failure_outcome="retry"
             ]
             exit [shape=Msquare]
             start -> plan -> exit

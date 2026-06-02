@@ -563,6 +563,7 @@ module KnownAttributes =
               "command_timeout"
               "success_criteria_command"
               "success_criteria_timeout_ms"
+              "success_criteria_failure_outcome"
               "max_cycles"
               "manager.max_cycles"
               "wait_ms"
