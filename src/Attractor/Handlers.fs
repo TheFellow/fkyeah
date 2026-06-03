@@ -282,8 +282,8 @@ module Handlers =
                 Result.Error $"Hook failed with exit code {proc.ExitCode}: {details}"
 
     type private SuccessCriteriaResult =
-        | Passed of output: string
-        | Failed of output: string
+        | Passed of exitStatus: int * output: string
+        | Failed of exitStatus: int * output: string
         | TimedOut of output: string
 
     let private runSuccessCriteriaCommand
@@ -334,16 +334,17 @@ module Handlers =
                 let stderr = stderrTask.Result
 
                 if proc.ExitCode = 0 then
-                    Passed(capAt 4000 stdout)
+                    Passed(proc.ExitCode, capAt 4000 stdout)
                 else
-                    Failed(combineCommandOutput stdout stderr |> capAt 4000)
+                    Failed(proc.ExitCode, combineCommandOutput stdout stderr |> capAt 4000)
         with ex ->
-            Failed(capAt 4000 ex.Message)
+            Failed(1, capAt 4000 ex.Message)
 
     let private applySuccessCriteriaCommand
         (node: Node)
         (graph: Graph)
         (logsRoot: string)
+        (stageDir: string)
         (rootDir: string)
         (workingDir: string)
         (outcome: Outcome)
@@ -362,15 +363,38 @@ module Handlers =
                 { outcome with
                     ContextUpdates = outcome.ContextUpdates |> Map.add "contract_check_output" output }
 
+            let writeContractCheck exitStatus output =
+                let content =
+                    if String.IsNullOrEmpty(output) then
+                        $"exit_status={exitStatus}\n"
+                    else
+                        $"exit_status={exitStatus}\n{output}\n"
+
+                writeStageFile stageDir rootDir "contract-check.txt" content
+
+            let failureOutcome =
+                let raw = node.GetAttrString("success_criteria_failure_outcome", "").Trim()
+
+                if raw = "" then
+                    StageStatus.Fail
+                else
+                    StageStatus.Parse raw |> Option.defaultValue StageStatus.Fail
+
             match runSuccessCriteriaCommand command workingDir node graph rootDir logsRoot timeoutMs with
-            | Passed output -> withContractOutput output
-            | Failed output ->
+            | Passed(exitStatus, output) ->
+                writeContractCheck (exitStatus.ToString()) output
+                withContractOutput output
+            | Failed(exitStatus, output) ->
+                writeContractCheck (exitStatus.ToString()) output
+
                 { withContractOutput output with
-                    Status = StageStatus.Fail
+                    Status = failureOutcome
                     FailureReason = "success criteria failed" }
             | TimedOut output ->
+                writeContractCheck "timeout" output
+
                 { withContractOutput output with
-                    Status = StageStatus.Fail
+                    Status = failureOutcome
                     FailureReason = "success criteria timed out" }
         | _ -> outcome
 
@@ -459,7 +483,7 @@ module Handlers =
                                 Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
 
                         let finalOutcome =
-                            applySuccessCriteriaCommand node graph logsRoot rootDir workingDir outcome
+                            applySuccessCriteriaCommand node graph logsRoot stageDir rootDir workingDir outcome
 
                         writeStatus stageDir rootDir finalOutcome
                         finalOutcome
@@ -477,7 +501,7 @@ module Handlers =
                             Outcome.Success(notes = $"Stage completed: {node.Id}", contextUpdates = contextUpdates)
 
                     let finalOutcome =
-                        applySuccessCriteriaCommand node graph logsRoot rootDir workingDir outcome
+                        applySuccessCriteriaCommand node graph logsRoot stageDir rootDir workingDir outcome
 
                     writeStatus stageDir rootDir finalOutcome
                     finalOutcome
