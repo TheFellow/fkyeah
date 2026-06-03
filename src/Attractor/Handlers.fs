@@ -382,10 +382,10 @@ module Handlers =
 
             match runSuccessCriteriaCommand command workingDir node graph rootDir logsRoot timeoutMs with
             | Passed(exitStatus, output) ->
-                writeContractCheck (string exitStatus) output
+                writeContractCheck (exitStatus.ToString()) output
                 withContractOutput output
             | Failed(exitStatus, output) ->
-                writeContractCheck (string exitStatus) output
+                writeContractCheck (exitStatus.ToString()) output
 
                 { withContractOutput output with
                     Status = failureOutcome
