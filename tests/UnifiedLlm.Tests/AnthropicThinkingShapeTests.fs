@@ -103,7 +103,11 @@ let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budg
 
 [<Fact>]
 let ``Anthropic buildBody adaptive path applies to Sonnet 5 and newer 4.x models`` () =
-    for model in [ "claude-sonnet-5"; "claude-opus-4-7"; "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
+    for model in
+        [ "claude-sonnet-5"
+          "claude-opus-4-7"
+          "claude-sonnet-4-7"
+          "claude-haiku-4-7" ] do
         let request =
             { Request.Create(model, [ Message.User("plan") ]) with
                 ReasoningEffort = Some "medium" }
