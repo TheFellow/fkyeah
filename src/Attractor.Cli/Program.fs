@@ -49,7 +49,7 @@ type LlmBackend(llmClient: Client) =
                     if node.LlmModel <> "" then
                         node.LlmModel
                     else
-                        "claude-sonnet-4-6"
+                        "claude-sonnet-5"
 
                 let provider =
                     if node.LlmProvider <> "" then
@@ -331,7 +331,7 @@ let printSchema () =
 #                                  Selectors: * (universal), box (shape), .class, #id
 #                                  Properties: llm_model, llm_provider, reasoning_effort
 #                                  Specificity: * < shape < .class < #id
-#                                  Example: "* { llm_model: claude-sonnet-4-6; }
+#                                  Example: "* { llm_model: claude-sonnet-5; }
 #                                            .critical { llm_model: claude-opus-4-6; }"
 #   default_fidelity     String    Default context fidelity mode for all nodes.
 #                                  Values: full | truncate | compact |
@@ -523,7 +523,7 @@ digraph code_review {
     graph [
         goal="Implement and review a new feature",
         label="Code Review Pipeline",
-        model_stylesheet="* { llm_model: claude-sonnet-4-6; } .critical { llm_model: claude-opus-4-6; }",
+        model_stylesheet="* { llm_model: claude-sonnet-5; } .critical { llm_model: claude-opus-4-6; }",
         default_max_retry=3
     ]
 
@@ -592,7 +592,7 @@ let printModels () =
         printfn ""
 
     printfn "Reference in DOT:"
-    printfn "  node_id [shape=box, llm_model=\"claude-sonnet-4-6\"]"
+    printfn "  node_id [shape=box, llm_model=\"claude-sonnet-5\"]"
     printfn "  model_stylesheet=\"* { llm_model: gpt-5.5; } .planner { llm_model: claude-opus-4-7; }\""
 
 // ============================================================================

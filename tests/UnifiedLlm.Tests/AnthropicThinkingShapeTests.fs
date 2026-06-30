@@ -102,8 +102,8 @@ let ``Anthropic buildBody adaptive path preserves explicit max_tokens above budg
     Assert.Equal(100000, doc.RootElement.GetProperty("max_tokens").GetInt32())
 
 [<Fact>]
-let ``Anthropic buildBody adaptive path applies to opus-4-7 sonnet-4-7 and haiku-4-7`` () =
-    for model in [ "claude-opus-4-7"; "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
+let ``Anthropic buildBody adaptive path applies to Sonnet 5 and newer 4.x models`` () =
+    for model in [ "claude-sonnet-5"; "claude-opus-4-7"; "claude-sonnet-4-7"; "claude-haiku-4-7" ] do
         let request =
             { Request.Create(model, [ Message.User("plan") ]) with
                 ReasoningEffort = Some "medium" }
