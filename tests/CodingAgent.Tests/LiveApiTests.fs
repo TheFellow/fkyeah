@@ -57,7 +57,7 @@ module LiveApiHelpers =
         match provider with
         | "anthropic" -> "claude-sonnet-4-5"
         | "openai" -> "gpt-4o-mini"
-        | "gemini" -> "gemini-2.0-flash"
+        | "gemini" -> "gemini-2.5-flash"
         | _ -> failwith (sprintf "Unknown provider: %s" provider)
 
     /// Build a real IProviderProfile for the given provider.

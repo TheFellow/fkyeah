@@ -41,7 +41,7 @@ module LiveApiHelpers =
         match provider.ToLowerInvariant() with
         | "anthropic" -> "claude-sonnet-4-5"
         | "openai" -> "gpt-4o-mini"
-        | "gemini" -> "gemini-2.0-flash"
+        | "gemini" -> "gemini-2.5-flash"
         | other -> failwithf "Unknown provider: %s" other
 
 /// Custom FactAttribute that skips when the provider's API key env var is missing.
