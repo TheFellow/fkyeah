@@ -519,7 +519,7 @@ module Handlers =
                         node.LlmModel
                     else
                         let graphModel = graph.GetGraphAttrString("llm_model", "")
-                        if graphModel <> "" then graphModel else "claude-sonnet-4-6"
+                        if graphModel <> "" then graphModel else "claude-sonnet-5"
 
                 let providerId =
                     if node.LlmProvider <> "" then

@@ -792,7 +792,7 @@ type AnthropicAdapter(apiKey: string) =
     let buildBody (request: Request) (stream: bool) =
         let model =
             if request.Model = "" then
-                "claude-sonnet-4-6"
+                "claude-sonnet-5"
             else
                 request.Model
 
@@ -942,6 +942,7 @@ type AnthropicAdapter(apiKey: string) =
 
         let isAdaptiveThinkingModel (m: string) =
             m.Contains("opus-4-8")
+            || m.Contains("sonnet-5")
             || m.Contains("opus-4-7")
             || m.Contains("sonnet-4-7")
             || m.Contains("haiku-4-7")
@@ -1086,7 +1087,7 @@ type AnthropicAdapter(apiKey: string) =
         member this.Complete(request: Request) =
             let model =
                 if request.Model = "" then
-                    "claude-sonnet-4-6"
+                    "claude-sonnet-5"
                 else
                     request.Model
 
@@ -1102,7 +1103,7 @@ type AnthropicAdapter(apiKey: string) =
         member this.Stream(request: Request) =
             let model =
                 if request.Model = "" then
-                    "claude-sonnet-4-6"
+                    "claude-sonnet-5"
                 else
                     request.Model
 

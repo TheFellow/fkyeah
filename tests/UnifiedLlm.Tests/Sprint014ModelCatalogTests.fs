@@ -42,6 +42,28 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.True(geminiFlash.IsSome)
 
 [<Fact>]
+let ``resolveModel returns Claude Sonnet 5 catalog metadata and aliases`` () =
+    let sonnet = ModelCatalog.resolveModel "claude-sonnet-5"
+    let sonnetFamilyAlias = ModelCatalog.resolveModel "claude-sonnet"
+    let sonnet1mAlias = ModelCatalog.resolveModel "claude-sonnet-1m"
+    let latestSonnetAlias = ModelCatalog.resolveModel "latest-anthropic-sonnet"
+
+    Assert.True(sonnet.IsSome)
+    Assert.Equal("anthropic", sonnet.Value.Provider)
+    Assert.Equal("Claude Sonnet 5", sonnet.Value.DisplayName)
+    Assert.Equal(1000000, sonnet.Value.ContextWindow)
+    Assert.Equal(128000, sonnet.Value.MaxOutput)
+    Assert.Equal(3.0, sonnet.Value.InputCostPerMillion)
+    Assert.Equal(15.0, sonnet.Value.OutputCostPerMillion)
+    Assert.True(sonnet.Value.SupportsStreaming)
+    Assert.True(sonnet.Value.SupportsTools)
+    Assert.True(sonnet.Value.SupportsReasoning)
+    Assert.True(sonnet.Value.SupportsVision)
+    Assert.Equal(Some "claude-sonnet-5", sonnetFamilyAlias |> Option.map _.Id)
+    Assert.Equal(Some "claude-sonnet-5", sonnet1mAlias |> Option.map _.Id)
+    Assert.Equal(Some "claude-sonnet-5", latestSonnetAlias |> Option.map _.Id)
+
+[<Fact>]
 let ``catalog remains limited to anthropic openai and gemini providers`` () =
     let providers = ModelCatalog.listModels () |> List.map _.Provider |> Set.ofList
 

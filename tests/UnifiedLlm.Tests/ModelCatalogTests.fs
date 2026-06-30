@@ -53,14 +53,18 @@ module ModelCatalogSprint007 =
     [<Fact>]
     let ``findModels and resolveModel return expected catalog entries`` () =
         let allModels = ModelCatalog.findModels CapabilityRequirement.none
-        Assert.Equal(26, allModels.Length)
+        Assert.Equal(27, allModels.Length)
 
         let alias = ModelCatalog.resolveModel "claude-opus"
+        let sonnetAlias = ModelCatalog.resolveModel "claude-sonnet"
+        let sonnetLatest = ModelCatalog.resolveModel "sonnet-latest"
         let latestOpenAI = ModelCatalog.resolveModel "gpt-latest"
         let exact = ModelCatalog.resolveModel "claude-opus-4-6"
         let missing = ModelCatalog.resolveModel "unknown-model-xyz"
 
         Assert.Equal(Some "claude-opus-4-8", alias |> Option.map (fun model -> model.Id))
+        Assert.Equal(Some "claude-sonnet-5", sonnetAlias |> Option.map (fun model -> model.Id))
+        Assert.Equal(Some "claude-sonnet-5", sonnetLatest |> Option.map (fun model -> model.Id))
         Assert.Equal(Some "gpt-5.5", latestOpenAI |> Option.map (fun model -> model.Id))
         Assert.Equal(Some "claude-opus-4-6", exact |> Option.map (fun model -> model.Id))
         Assert.Equal(None, missing)

@@ -1,0 +1,9 @@
+digraph coding_agent_modify_existing {
+    graph [goal="Fix a bug in an existing Python file and verify the fix"]
+
+    start [shape=Mdiamond]
+    agent [shape=tab, llm_model="__MODEL__", cwd="__WORKDIR__", prompt="Read buggy.py in the current directory. It has a bug in the fibonacci function. Fix the bug, then verify your fix by running: python3 -c 'from buggy import fibonacci; assert fibonacci(10) == 55; print(\"FIBONACCI OK\")'"]
+    done  [shape=Msquare]
+
+    start -> agent -> done
+}

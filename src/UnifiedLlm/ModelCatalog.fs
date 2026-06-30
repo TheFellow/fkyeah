@@ -86,6 +86,25 @@ module ModelCatalog =
             SupportsTools = true
             SupportsReasoning = true
             SupportsVision = true }
+          { Id = "claude-sonnet-5"
+            Provider = "anthropic"
+            DisplayName = "Claude Sonnet 5"
+            ContextWindow = 1000000
+            MaxOutput = 128000
+            InputCostPerMillion = 3.0
+            OutputCostPerMillion = 15.0
+            Aliases =
+              [ "claude-sonnet"
+                "sonnet-5"
+                "claude-sonnet-latest"
+                "sonnet-latest"
+                "latest-anthropic-sonnet"
+                "sonnet-1m"
+                "claude-sonnet-1m" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
           { Id = "claude-sonnet-4-6"
             Provider = "anthropic"
             DisplayName = "Claude Sonnet 4.6"
@@ -93,7 +112,7 @@ module ModelCatalog =
             MaxOutput = 64000
             InputCostPerMillion = 3.0
             OutputCostPerMillion = 15.0
-            Aliases = [ "claude-sonnet"; "sonnet-4-6" ]
+            Aliases = [ "sonnet-4-6" ]
             SupportsStreaming = true
             SupportsTools = true
             SupportsReasoning = true
