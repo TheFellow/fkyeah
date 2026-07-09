@@ -90,6 +90,8 @@ conformance/
     11-claude-opus-4-7/
     12-gpt-5-5/
     13-claude-opus-4-8/
+    14-claude-sonnet-5/
+    15-gpt-5-6-sol/
 ```
 
 ## Test Matrix (07-models)
@@ -111,6 +113,8 @@ Every model proves it can generate working software in every language/scenario:
 | claude-opus-4-7 | Anthropic | `ANTHROPIC_API_KEY` |
 | gpt-5.5 | OpenAI | `OPENAI_API_KEY` |
 | claude-opus-4-8 | Anthropic | `ANTHROPIC_API_KEY` |
+| claude-sonnet-5 | Anthropic | `ANTHROPIC_API_KEY` |
+| gpt-5.6-sol | OpenAI | `OPENAI_API_KEY` |
 
 | Scenario | Language | Problem | Expected Output |
 |----------|----------|---------|-----------------|

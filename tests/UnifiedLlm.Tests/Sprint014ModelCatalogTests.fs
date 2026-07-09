@@ -15,6 +15,9 @@ let ``resolveModel returns refreshed Opus 4.6 pricing and output ceiling`` () =
 let ``resolveModel finds newly added models and aliases`` () =
     let gptPro = ModelCatalog.resolveModel "gpt-5.4-pro"
     let gpt55 = ModelCatalog.resolveModel "gpt-5.5"
+    let gpt56 = ModelCatalog.resolveModel "gpt-5.6"
+    let gpt56Terra = ModelCatalog.resolveModel "gpt-5.6-terra"
+    let gpt56Luna = ModelCatalog.resolveModel "gpt-5.6-luna"
     let latestGpt = ModelCatalog.resolveModel "gpt-latest"
     let opus1m = ModelCatalog.resolveModel "opus-1m"
     let opus48Explicit1m = ModelCatalog.resolveModel "claude-opus-4-8[1m]"
@@ -30,8 +33,27 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.Equal(128000, gpt55.Value.MaxOutput)
     Assert.Equal(5.0, gpt55.Value.InputCostPerMillion)
     Assert.Equal(30.0, gpt55.Value.OutputCostPerMillion)
-    Assert.Equal(Some "gpt-5.5", latestGpt |> Option.map _.Id)
-    Assert.Equal("gpt-5.5", ModelCatalog.getLatestModel("openai").Value.Id)
+
+    Assert.True(gpt56.IsSome)
+    Assert.Equal("gpt-5.6-sol", gpt56.Value.Id)
+    Assert.Equal("GPT-5.6 Sol", gpt56.Value.DisplayName)
+    Assert.Equal(1050000, gpt56.Value.ContextWindow)
+    Assert.Equal(128000, gpt56.Value.MaxOutput)
+    Assert.Equal(5.0, gpt56.Value.InputCostPerMillion)
+    Assert.Equal(30.0, gpt56.Value.OutputCostPerMillion)
+    Assert.True(gpt56.Value.SupportsStreaming)
+    Assert.True(gpt56.Value.SupportsTools)
+    Assert.True(gpt56.Value.SupportsReasoning)
+    Assert.True(gpt56.Value.SupportsVision)
+    Assert.Equal(Some "gpt-5.6-sol", latestGpt |> Option.map _.Id)
+    Assert.Equal("gpt-5.6-sol", ModelCatalog.getLatestModel("openai").Value.Id)
+
+    Assert.True(gpt56Terra.IsSome)
+    Assert.Equal(2.5, gpt56Terra.Value.InputCostPerMillion)
+    Assert.Equal(15.0, gpt56Terra.Value.OutputCostPerMillion)
+    Assert.True(gpt56Luna.IsSome)
+    Assert.Equal(1.0, gpt56Luna.Value.InputCostPerMillion)
+    Assert.Equal(6.0, gpt56Luna.Value.OutputCostPerMillion)
 
     Assert.True(opus1m.IsSome)
     Assert.Equal("claude-opus-4-8", opus1m.Value.Id)
