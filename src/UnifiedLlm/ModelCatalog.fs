@@ -245,7 +245,43 @@ module ModelCatalog =
             MaxOutput = 128000
             InputCostPerMillion = 5.0
             OutputCostPerMillion = 30.0
-            Aliases = [ "gpt-latest" ]
+            Aliases = [ "gpt-5.5" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
+          { Id = "gpt-5.6-sol"
+            Provider = "openai"
+            DisplayName = "GPT-5.6 Sol"
+            ContextWindow = 1050000
+            MaxOutput = 128000
+            InputCostPerMillion = 5.0
+            OutputCostPerMillion = 30.0
+            Aliases = [ "gpt-5.6"; "gpt-latest" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
+          { Id = "gpt-5.6-terra"
+            Provider = "openai"
+            DisplayName = "GPT-5.6 Terra"
+            ContextWindow = 1050000
+            MaxOutput = 128000
+            InputCostPerMillion = 2.5
+            OutputCostPerMillion = 15.0
+            Aliases = [ "gpt-5.6-terra" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
+          { Id = "gpt-5.6-luna"
+            Provider = "openai"
+            DisplayName = "GPT-5.6 Luna"
+            ContextWindow = 1050000
+            MaxOutput = 128000
+            InputCostPerMillion = 1.0
+            OutputCostPerMillion = 6.0
+            Aliases = [ "gpt-5.6-luna" ]
             SupportsStreaming = true
             SupportsTools = true
             SupportsReasoning = true
@@ -387,7 +423,7 @@ module ModelCatalog =
     let private latestByProvider =
         Map.ofList
             [ "anthropic", "claude-opus-4-8"
-              "openai", "gpt-5.5"
+              "openai", "gpt-5.6-sol"
               "gemini", "gemini-3.1-pro-preview" ]
 
     /// Get model info by exact ID. Returns None if unknown.

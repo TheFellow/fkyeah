@@ -413,7 +413,7 @@ module AcpPresetTests =
 
                 Assert.Equal("codex", codex.Command)
                 Assert.Equal(AcpRuntime.AcpTransportKind.Stdio, codex.Transport)
-                Assert.Equal<string list>([ "exec"; "-m"; "gpt-5.5" ], codex.Args)
+                Assert.Equal<string list>([ "exec"; "-m"; "gpt-5.6" ], codex.Args)
                 Assert.Equal("claude", claude.Command)
                 Assert.Equal("gemini", gemini.Command)
 

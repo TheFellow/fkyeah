@@ -593,7 +593,7 @@ let printModels () =
 
     printfn "Reference in DOT:"
     printfn "  node_id [shape=box, llm_model=\"claude-sonnet-5\"]"
-    printfn "  model_stylesheet=\"* { llm_model: gpt-5.5; } .planner { llm_model: claude-opus-4-7; }\""
+    printfn "  model_stylesheet=\"* { llm_model: gpt-5.6; } .planner { llm_model: claude-opus-4-7; }\""
 
 // ============================================================================
 // Core CLI logic
