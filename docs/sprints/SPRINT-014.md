@@ -197,7 +197,7 @@ note[terminal_exit_on_empty_backlog] node "PickTask" routes to Exit on outcome=f
 #### 4b. Checkpoint anatomy + external-shim recovery protocol (`docs/spec/`)
 
 Add `docs/spec/checkpoint-anatomy.md` (new file) documenting:
-- Layout of `attractor-logs/<run-id>/`, `restart-N/` subdirs, and which `checkpoint.json` a resume actually reads.
+- Layout of `.ai/attractor-logs/<run-id>/`, `restart-N/` subdirs, and which `checkpoint.json` a resume actually reads.
 - Fields that matter when manually patching: top-level `current_node` vs `context.current_node`, `completed_nodes`, `node_outcomes[<name>]`, `context.outcome`, `context.tool_*`.
 - The "resume advances to the successor of `current_node`" semantic.
 
