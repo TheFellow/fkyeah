@@ -208,7 +208,7 @@ let markDone (runDir: string) (nodeId: string) (outcome: Outcome) (note: string)
     Engine.saveCheckpoint runDir chk
 ```
 
-The CLI makes every hand-patched scenario from cedarverse one line: `attractor checkpoint mark-done attractor-logs/20260423-215054/restart-2 Implement --note "codex shim"`.
+The CLI makes every hand-patched scenario from cedarverse one line: `attractor checkpoint mark-done .ai/attractor-logs/20260423-215054/restart-2 Implement --note "codex shim"`.
 
 **Tests:**
 - Unit: `mark-done` mutates all four fields atomically (completed_nodes, current_node, node_outcomes, context).

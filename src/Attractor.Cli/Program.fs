@@ -10,7 +10,7 @@ open Attractor
 open UnifiedLlm
 
 let mutable verbose = true
-let cliVersion = "0.18.0"
+let cliVersion = "0.19.0"
 let mutable tracePath: string option = None
 let mutable cacheEnabled = false
 let mutable cacheDirectory: string option = None
@@ -277,7 +277,7 @@ Usage:
   attractor models                    List known models and aliases for llm_model=
 
 Options:
-  --logs <dir>       Output directory (default: ./attractor-logs/<timestamp>)
+  --logs <dir>       Output directory (default: ./.ai/attractor-logs/<timestamp>)
   --validate         Validate the DOT file without executing
   --resume <dir>     Resume from checkpoint in the given logs directory
   --auto-approve     Auto-approve all human gates (no interactive prompts)
@@ -1097,7 +1097,7 @@ let serve (port: int) =
         | Result.Error code -> Result.Error code
         | Result.Ok registry ->
             let id = Guid.NewGuid().ToString("N")
-            let logsRoot = Path.Combine("attractor-logs", id)
+            let logsRoot = Path.Combine(".ai", "attractor-logs", id)
             let interviewer = HttpInterviewer()
 
             let run =
@@ -1381,7 +1381,11 @@ let main args =
                             let logs =
                                 logsRoot
                                 |> Option.defaultWith (fun () ->
-                                    Path.Combine("attractor-logs", DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")))
+                                    Path.Combine(
+                                        ".ai",
+                                        "attractor-logs",
+                                        DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss")
+                                    ))
 
                             run source logs autoApprove simulate
             with

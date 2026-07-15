@@ -1,5 +1,5 @@
 .git
-attractor-logs/
+.ai/attractor-logs/
 publish/
 *.png
 .DS_Store

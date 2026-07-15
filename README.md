@@ -43,7 +43,7 @@ attractor my-pipeline.dot --auto-approve
 attractor my-pipeline.dot --simulate
 
 # Resume from checkpoint after interruption
-attractor my-pipeline.dot --resume attractor-logs/20260217-160000
+attractor my-pipeline.dot --resume .ai/attractor-logs/20260217-160000
 ```
 
 ## Write a Pipeline
@@ -317,7 +317,7 @@ attractor schema        # print the complete DOT attribute reference
 
 ## Artifacts
 
-Each run writes to `attractor-logs/<timestamp>/`:
+Each run writes to `.ai/attractor-logs/<timestamp>/`:
 
 ```
 manifest.json                  // pipeline name, goal, start time
