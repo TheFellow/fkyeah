@@ -64,6 +64,35 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.True(geminiFlash.IsSome)
 
 [<Fact>]
+let ``resolveModel returns full GPT-5.6 Terra and Luna catalog metadata`` () =
+    let terra = ModelCatalog.resolveModel "gpt-5.6-terra"
+    let luna = ModelCatalog.resolveModel "gpt-5.6-luna"
+
+    Assert.True(terra.IsSome)
+    Assert.Equal("openai", terra.Value.Provider)
+    Assert.Equal("GPT-5.6 Terra", terra.Value.DisplayName)
+    Assert.Equal(1050000, terra.Value.ContextWindow)
+    Assert.Equal(128000, terra.Value.MaxOutput)
+    Assert.Equal(2.5, terra.Value.InputCostPerMillion)
+    Assert.Equal(15.0, terra.Value.OutputCostPerMillion)
+    Assert.True(terra.Value.SupportsStreaming)
+    Assert.True(terra.Value.SupportsTools)
+    Assert.True(terra.Value.SupportsReasoning)
+    Assert.True(terra.Value.SupportsVision)
+
+    Assert.True(luna.IsSome)
+    Assert.Equal("openai", luna.Value.Provider)
+    Assert.Equal("GPT-5.6 Luna", luna.Value.DisplayName)
+    Assert.Equal(1050000, luna.Value.ContextWindow)
+    Assert.Equal(128000, luna.Value.MaxOutput)
+    Assert.Equal(1.0, luna.Value.InputCostPerMillion)
+    Assert.Equal(6.0, luna.Value.OutputCostPerMillion)
+    Assert.True(luna.Value.SupportsStreaming)
+    Assert.True(luna.Value.SupportsTools)
+    Assert.True(luna.Value.SupportsReasoning)
+    Assert.True(luna.Value.SupportsVision)
+
+[<Fact>]
 let ``resolveModel returns Claude Sonnet 5 catalog metadata and aliases`` () =
     let sonnet = ModelCatalog.resolveModel "claude-sonnet-5"
     let sonnetFamilyAlias = ModelCatalog.resolveModel "claude-sonnet"

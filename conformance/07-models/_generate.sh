@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _generate.sh — Generate the 15x8 model × scenario test matrix
+# _generate.sh — Generate the 17x8 model × scenario test matrix
 # Run once from the 07-models/ directory, then optionally delete this script.
 set -euo pipefail
 
@@ -24,6 +24,8 @@ MODELS=(
     "13|claude-opus-4-8|claude_opus_4_8|ANTHROPIC_API_KEY"
     "14|claude-sonnet-5|claude_sonnet_5|ANTHROPIC_API_KEY"
     "15|gpt-5.6-sol|gpt_5_6_sol|OPENAI_API_KEY"
+    "16|gpt-5.6-terra|gpt_5_6_terra|OPENAI_API_KEY"
+    "17|gpt-5.6-luna|gpt_5_6_luna|OPENAI_API_KEY"
 )
 
 # ── Scenarios ──────────────────────────────────────────────────────
