@@ -637,6 +637,23 @@ module private HttpAdapterHelpers =
                               Arguments = tryGetString "arguments" item |> Option.defaultValue "{}"
                               Metadata = Map.empty }
                     )
+                | Some "custom_tool_call" ->
+                    hasToolCalls <- true
+
+                    contentParts.Add(
+                        ContentPart.CustomToolCall
+                            { Id =
+                                tryGetString "call_id" item
+                                |> Option.defaultValue (Guid.NewGuid().ToString("N"))
+                              Name = tryGetString "name" item |> Option.defaultValue "unknown_tool"
+                              Input = tryGetString "input" item |> Option.defaultValue "" }
+                    )
+                | Some "custom_tool_call_output" ->
+                    contentParts.Add(
+                        ContentPart.CustomToolResult
+                            { ToolCallId = tryGetString "call_id" item |> Option.defaultValue ""
+                              Output = tryGetString "output" item |> Option.defaultValue "" }
+                    )
                 | Some "reasoning" ->
                     let text = tryGetString "summary" item |> Option.defaultValue ""
 
@@ -752,7 +769,23 @@ module private HttpAdapterHelpers =
                                         | None -> "{}"
                                       Metadata = metadata }
                             )
-                        | None -> warnings.Add("Unknown Gemini content part")
+                        | None ->
+                            match tryGetProperty "executableCode" part with
+                            | Some execution ->
+                                contentParts.Add(
+                                    ContentPart.CodeExecution
+                                        { Language = tryGetString "language" execution |> Option.defaultValue ""
+                                          Code = tryGetString "code" execution |> Option.defaultValue "" }
+                                )
+                            | None ->
+                                match tryGetProperty "codeExecutionResult" part with
+                                | Some result ->
+                                    contentParts.Add(
+                                        ContentPart.CodeExecutionResult
+                                            { Outcome = tryGetString "outcome" result |> Option.defaultValue ""
+                                              Output = tryGetString "output" result |> Option.defaultValue "" }
+                                    )
+                                | None -> warnings.Add("Unknown Gemini content part")
             | None -> ()
         | _ -> warnings.Add("Gemini response missing candidates")
 
@@ -1430,6 +1463,7 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                         m.Content
                         |> List.exists (function
                             | ContentPart.ToolCall _ -> true
+                            | ContentPart.CustomToolCall _ -> true
                             | _ -> false)
 
                     if hasToolCalls then
@@ -1451,6 +1485,14 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                        arguments = tc.Arguments |}
                                     :> obj
                                 )
+                            | ContentPart.CustomToolCall call ->
+                                Some(
+                                    {| ``type`` = "custom_tool_call"
+                                       call_id = call.Id
+                                       name = call.Name
+                                       input = call.Input |}
+                                    :> obj
+                                )
                             | _ -> None)
                     else
                         [ {| ``type`` = "message"
@@ -1468,6 +1510,13 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                 {| ``type`` = "function_call_output"
                                    call_id = tr.ToolCallId
                                    output = tr.Content |}
+                                :> obj
+                            )
+                        | ContentPart.CustomToolResult result ->
+                            Some(
+                                {| ``type`` = "custom_tool_call_output"
+                                   call_id = result.ToolCallId
+                                   output = result.Output |}
                                 :> obj
                             )
                         | _ -> None)
@@ -1532,30 +1581,54 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
         | Some ResponseFormat.JsonObject -> bodyDict["text"] <- {| format = {| ``type`` = "json_object" |} |}
         | _ -> ()
 
-        match request.Tools with
-        | Some tools when not tools.IsEmpty ->
-            let toolDefs =
-                tools
-                |> List.map (fun t ->
-                    let parameters =
-                        HttpAdapterHelpers.tryParseJsonObject t.Parameters ({| ``type`` = "object" |} :> obj)
+        let toolDefs = ResizeArray<obj>()
 
-                    {| ``type`` = "function"
-                       name = t.Name
-                       description = t.Description
-                       parameters = parameters |}
-                    :> obj)
-                |> List.toArray
+        for tool in request.Tools |> Option.defaultValue [] do
+            let parameters =
+                HttpAdapterHelpers.tryParseJsonObject tool.Parameters ({| ``type`` = "object" |} :> obj)
 
-            bodyDict["tools"] <- toolDefs
+            toolDefs.Add(
+                {| ``type`` = "function"
+                   name = tool.Name
+                   description = tool.Description
+                   parameters = parameters |}
+                :> obj
+            )
+
+        for tool in request.CustomTools do
+            let format =
+                match tool.Format with
+                | CustomToolFormat.FreeText -> {| ``type`` = "text" |} :> obj
+                | CustomToolFormat.Grammar(syntax, definition) ->
+                    {| ``type`` = "grammar"
+                       syntax = syntax
+                       definition = definition |}
+                    :> obj
+
+            toolDefs.Add(
+                {| ``type`` = "custom"
+                   name = tool.Name
+                   description = tool.Description
+                   format = format |}
+                :> obj
+            )
+
+        if toolDefs.Count > 0 then
+            bodyDict["tools"] <- toolDefs.ToArray()
 
             match request.ToolChoice with
             | Some ToolChoice.Auto -> bodyDict["tool_choice"] <- "auto"
             | Some ToolChoice.None -> bodyDict["tool_choice"] <- "none"
             | Some ToolChoice.Required -> bodyDict["tool_choice"] <- "required"
-            | Some(ToolChoice.Named name) -> bodyDict["tool_choice"] <- {| ``type`` = "function"; name = name |}
+            | Some(ToolChoice.Named name) ->
+                let toolType =
+                    if request.CustomTools |> List.exists (fun tool -> tool.Name = name) then
+                        "custom"
+                    else
+                        "function"
+
+                bodyDict["tool_choice"] <- {| ``type`` = toolType; name = name |}
             | None -> ()
-        | _ -> ()
 
         bodyDict
 
@@ -1614,6 +1687,9 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                 let textBuffer = StringBuilder()
                 let toolStates = Dictionary<string, HttpAdapterHelpers.ToolBlockState>()
                 let toolOrder = ResizeArray<string>()
+                let customToolStates = Dictionary<string, HttpAdapterHelpers.ToolBlockState>()
+                let customToolItemIds = Dictionary<string, string>()
+                let customToolOrder = ResizeArray<string>()
                 let rawEvents = ResizeArray<string>()
                 let contentParts = ResizeArray<ContentPart>()
 
@@ -1678,6 +1754,31 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                               Name = name
                                               Arguments = args
                                               Metadata = Map.empty }
+                                | Some "custom_tool_call" ->
+                                    let id =
+                                        HttpAdapterHelpers.tryGetString "call_id" item
+                                        |> Option.defaultValue ("call-" + Guid.NewGuid().ToString("N"))
+
+                                    let name =
+                                        HttpAdapterHelpers.tryGetString "name" item
+                                        |> Option.defaultValue "unknown_tool"
+
+                                    let input = HttpAdapterHelpers.tryGetString "input" item |> Option.defaultValue ""
+
+                                    customToolStates[id] <-
+                                        { Id = id
+                                          Name = name
+                                          Args = StringBuilder(input)
+                                          Metadata = Map.empty }
+
+                                    match HttpAdapterHelpers.tryGetString "id" item with
+                                    | Some itemId -> customToolItemIds[itemId] <- id
+                                    | None -> ()
+
+                                    if not (customToolOrder.Contains(id)) then
+                                        customToolOrder.Add(id)
+
+                                    yield CustomToolCallStart { Id = id; Name = name; Input = input }
                                 | Some "reasoning" -> yield ReasoningStart None
                                 | _ -> ()
                             | None -> ()
@@ -1709,6 +1810,55 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                             if id <> "" && delta <> "" && toolStates.ContainsKey(id) then
                                 toolStates[id].Args.Append(delta) |> ignore
                                 yield ToolCallDelta(id, delta)
+                        | "response.custom_tool_call_input.delta" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            let eventId =
+                                HttpAdapterHelpers.tryGetString "call_id" root
+                                |> Option.orElseWith (fun () -> HttpAdapterHelpers.tryGetString "item_id" root)
+                                |> Option.defaultValue ""
+
+                            let id =
+                                match customToolItemIds.TryGetValue(eventId) with
+                                | true, callId -> callId
+                                | false, _ -> eventId
+
+                            let delta = HttpAdapterHelpers.tryGetString "delta" root |> Option.defaultValue ""
+
+                            if id <> "" && delta <> "" && customToolStates.ContainsKey(id) then
+                                customToolStates[id].Args.Append(delta) |> ignore
+                                yield CustomToolCallDelta(id, delta)
+                        | "response.custom_tool_call_input.done" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            let eventId =
+                                HttpAdapterHelpers.tryGetString "call_id" root
+                                |> Option.orElseWith (fun () -> HttpAdapterHelpers.tryGetString "item_id" root)
+                                |> Option.defaultValue ""
+
+                            let id =
+                                match customToolItemIds.TryGetValue(eventId) with
+                                | true, callId -> callId
+                                | false, _ -> eventId
+
+                            let input = HttpAdapterHelpers.tryGetString "input" root |> Option.defaultValue ""
+
+                            if id <> "" && input <> "" && customToolStates.ContainsKey(id) then
+                                let state = customToolStates[id]
+                                let accumulated = state.Args.ToString()
+
+                                if
+                                    input.StartsWith(accumulated, StringComparison.Ordinal)
+                                    && input.Length > accumulated.Length
+                                then
+                                    let remaining = input.Substring(accumulated.Length)
+                                    state.Args.Append(remaining) |> ignore
+                                    yield CustomToolCallDelta(id, remaining)
+                                elif accumulated = "" then
+                                    state.Args.Append(input) |> ignore
+                                    yield CustomToolCallDelta(id, input)
                         | "response.output_item.done" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
@@ -1729,6 +1879,24 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                               Metadata = state.Metadata }
 
                                         yield ToolCallEnd tc
+                                | Some "custom_tool_call" ->
+                                    let id = HttpAdapterHelpers.tryGetString "call_id" item |> Option.defaultValue ""
+
+                                    if id <> "" && customToolStates.ContainsKey(id) then
+                                        let state = customToolStates[id]
+
+                                        let completeInput =
+                                            HttpAdapterHelpers.tryGetString "input" item |> Option.defaultValue ""
+
+                                        if state.Args.Length = 0 && completeInput <> "" then
+                                            state.Args.Append(completeInput) |> ignore
+                                            yield CustomToolCallDelta(id, completeInput)
+
+                                        yield
+                                            CustomToolCallEnd
+                                                { Id = state.Id
+                                                  Name = state.Name
+                                                  Input = state.Args.ToString() }
                                 | Some "reasoning" -> yield ReasoningEnd None
                                 | _ -> ()
                             | None -> ()
@@ -1756,6 +1924,17 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                               Metadata = state.Metadata }
                                     )
 
+                            for id in customToolOrder do
+                                if customToolStates.ContainsKey(id) then
+                                    let state = customToolStates[id]
+
+                                    contentParts.Add(
+                                        ContentPart.CustomToolCall
+                                            { Id = state.Id
+                                              Name = state.Name
+                                              Input = state.Args.ToString() }
+                                    )
+
                             let status =
                                 HttpAdapterHelpers.tryGetString "status" responseElement
                                 |> Option.defaultValue "completed"
@@ -1764,7 +1943,7 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                 HttpAdapterHelpers.tryGetProperty "incomplete_details" responseElement
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "reason")
 
-                            let hasToolCalls = toolOrder.Count > 0
+                            let hasToolCalls = toolOrder.Count > 0 || customToolOrder.Count > 0
 
                             finishReason <-
                                 HttpAdapterHelpers.mapOpenAIFinishReason status incompleteReason hasToolCalls
@@ -1962,6 +2141,16 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                                        thoughtSignature = sigValue |}
                                     :> obj
                                 | None -> {| text = td.Text |} :> obj
+                            | ContentPart.CodeExecution execution ->
+                                {| executableCode =
+                                    {| language = execution.Language
+                                       code = execution.Code |} |}
+                                :> obj
+                            | ContentPart.CodeExecutionResult result ->
+                                {| codeExecutionResult =
+                                    {| outcome = result.Outcome
+                                       output = result.Output |} |}
+                                :> obj
                             | _ -> {| text = "" |} :> obj)
                         |> Array.ofList
 
@@ -2005,6 +2194,8 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
         | Some m when not m.IsEmpty -> bodyObj["labels"] <- HttpAdapterHelpers.toObjMap m
         | _ -> ()
 
+        let geminiTools = ResizeArray<obj>()
+
         match request.Tools with
         | Some tools when not tools.IsEmpty ->
             let funcDecls =
@@ -2019,8 +2210,14 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                     :> obj)
                 |> List.toArray
 
-            bodyObj["tools"] <- [| {| function_declarations = funcDecls |} |]
+            geminiTools.Add({| function_declarations = funcDecls |})
         | _ -> ()
+
+        if request.CodeExecutionEnabled then
+            geminiTools.Add({| codeExecution = {| |} |})
+
+        if geminiTools.Count > 0 then
+            bodyObj["tools"] <- geminiTools.ToArray()
 
         let genConfig = Dictionary<string, obj>()
 
@@ -2172,6 +2369,8 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                 let mutable textStarted = false
                 let toolCalls = ResizeArray<ToolCallData>()
                 let seenToolKeys = HashSet<string>()
+                let managedContent = ResizeArray<ContentPart>()
+                let seenManagedContent = HashSet<string>()
                 let mutable usage = Usage.Zero
                 let mutable finishReason = Stop "STOP"
 
@@ -2243,7 +2442,43 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                                             toolCalls.Add(tc)
                                             yield ToolCallStart tc
                                             yield ToolCallEnd tc
-                                    | None -> ()
+                                    | None ->
+                                        match HttpAdapterHelpers.tryGetProperty "executableCode" part with
+                                        | Some value ->
+                                            let execution =
+                                                { Language =
+                                                    HttpAdapterHelpers.tryGetString "language" value
+                                                    |> Option.defaultValue ""
+                                                  Code =
+                                                    HttpAdapterHelpers.tryGetString "code" value
+                                                    |> Option.defaultValue "" }
+
+                                            if
+                                                seenManagedContent.Add(
+                                                    "code|" + execution.Language + "|" + execution.Code
+                                                )
+                                            then
+                                                managedContent.Add(ContentPart.CodeExecution execution)
+                                                yield CodeExecutionEvent execution
+                                        | None ->
+                                            match HttpAdapterHelpers.tryGetProperty "codeExecutionResult" part with
+                                            | Some value ->
+                                                let result =
+                                                    { Outcome =
+                                                        HttpAdapterHelpers.tryGetString "outcome" value
+                                                        |> Option.defaultValue ""
+                                                      Output =
+                                                        HttpAdapterHelpers.tryGetString "output" value
+                                                        |> Option.defaultValue "" }
+
+                                                if
+                                                    seenManagedContent.Add(
+                                                        "result|" + result.Outcome + "|" + result.Output
+                                                    )
+                                                then
+                                                    managedContent.Add(ContentPart.CodeExecutionResult result)
+                                                    yield CodeExecutionResultEvent result
+                                            | None -> ()
                             | None -> ()
 
                             finishReason <- HttpAdapterHelpers.mapGeminiFinishReason rawFinish (toolCalls.Count > 0)
@@ -2276,7 +2511,8 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                     [ if accumulatedText <> "" then
                           yield ContentPart.Text accumulatedText
                       for tc in toolCalls do
-                          yield ContentPart.ToolCall tc ]
+                          yield ContentPart.ToolCall tc
+                      yield! managedContent ]
 
                 let response =
                     { Id = "gemini-" + Guid.NewGuid().ToString("N").Substring(0, 8)

@@ -32,6 +32,7 @@ type private PersistedCacheEntry =
       Model: string
       Provider: string
       Text: string
+      ContentJson: string option
       ToolCalls: CacheToolCallPayload list
       FinishReasonTag: string
       FinishReasonRaw: string
@@ -135,6 +136,25 @@ module CacheKey =
 
             writer.WriteEndArray()
 
+    let private writeCustomToolDefinitions (writer: Utf8JsonWriter) (tools: CustomToolDefinition list) =
+        writer.WriteStartArray("customTools")
+
+        for definition in tools do
+            writer.WriteStartObject()
+            writer.WriteString("description", definition.Description)
+            writer.WriteString("name", definition.Name)
+
+            match definition.Format with
+            | CustomToolFormat.FreeText -> writer.WriteString("format", "text")
+            | CustomToolFormat.Grammar(syntax, grammarDefinition) ->
+                writer.WriteString("format", "grammar")
+                writer.WriteString("syntax", syntax)
+                writer.WriteString("definition", grammarDefinition)
+
+            writer.WriteEndObject()
+
+        writer.WriteEndArray()
+
     let private writeContentPart (writer: Utf8JsonWriter) (part: ContentPart) =
         writer.WriteStartObject()
 
@@ -182,6 +202,23 @@ module CacheKey =
             writer.WriteBoolean("redacted", thinking.Redacted)
             writeString writer "signature" thinking.Signature
             writer.WriteString("text", thinking.Text)
+        | CustomToolCall call ->
+            writer.WriteString("kind", "custom_tool_call")
+            writer.WriteString("id", call.Id)
+            writer.WriteString("name", call.Name)
+            writer.WriteString("input", call.Input)
+        | CustomToolResult result ->
+            writer.WriteString("kind", "custom_tool_result")
+            writer.WriteString("toolCallId", result.ToolCallId)
+            writer.WriteString("output", result.Output)
+        | CodeExecution execution ->
+            writer.WriteString("kind", "code_execution")
+            writer.WriteString("language", execution.Language)
+            writer.WriteString("code", execution.Code)
+        | CodeExecutionResult result ->
+            writer.WriteString("kind", "code_execution_result")
+            writer.WriteString("outcome", result.Outcome)
+            writer.WriteString("output", result.Output)
 
         writer.WriteEndObject()
 
@@ -222,6 +259,8 @@ module CacheKey =
         writeMessages writer request.Messages
         writeString writer "prompt" request.Prompt
         writeToolDefinitions writer request.Tools
+        writeCustomToolDefinitions writer request.CustomTools
+        writer.WriteBoolean("codeExecution", request.CodeExecutionEnabled)
         writeToolChoice writer request.ToolChoice
         writeResponseFormat writer request.ResponseFormat
         writeFloat writer "temperature" request.Temperature
@@ -273,6 +312,73 @@ module CacheStore =
 
         writer.WriteEndArray()
 
+    let private serializeContent (content: ContentPart list) =
+        use stream = new MemoryStream()
+        use writer = new Utf8JsonWriter(stream)
+        writer.WriteStartArray()
+
+        for part in content do
+            writer.WriteStartObject()
+
+            match part with
+            | Text text ->
+                writer.WriteString("kind", "text")
+                writer.WriteString("text", text)
+            | Image image ->
+                writer.WriteString("kind", "image")
+                writeString writer "url" image.Url
+                writeString writer "filePath" image.FilePath
+                writeString writer "mediaType" image.MediaType
+            | Audio audio ->
+                writer.WriteString("kind", "audio")
+                writeString writer "url" audio.Url
+                writeString writer "mediaType" audio.MediaType
+            | Document document ->
+                writer.WriteString("kind", "document")
+                writeString writer "url" document.Url
+                writeString writer "mediaType" document.MediaType
+                writeString writer "fileName" document.FileName
+            | ToolCall call ->
+                writer.WriteString("kind", "tool_call")
+                writer.WriteString("id", call.Id)
+                writer.WriteString("name", call.Name)
+                writer.WriteString("arguments", call.Arguments)
+                writeStringMap writer "metadata" call.Metadata
+            | ToolResult result ->
+                writer.WriteString("kind", "tool_result")
+                writer.WriteString("toolCallId", result.ToolCallId)
+                writer.WriteString("content", result.Content)
+                writer.WriteBoolean("isError", result.IsError)
+                writeString writer "imageMediaType" result.ImageMediaType
+            | Thinking thinking ->
+                writer.WriteString("kind", "thinking")
+                writer.WriteString("text", thinking.Text)
+                writeString writer "signature" thinking.Signature
+                writer.WriteBoolean("redacted", thinking.Redacted)
+            | CustomToolCall call ->
+                writer.WriteString("kind", "custom_tool_call")
+                writer.WriteString("id", call.Id)
+                writer.WriteString("name", call.Name)
+                writer.WriteString("input", call.Input)
+            | CustomToolResult result ->
+                writer.WriteString("kind", "custom_tool_result")
+                writer.WriteString("toolCallId", result.ToolCallId)
+                writer.WriteString("output", result.Output)
+            | CodeExecution execution ->
+                writer.WriteString("kind", "code_execution")
+                writer.WriteString("language", execution.Language)
+                writer.WriteString("code", execution.Code)
+            | CodeExecutionResult result ->
+                writer.WriteString("kind", "code_execution_result")
+                writer.WriteString("outcome", result.Outcome)
+                writer.WriteString("output", result.Output)
+
+            writer.WriteEndObject()
+
+        writer.WriteEndArray()
+        writer.Flush()
+        Encoding.UTF8.GetString(stream.ToArray())
+
     let private serializePersisted (entry: PersistedCacheEntry) =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream)
@@ -281,6 +387,7 @@ module CacheStore =
         writer.WriteString("model", entry.Model)
         writer.WriteString("provider", entry.Provider)
         writer.WriteString("text", entry.Text)
+        writeString writer "contentJson" entry.ContentJson
         writer.WriteStartArray("toolCalls")
 
         for toolCall in entry.ToolCalls do
@@ -365,6 +472,94 @@ module CacheStore =
         | Some value -> failwith $"Expected '{name}' to be an array but was {value.ValueKind}"
         | None -> []
 
+    let private deserializeContent (json: string) =
+        use doc = JsonDocument.Parse(json)
+
+        doc.RootElement.EnumerateArray()
+        |> Seq.choose (fun item ->
+            match getString "kind" item with
+            | "text" -> Some(Text(getString "text" item))
+            | "image" ->
+                Some(
+                    Image
+                        { Url = getOptionalString "url" item
+                          Data = None
+                          FilePath = getOptionalString "filePath" item
+                          MediaType = getOptionalString "mediaType" item }
+                )
+            | "audio" ->
+                Some(
+                    Audio
+                        { Url = getOptionalString "url" item
+                          Data = None
+                          MediaType = getOptionalString "mediaType" item }
+                )
+            | "document" ->
+                Some(
+                    Document
+                        { Url = getOptionalString "url" item
+                          Data = None
+                          MediaType = getOptionalString "mediaType" item
+                          FileName = getOptionalString "fileName" item }
+                )
+            | "tool_call" ->
+                Some(
+                    ToolCall
+                        { Id = getString "id" item
+                          Name = getString "name" item
+                          Arguments = getString "arguments" item
+                          Metadata = getStringMap "metadata" item }
+                )
+            | "tool_result" ->
+                Some(
+                    ToolResult
+                        { ToolCallId = getString "toolCallId" item
+                          Content = getString "content" item
+                          IsError =
+                            tryGetProperty "isError" item
+                            |> Option.map _.GetBoolean()
+                            |> Option.defaultValue false
+                          ImageData = None
+                          ImageMediaType = getOptionalString "imageMediaType" item }
+                )
+            | "thinking" ->
+                Some(
+                    Thinking
+                        { Text = getString "text" item
+                          Signature = getOptionalString "signature" item
+                          Redacted =
+                            tryGetProperty "redacted" item
+                            |> Option.map _.GetBoolean()
+                            |> Option.defaultValue false }
+                )
+            | "custom_tool_call" ->
+                Some(
+                    CustomToolCall
+                        { Id = getString "id" item
+                          Name = getString "name" item
+                          Input = getString "input" item }
+                )
+            | "custom_tool_result" ->
+                Some(
+                    CustomToolResult
+                        { ToolCallId = getString "toolCallId" item
+                          Output = getString "output" item }
+                )
+            | "code_execution" ->
+                Some(
+                    CodeExecution
+                        { Language = getString "language" item
+                          Code = getString "code" item }
+                )
+            | "code_execution_result" ->
+                Some(
+                    CodeExecutionResult
+                        { Outcome = getString "outcome" item
+                          Output = getString "output" item }
+                )
+            | _ -> None)
+        |> Seq.toList
+
     let private deserializePersisted (bytes: byte array) =
         use doc = JsonDocument.Parse(bytes)
         let root = doc.RootElement
@@ -392,6 +587,7 @@ module CacheStore =
           Model = getString "model" root
           Provider = getString "provider" root
           Text = getString "text" root
+          ContentJson = getOptionalString "contentJson" root
           ToolCalls = toolCalls
           FinishReasonTag = getString "finishReasonTag" root
           FinishReasonRaw = getString "finishReasonRaw" root
@@ -420,6 +616,7 @@ module CacheStore =
           Model = entry.Response.Model
           Provider = entry.Response.Provider
           Text = entry.Response.Text
+          ContentJson = Some(serializeContent entry.Response.Message.Content)
           ToolCalls =
             entry.Response.ToolCalls
             |> List.map (fun toolCall ->
@@ -460,9 +657,12 @@ module CacheStore =
                       Metadata = toolCall.Metadata })
 
         let content =
-            [ if entry.Text <> "" then
-                  yield Text entry.Text
-              yield! toolCalls ]
+            match entry.ContentJson with
+            | Some json -> deserializeContent json
+            | None ->
+                [ if entry.Text <> "" then
+                      yield Text entry.Text
+                  yield! toolCalls ]
 
         { Response =
             { Id = entry.Id
@@ -647,6 +847,15 @@ module Caching =
             for toolCall in response.ToolCalls do
                 yield ToolCallStart toolCall
                 yield ToolCallEnd toolCall
+
+            for part in response.Message.Content do
+                match part with
+                | CustomToolCall call ->
+                    yield CustomToolCallStart call
+                    yield CustomToolCallEnd call
+                | CodeExecution execution -> yield CodeExecutionEvent execution
+                | CodeExecutionResult result -> yield CodeExecutionResultEvent result
+                | _ -> ()
 
             yield StepFinish(0, Some response)
             yield Finish(response.FinishReason, Some response.Usage, Some response)

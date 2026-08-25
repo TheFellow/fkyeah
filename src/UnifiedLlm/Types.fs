@@ -57,6 +57,21 @@ type ThinkingData =
       Signature: string option
       Redacted: bool }
 
+/// Free-form input produced for an OpenAI custom tool.
+type CustomToolCallData =
+    { Id: string
+      Name: string
+      Input: string }
+
+/// Output returned for a previous custom tool call.
+type CustomToolResultData = { ToolCallId: string; Output: string }
+
+/// Code generated and executed by a provider-managed code execution tool.
+type CodeExecutionData = { Language: string; Code: string }
+
+/// Result emitted by a provider-managed code execution tool.
+type CodeExecutionResultData = { Outcome: string; Output: string }
+
 /// Content part discriminated union — multimodal message content
 type ContentPart =
     | Text of string
@@ -66,6 +81,10 @@ type ContentPart =
     | ToolCall of ToolCallData
     | ToolResult of ToolResultData
     | Thinking of ThinkingData
+    | CustomToolCall of CustomToolCallData
+    | CustomToolResult of CustomToolResultData
+    | CodeExecution of CodeExecutionData
+    | CodeExecutionResult of CodeExecutionResultData
 
 /// A conversation message
 type Message =
@@ -111,6 +130,15 @@ type Message =
                     IsError = isError
                     ImageData = None
                     ImageMediaType = None } ]
+          Name = None
+          ToolCallId = Some toolCallId }
+
+    static member CustomToolResult(toolCallId: string, output: string) =
+        { Role = Tool
+          Content =
+            [ CustomToolResult
+                  { ToolCallId = toolCallId
+                    Output = output } ]
           Name = None
           ToolCallId = Some toolCallId }
 
@@ -234,6 +262,26 @@ type EmbeddingResponse =
       Usage: Usage
       Raw: JsonElement option }
 
+[<RequireQualifiedAccess>]
+type CustomToolFormat =
+    | FreeText
+    | Grammar of Syntax: string * Definition: string
+
+type CustomToolDefinition =
+    { Name: string
+      Description: string
+      Format: CustomToolFormat }
+
+    static member FreeText(name: string, description: string) =
+        { Name = name
+          Description = description
+          Format = CustomToolFormat.FreeText }
+
+    static member Grammar(name: string, description: string, syntax: string, definition: string) =
+        { Name = name
+          Description = description
+          Format = CustomToolFormat.Grammar(syntax, definition) }
+
 /// A request to the LLM
 type Request =
     { Model: string
@@ -290,6 +338,41 @@ and [<RequireQualifiedAccess>] ToolChoice =
     | Required
     | Named of string
 
+[<AutoOpen>]
+module RequestFeatureExtensions =
+    let private customToolsKey = "unified_llm.custom_tools"
+    let private codeExecutionKey = "unified_llm.gemini_code_execution"
+
+    type Request with
+        member this.CustomTools =
+            this.ProviderOptions
+            |> Option.bind (Map.tryFind customToolsKey)
+            |> Option.bind (function
+                | :? (CustomToolDefinition list) as tools -> Some tools
+                | _ -> None)
+            |> Option.defaultValue []
+
+        member this.CodeExecutionEnabled =
+            this.ProviderOptions
+            |> Option.bind (Map.tryFind codeExecutionKey)
+            |> Option.bind (function
+                | :? bool as enabled -> Some enabled
+                | _ -> None)
+            |> Option.defaultValue false
+
+        member this.WithCustomTools(tools: CustomToolDefinition list) =
+            let options = this.ProviderOptions |> Option.defaultValue Map.empty
+
+            { this with
+                ProviderOptions = Some(options |> Map.add customToolsKey (box tools)) }
+
+        member this.WithCodeExecution(?enabled: bool) =
+            let options = this.ProviderOptions |> Option.defaultValue Map.empty
+            let enabled = defaultArg enabled true
+
+            { this with
+                ProviderOptions = Some(options |> Map.add codeExecutionKey (box enabled)) }
+
 /// A response-ID continuation containing only outputs for previously requested tool calls.
 type ToolContinuationRequest =
     { PreviousResponseId: string
@@ -323,6 +406,13 @@ type Response =
             | ToolCall tc -> Some tc
             | _ -> Option.None)
 
+    member this.CustomToolCalls =
+        this.Message.Content
+        |> List.choose (fun content ->
+            match content with
+            | CustomToolCall call -> Some call
+            | _ -> None)
+
     member this.Reasoning =
         this.Message.Content
         |> List.choose (fun c ->
@@ -342,6 +432,11 @@ type StreamEvent =
     | ToolCallStart of ToolCallData
     | ToolCallDelta of id: string * argsDelta: string
     | ToolCallEnd of ToolCallData
+    | CustomToolCallStart of CustomToolCallData
+    | CustomToolCallDelta of id: string * inputDelta: string
+    | CustomToolCallEnd of CustomToolCallData
+    | CodeExecutionEvent of CodeExecutionData
+    | CodeExecutionResultEvent of CodeExecutionResultData
     | ReasoningStart of id: string option
     | ThinkingEvent of string
     | ReasoningEnd of id: string option
