@@ -8,6 +8,7 @@ type ValidationIssue =
     | UnsupportedCapability of modelId: string * capability: string
     | InvalidTemperature of modelId: string * value: float
     | InvalidToolChoice of string
+    | InvalidCustomTool of string
     | EmptyMessages
     | PromptAndMessagesBothPresent
     | PreviousResponseMismatch of string
@@ -62,6 +63,7 @@ module ValidationIssue =
         | ValidationIssue.InvalidTemperature(modelId, value) ->
             $"Model '{modelId}' received invalid temperature {value}"
         | ValidationIssue.InvalidToolChoice message -> $"Invalid tool choice: {message}"
+        | ValidationIssue.InvalidCustomTool message -> $"Invalid custom tool: {message}"
         | ValidationIssue.EmptyMessages -> "Request must include prompt or messages"
         | ValidationIssue.PromptAndMessagesBothPresent -> "Prompt and messages cannot both be present"
         | ValidationIssue.PreviousResponseMismatch message -> $"Previous response mismatch: {message}"
@@ -77,16 +79,44 @@ module RequestValidator =
             | _ -> false)
 
     let private toolChoiceIssues (request: Request) =
-        match request.ToolChoice, request.Tools with
-        | Some(ToolChoice.Named name), Some tools when tools |> List.exists (fun tool -> tool.Name = name) |> not ->
-            [ ValidationIssue.InvalidToolChoice($"Named tool '{name}' is not present in request.Tools") ]
-        | Some(ToolChoice.Named name), Option.None ->
+        let names =
+            (request.Tools |> Option.defaultValue [] |> List.map _.Name)
+            @ (request.CustomTools |> List.map _.Name)
+
+        match request.ToolChoice with
+        | Some(ToolChoice.Named name) when names.IsEmpty ->
             [ ValidationIssue.InvalidToolChoice($"Named tool '{name}' requires request.Tools") ]
-        | Some ToolChoice.Required, Some tools when List.isEmpty tools ->
-            [ ValidationIssue.InvalidToolChoice("ToolChoice.Required requires at least one tool") ]
-        | Some ToolChoice.Required, Option.None ->
+        | Some(ToolChoice.Named name) when names |> List.contains name |> not ->
+            [ ValidationIssue.InvalidToolChoice($"Named tool '{name}' is not present in request.Tools") ]
+        | Some ToolChoice.Required when names.IsEmpty && request.Tools.IsNone && request.CustomTools.IsEmpty ->
             [ ValidationIssue.InvalidToolChoice("ToolChoice.Required requires request.Tools") ]
+        | Some ToolChoice.Required when names.IsEmpty ->
+            [ ValidationIssue.InvalidToolChoice("ToolChoice.Required requires at least one tool") ]
         | _ -> []
+
+    let private customToolIssues (request: Request) =
+        let allNames =
+            (request.Tools |> Option.defaultValue [] |> List.map _.Name)
+            @ (request.CustomTools |> List.map _.Name)
+
+        [ for tool in request.CustomTools do
+              if String.IsNullOrWhiteSpace(tool.Name) then
+                  yield ValidationIssue.InvalidCustomTool("name must not be empty")
+
+              match tool.Format with
+              | CustomToolFormat.FreeText -> ()
+              | CustomToolFormat.Grammar(syntax, definition) ->
+                  if String.IsNullOrWhiteSpace(syntax) then
+                      yield ValidationIssue.InvalidCustomTool($"grammar tool '{tool.Name}' requires a syntax")
+
+                  if String.IsNullOrWhiteSpace(definition) then
+                      yield ValidationIssue.InvalidCustomTool($"grammar tool '{tool.Name}' requires a definition")
+
+          for duplicate in
+              allNames
+              |> List.countBy id
+              |> List.choose (fun (name, count) -> if count > 1 then Some name else None) do
+              yield ValidationIssue.InvalidCustomTool($"duplicate tool name '{duplicate}'") ]
 
     let fromCatalog () : RequestValidator =
         { Validate =
@@ -101,13 +131,26 @@ module RequestValidator =
                 for issue in toolChoiceIssues request do
                     issues.Add issue
 
+                for issue in customToolIssues request do
+                    issues.Add issue
+
                 match ModelCatalog.resolveModel request.Model with
                 | None -> issues.Add(ValidationIssue.UnknownModel request.Model)
                 | Some model ->
-                    match request.Tools with
-                    | Some tools when not (List.isEmpty tools) && not model.SupportsTools ->
-                        issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "tools"))
+                    let requestsTools =
+                        (request.Tools |> Option.exists (not << List.isEmpty))
+                        || not request.CustomTools.IsEmpty
+                        || request.CodeExecutionEnabled
+
+                    match requestsTools, model.SupportsTools with
+                    | true, false -> issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "tools"))
                     | _ -> ()
+
+                    if not request.CustomTools.IsEmpty && model.Provider <> "openai" then
+                        issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "custom tools"))
+
+                    if request.CodeExecutionEnabled && model.Provider <> "gemini" then
+                        issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "code execution"))
 
                     let hasVision = request.Messages |> List.exists hasImageContent
 

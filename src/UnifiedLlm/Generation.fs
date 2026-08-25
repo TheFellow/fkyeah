@@ -96,8 +96,11 @@ module Generation =
         let text = System.Text.StringBuilder()
         let reasoning = System.Text.StringBuilder()
         let toolCalls = Dictionary<string, ToolCallData>()
+        let customToolCalls = Dictionary<string, CustomToolCallData>()
         let jsonTrackers = Dictionary<string, JsonBalanceTracker>()
         let toolOrder = ResizeArray<string>()
+        let customToolOrder = ResizeArray<string>()
+        let providerManagedContent = ResizeArray<ContentPart>()
         let mutable usage = Usage.Zero
         let mutable finishReason = Stop "streaming"
         let mutable currentModel = defaultArg model ""
@@ -118,6 +121,12 @@ module Generation =
                 let tracker = JsonBalanceTracker()
                 jsonTrackers[id] <- tracker
                 tracker
+
+        let upsertCustomToolCall (call: CustomToolCallData) =
+            if not (customToolCalls.ContainsKey(call.Id)) then
+                customToolOrder.Add(call.Id)
+
+            customToolCalls[call.Id] <- call
 
         let trackToolArguments (toolCall: ToolCallData) =
             let tracker = ensureTracker toolCall.Id
@@ -149,7 +158,11 @@ module Generation =
                           yield Text(text.ToString())
                       for id in toolOrder do
                           if toolCalls.ContainsKey(id) then
-                              yield ToolCall(toolCalls[id]) ]
+                              yield ToolCall(toolCalls[id])
+                      for id in customToolOrder do
+                          if customToolCalls.ContainsKey(id) then
+                              yield CustomToolCall(customToolCalls[id])
+                      yield! providerManagedContent ]
 
                 { Id =
                     responseId
@@ -228,6 +241,24 @@ module Generation =
                     | false, _ -> tc
 
                 upsertToolCall (trackToolArguments merged)
+            | CustomToolCallStart call -> upsertCustomToolCall call
+            | CustomToolCallDelta(id, inputDelta) ->
+                match customToolCalls.TryGetValue(id) with
+                | true, existing ->
+                    customToolCalls[id] <-
+                        { existing with
+                            Input = existing.Input + inputDelta }
+                | false, _ ->
+                    upsertCustomToolCall
+                        { Id = id
+                          Name = ""
+                          Input = inputDelta }
+            | CustomToolCallEnd call ->
+                match customToolCalls.TryGetValue(call.Id) with
+                | true, existing when call.Input = "" -> upsertCustomToolCall { call with Input = existing.Input }
+                | _ -> upsertCustomToolCall call
+            | CodeExecutionEvent execution -> providerManagedContent.Add(CodeExecution execution)
+            | CodeExecutionResultEvent result -> providerManagedContent.Add(CodeExecutionResult result)
             | StepFinish(_, responseOpt) ->
                 match responseOpt with
                 | Some response ->

@@ -15,6 +15,7 @@
     <Compile Include="ValidationTests.fs" />
     <Compile Include="CostingTests.fs" />
     <Compile Include="CapabilityTests.fs" />
+    <Compile Include="AdvancedContentTests.fs" />
     <Compile Include="CachingTests.fs" />
     <Compile Include="CircuitBreakerTests.fs" />
     <Compile Include="PromptCachingTests.fs" />
