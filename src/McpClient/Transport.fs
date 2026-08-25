@@ -334,20 +334,58 @@ module Transport =
                 }
           Receive =
             fun cancellationToken ->
-                taskSeq {
-                    match currentProcess () with
-                    | Some proc ->
-                        let mutable keepReading = true
+                { new IAsyncEnumerable<byte array> with
+                    member _.GetAsyncEnumerator(enumeratorCancellationToken) =
+                        let effectiveCancellation =
+                            CancellationTokenSource.CreateLinkedTokenSource(
+                                cancellationToken,
+                                enumeratorCancellationToken
+                            )
 
-                        while keepReading && not cancellationToken.IsCancellationRequested do
-                            let! line = proc.StandardOutput.ReadLineAsync()
+                        let effectiveToken = effectiveCancellation.Token
+                        let proc = currentProcess ()
+                        let mutable current: byte array = null
+                        let mutable completed = false
 
-                            if isNull line then
-                                keepReading <- false
-                            else
-                                yield Encoding.UTF8.GetBytes(line)
-                    | None -> ()
-                }
+                        { new IAsyncEnumerator<byte array> with
+                            member _.Current = current
+
+                            member _.MoveNextAsync() =
+                                let moveNext: Task<bool> =
+                                    task {
+                                        if completed || effectiveToken.IsCancellationRequested then
+                                            return false
+                                        else
+                                            match proc with
+                                            | None ->
+                                                completed <- true
+                                                return false
+                                            | Some activeProcess ->
+                                                try
+                                                    let! line =
+                                                        activeProcess.StandardOutput
+                                                            .ReadLineAsync(effectiveToken)
+                                                            .AsTask()
+
+                                                    if isNull line then
+                                                        completed <- true
+                                                        return false
+                                                    else
+                                                        current <- Encoding.UTF8.GetBytes(line)
+                                                        return true
+                                                with :? OperationCanceledException when
+                                                    effectiveToken.IsCancellationRequested ->
+                                                    completed <- true
+                                                    return false
+                                    }
+
+                                ValueTask<bool>(moveNext)
+
+                            member _.DisposeAsync() =
+                                completed <- true
+                                effectiveCancellation.Cancel()
+                                effectiveCancellation.Dispose()
+                                ValueTask() } }
           Disconnect =
             fun () ->
                 async {
