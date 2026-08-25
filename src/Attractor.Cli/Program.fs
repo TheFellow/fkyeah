@@ -295,6 +295,7 @@ Environment:
   ANTHROPIC_API_KEY  Enables live Anthropic LLM calls (claude-* models)
   OPENAI_API_KEY     Enables live OpenAI LLM calls (gpt-* models)
   GEMINI_API_KEY     Enables live Gemini LLM calls (gemini-* models)
+  OPENROUTER_API_KEY Enables live OpenRouter calls (provider=openrouter)
 
 LLM codergen nodes require at least one API key unless --simulate is passed."""
 
@@ -785,14 +786,16 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
     let anthropicKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
     let openaiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY")
     let geminiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+    let openRouterKey = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY")
     let hasAnthropic = not (String.IsNullOrEmpty(anthropicKey))
     let hasOpenai = not (String.IsNullOrEmpty(openaiKey))
     let hasGemini = not (String.IsNullOrEmpty(geminiKey))
+    let hasOpenRouter = not (String.IsNullOrEmpty(openRouterKey))
 
     if simulate then
         eprintfn "  Simulation mode (--simulate)"
         Ok(HandlerRegistry.CreateDefault(interviewer = interviewer, acpPermissionStrategy = acpPermissionStrategy))
-    elif hasAnthropic || hasOpenai || hasGemini then
+    elif hasAnthropic || hasOpenai || hasGemini || hasOpenRouter then
         let llmClient = UnifiedLlm.Client()
         configureClientMiddleware llmClient
 
@@ -808,6 +811,10 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
             eprintfn "  Registered Gemini adapter (GEMINI_API_KEY)"
             llmClient.RegisterAdapter(UnifiedLlm.GeminiAdapter(geminiKey))
 
+        if hasOpenRouter then
+            eprintfn "  Registered OpenRouter adapter (OPENROUTER_API_KEY)"
+            llmClient.RegisterAdapter(UnifiedLlm.OpenRouterAdapter(openRouterKey))
+
         let backend = LlmBackend(llmClient) :> ICodergenBackend
         eprintfn "  Using live LLM backend"
 
@@ -821,7 +828,7 @@ let makeRegistry (autoApprove: bool) (simulate: bool) : Result<HandlerRegistry, 
         )
     else
         eprintfn
-            "Error: No API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY — or pass --simulate."
+            "Error: No API keys found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY — or pass --simulate."
 
         eprintfn ""
         eprintfn "  attractor <file.dot> --simulate          # run with mock LLM responses"

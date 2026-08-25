@@ -395,6 +395,13 @@ module private HttpAdapterHelpers =
             [ "x-ratelimit-remaining-requests"; "x-ratelimit-remaining" ]
             [ "x-ratelimit-reset-requests"; "x-ratelimit-reset" ]
 
+    let parseOpenRouterRateLimit (httpResp: HttpResponseMessage) =
+        parseRateLimit
+            httpResp
+            [ "x-ratelimit-limit"; "x-ratelimit-limit-requests" ]
+            [ "x-ratelimit-remaining"; "x-ratelimit-remaining-requests" ]
+            [ "x-ratelimit-reset"; "x-ratelimit-reset-requests" ]
+
     let createLinkedCancellationSource (request: Request) =
         let tokens = ResizeArray<CancellationToken>()
         tokens.Add(HttpCancellation.token ())
@@ -2579,3 +2586,621 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
               Embeddings = embeddings
               Usage = Usage.Zero
               Raw = Some(root.Clone()) }
+
+/// OpenRouter's OpenAI-compatible Chat Completions adapter.
+/// Kept separate from OpenAIAdapter because OpenAI uses the Responses API.
+type OpenRouterAdapter
+    (apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string, ?defaultHeaders: Map<string, string>) =
+    let client = defaultArg httpClient (new HttpClient())
+
+    let baseUrl =
+        apiBaseUrl
+        |> Option.orElseWith (fun () ->
+            match Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") with
+            | null
+            | "" -> None
+            | value -> Some value)
+        |> Option.defaultValue "https://openrouter.ai/api/v1"
+        |> _.TrimEnd('/')
+
+    let environmentHeaders =
+        [ "HTTP-Referer", Environment.GetEnvironmentVariable("OPENROUTER_HTTP_REFERER")
+          "X-OpenRouter-Title", Environment.GetEnvironmentVariable("OPENROUTER_APP_NAME") ]
+        |> List.choose (fun (name, value) ->
+            if String.IsNullOrWhiteSpace(value) then
+                None
+            else
+                Some(name, value))
+        |> Map.ofList
+
+    let headers =
+        defaultArg defaultHeaders Map.empty
+        |> Map.fold (fun state key value -> Map.add key value state) environmentHeaders
+
+    let roleName =
+        function
+        | Role.System -> "system"
+        | Role.Developer -> "system"
+        | Role.User -> "user"
+        | Role.Assistant -> "assistant"
+        | Role.Tool -> "tool"
+
+    let imageUrl (image: ImageData) =
+        match image.Url, image.Data, image.FilePath with
+        | Some url, _, _ -> url
+        | None, Some data, _ ->
+            let mediaType = image.MediaType |> Option.defaultValue "image/png"
+            $"data:{mediaType};base64,{Convert.ToBase64String(data)}"
+        | None, None, Some path ->
+            let data = File.ReadAllBytes(path)
+            let mediaType = image.MediaType |> Option.defaultValue "image/png"
+            $"data:{mediaType};base64,{Convert.ToBase64String(data)}"
+        | None, None, None -> raise (ConfigurationError("OpenRouter image content requires URL, data, or file path"))
+
+    let contentPayload (parts: ContentPart list) =
+        let content = ResizeArray<obj>()
+
+        for part in parts do
+            match part with
+            | ContentPart.Text text -> content.Add({| ``type`` = "text"; text = text |})
+            | ContentPart.Image image ->
+                content.Add(
+                    {| ``type`` = "image_url"
+                       image_url = {| url = imageUrl image |} |}
+                )
+            | _ -> ()
+
+        if content.Count = 1 then
+            match parts with
+            | [ ContentPart.Text text ] -> text :> obj
+            | _ -> content.ToArray() :> obj
+        elif content.Count = 0 then
+            "" :> obj
+        else
+            content.ToArray() :> obj
+
+    let toolCallPayload (call: ToolCallData) =
+        {| id = call.Id
+           ``type`` = "function"
+           ``function`` =
+            {| name = call.Name
+               arguments = call.Arguments |} |}
+        :> obj
+
+    let messagePayloads (message: Message) =
+        if message.Role = Role.Tool then
+            message.Content
+            |> List.choose (function
+                | ContentPart.ToolResult result ->
+                    let item = Dictionary<string, obj>()
+                    item["role"] <- "tool"
+                    item["tool_call_id"] <- result.ToolCallId
+                    item["content"] <- result.Content
+                    Some(item :> obj)
+                | _ -> None)
+        else
+            let item = Dictionary<string, obj>()
+            item["role"] <- roleName message.Role
+            item["content"] <- contentPayload message.Content
+
+            match message.Name with
+            | Some name -> item["name"] <- name
+            | None -> ()
+
+            let toolCalls =
+                message.Content
+                |> List.choose (function
+                    | ContentPart.ToolCall call -> Some(toolCallPayload call)
+                    | _ -> None)
+
+            if not toolCalls.IsEmpty then
+                item["tool_calls"] <- toolCalls |> List.toArray
+
+            let reasoningDetails =
+                message.Content
+                |> List.choose (function
+                    | ContentPart.Thinking thinking when thinking.Redacted ->
+                        Some(
+                            {| ``type`` = "reasoning.encrypted"
+                               data = thinking.Text |}
+                            :> obj
+                        )
+                    | ContentPart.Thinking thinking ->
+                        let detail = Dictionary<string, obj>()
+                        detail["type"] <- "reasoning.text"
+                        detail["text"] <- thinking.Text
+
+                        match thinking.Signature with
+                        | Some signature -> detail["signature"] <- signature
+                        | None -> ()
+
+                        Some(detail :> obj)
+                    | _ -> None)
+
+            if not reasoningDetails.IsEmpty then
+                item["reasoning_details"] <- reasoningDetails |> List.toArray
+
+            [ item :> obj ]
+
+    let providerOptions (request: Request) =
+        request.ProviderOptions
+        |> Option.bind (Map.tryFind "openrouter")
+        |> Option.bind HttpAdapterHelpers.tryAsObjMap
+        |> Option.defaultValue Map.empty
+
+    let applyHeaders (request: Request) (httpRequest: HttpRequestMessage) (stream: bool) =
+        httpRequest.Headers.Authorization <- Headers.AuthenticationHeaderValue("Bearer", apiKey)
+
+        if stream then
+            httpRequest.Headers.Accept.Add(Headers.MediaTypeWithQualityHeaderValue("text/event-stream"))
+
+        let requestHeaders =
+            providerOptions request
+            |> Map.tryFind "headers"
+            |> Option.bind HttpAdapterHelpers.tryAsObjMap
+            |> Option.defaultValue Map.empty
+            |> Map.map (fun _ (value: obj) -> Convert.ToString(value, Globalization.CultureInfo.InvariantCulture))
+
+        for KeyValue(name, value) in Map.fold (fun state key value -> Map.add key value state) headers requestHeaders do
+            httpRequest.Headers.Remove(name) |> ignore
+            httpRequest.Headers.TryAddWithoutValidation(name, value) |> ignore
+
+    let buildBody (request: Request) (stream: bool) =
+        let body = Dictionary<string, obj>()
+        body["model"] <- request.Model
+
+        let messages =
+            [ yield! request.Messages |> List.collect messagePayloads
+
+              match request.Prompt with
+              | Some prompt -> yield {| role = "user"; content = prompt |} :> obj
+              | None -> () ]
+
+        body["messages"] <- messages |> List.toArray
+
+        if stream then
+            body["stream"] <- true
+            body["stream_options"] <- {| include_usage = true |}
+
+        match request.MaxTokens with
+        | Some value -> body["max_tokens"] <- value
+        | None -> ()
+
+        match request.Temperature with
+        | Some value -> body["temperature"] <- value
+        | None -> ()
+
+        match request.TopP with
+        | Some value -> body["top_p"] <- value
+        | None -> ()
+
+        match request.StopSequences with
+        | Some values when not values.IsEmpty -> body["stop"] <- values |> List.toArray
+        | _ -> ()
+
+        match request.Metadata with
+        | Some metadata when not metadata.IsEmpty -> body["metadata"] <- HttpAdapterHelpers.toObjMap metadata
+        | _ -> ()
+
+        match request.ReasoningEffort with
+        | Some effort ->
+            body["reasoning"] <-
+                {| effort = effort
+                   enabled = true
+                   exclude = false |}
+        | None -> ()
+
+        match request.ResponseFormat with
+        | Some ResponseFormat.JsonObject -> body["response_format"] <- {| ``type`` = "json_object" |}
+        | Some(ResponseFormat.JsonSchema(name, schema, strict)) ->
+            body["response_format"] <-
+                {| ``type`` = "json_schema"
+                   json_schema =
+                    {| name = name
+                       schema = HttpAdapterHelpers.tryParseJsonObject schema ({| ``type`` = "object" |} :> obj)
+                       strict = strict |} |}
+        | _ -> ()
+
+        match request.Tools with
+        | Some tools when not tools.IsEmpty ->
+            body["tools"] <-
+                tools
+                |> List.map (fun tool ->
+                    {| ``type`` = "function"
+                       ``function`` =
+                        {| name = tool.Name
+                           description = tool.Description
+                           parameters =
+                            HttpAdapterHelpers.tryParseJsonObject tool.Parameters ({| ``type`` = "object" |} :> obj) |} |})
+                |> List.toArray
+
+            match request.ToolChoice with
+            | Some ToolChoice.Auto -> body["tool_choice"] <- "auto"
+            | Some ToolChoice.None -> body["tool_choice"] <- "none"
+            | Some ToolChoice.Required -> body["tool_choice"] <- "required"
+            | Some(ToolChoice.Named name) ->
+                body["tool_choice"] <-
+                    {| ``type`` = "function"
+                       ``function`` = {| name = name |} |}
+            | None -> ()
+        | _ -> ()
+
+        for KeyValue(name, value) in providerOptions request do
+            if name <> "headers" && not (body.ContainsKey(name)) then
+                body[name] <- HttpAdapterHelpers.toProviderOptionPayload value
+
+        body
+
+    let parseFinishReason (raw: string) =
+        match raw with
+        | ""
+        | "stop" -> Stop raw
+        | "length" -> Length raw
+        | "tool_calls" -> ToolCalls raw
+        | "content_filter" -> ContentFilter raw
+        | "error" -> Error raw
+        | other -> Other other
+
+    let parseUsage (root: JsonElement) : Usage =
+        match HttpAdapterHelpers.tryGetProperty "usage" root with
+        | Some usage ->
+            { InputTokens =
+                HttpAdapterHelpers.tryGetProperty "prompt_tokens" usage
+                |> Option.map _.GetInt32()
+                |> Option.defaultValue 0
+              OutputTokens =
+                HttpAdapterHelpers.tryGetProperty "completion_tokens" usage
+                |> Option.map _.GetInt32()
+                |> Option.defaultValue 0
+              ReasoningTokens =
+                HttpAdapterHelpers.tryGetProperty "completion_tokens_details" usage
+                |> Option.bind (HttpAdapterHelpers.tryGetProperty "reasoning_tokens")
+                |> Option.map _.GetInt32()
+              CacheReadTokens =
+                HttpAdapterHelpers.tryGetProperty "prompt_tokens_details" usage
+                |> Option.bind (HttpAdapterHelpers.tryGetProperty "cached_tokens")
+                |> Option.map _.GetInt32()
+              CacheWriteTokens = None }
+        | None -> Usage.Zero
+
+    let addReasoningParts (content: ResizeArray<ContentPart>) (message: JsonElement) =
+        match HttpAdapterHelpers.tryGetString "reasoning" message with
+        | Some text when text <> "" ->
+            content.Add(
+                ContentPart.Thinking
+                    { Text = text
+                      Signature = None
+                      Redacted = false }
+            )
+        | _ -> ()
+
+        match HttpAdapterHelpers.tryGetProperty "reasoning_details" message with
+        | Some details when details.ValueKind = JsonValueKind.Array ->
+            for detail in details.EnumerateArray() do
+                match HttpAdapterHelpers.tryGetString "type" detail with
+                | Some "reasoning.text" ->
+                    content.Add(
+                        ContentPart.Thinking
+                            { Text = HttpAdapterHelpers.tryGetString "text" detail |> Option.defaultValue ""
+                              Signature = HttpAdapterHelpers.tryGetString "signature" detail
+                              Redacted = false }
+                    )
+                | Some "reasoning.summary" ->
+                    content.Add(
+                        ContentPart.Thinking
+                            { Text = HttpAdapterHelpers.tryGetString "summary" detail |> Option.defaultValue ""
+                              Signature = None
+                              Redacted = false }
+                    )
+                | Some "reasoning.encrypted" ->
+                    content.Add(
+                        ContentPart.Thinking
+                            { Text = HttpAdapterHelpers.tryGetString "data" detail |> Option.defaultValue ""
+                              Signature = None
+                              Redacted = true }
+                    )
+                | _ -> ()
+        | _ -> ()
+
+    let parseResponse (request: Request) (response: HttpResponseMessage) (body: string) =
+        use doc = JsonDocument.Parse(body)
+        let root = doc.RootElement
+
+        let choice =
+            HttpAdapterHelpers.tryGetProperty "choices" root
+            |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array && value.GetArrayLength() > 0)
+            |> Option.map (fun value -> value[0])
+            |> Option.defaultWith (fun () -> raise (ProviderError("OpenRouter response missing choices", None, false)))
+
+        let message =
+            HttpAdapterHelpers.tryGetProperty "message" choice
+            |> Option.defaultWith (fun () -> JsonDocument.Parse("{}").RootElement)
+
+        let content = ResizeArray<ContentPart>()
+
+        match HttpAdapterHelpers.tryGetProperty "content" message with
+        | Some value when value.ValueKind = JsonValueKind.String -> content.Add(ContentPart.Text(value.GetString()))
+        | Some value when value.ValueKind = JsonValueKind.Array ->
+            for part in value.EnumerateArray() do
+                match HttpAdapterHelpers.tryGetString "text" part with
+                | Some text -> content.Add(ContentPart.Text text)
+                | None -> ()
+        | _ -> ()
+
+        addReasoningParts content message
+
+        match HttpAdapterHelpers.tryGetProperty "tool_calls" message with
+        | Some calls when calls.ValueKind = JsonValueKind.Array ->
+            for call in calls.EnumerateArray() do
+                match HttpAdapterHelpers.tryGetProperty "function" call with
+                | Some fn ->
+                    content.Add(
+                        ContentPart.ToolCall
+                            { Id = HttpAdapterHelpers.tryGetString "id" call |> Option.defaultValue ""
+                              Name = HttpAdapterHelpers.tryGetString "name" fn |> Option.defaultValue ""
+                              Arguments = HttpAdapterHelpers.tryGetString "arguments" fn |> Option.defaultValue "{}"
+                              Metadata = Map.empty }
+                    )
+                | None -> ()
+        | _ -> ()
+
+        let rawFinish =
+            HttpAdapterHelpers.tryGetString "finish_reason" choice |> Option.defaultValue ""
+
+        { Id =
+            HttpAdapterHelpers.tryGetString "id" root
+            |> Option.defaultValue ("openrouter-" + Guid.NewGuid().ToString("N").Substring(0, 8))
+          Model =
+            HttpAdapterHelpers.tryGetString "model" root
+            |> Option.defaultValue request.Model
+          Provider = "openrouter"
+          Message =
+            { Role = Assistant
+              Content =
+                if content.Count = 0 then
+                    [ ContentPart.Text "" ]
+                else
+                    content |> Seq.toList
+              Name = None
+              ToolCallId = None }
+          FinishReason = parseFinishReason rawFinish
+          Usage = parseUsage root
+          ResponseId = HttpAdapterHelpers.tryGetString "id" root
+          Raw = Some(root.Clone())
+          Warnings = []
+          RateLimit = HttpAdapterHelpers.parseOpenRouterRateLimit response }
+
+    interface IProviderAdapter with
+        member _.ProviderId = "openrouter"
+        member _.SupportsToolChoice() = true
+        member _.Initialize() = async { return () }
+        member _.Close() = async { return () }
+
+        member _.Complete(request: Request) =
+            let body = JsonSerializer.Serialize(buildBody request false)
+
+            use httpRequest =
+                new HttpRequestMessage(HttpMethod.Post, baseUrl + "/chat/completions")
+
+            httpRequest.Content <- new StringContent(body, Encoding.UTF8, "application/json")
+            applyHeaders request httpRequest false
+
+            let response, responseBody =
+                HttpAdapterHelpers.sendAndReadString client request httpRequest
+
+            if not response.IsSuccessStatusCode then
+                raise (ErrorMapping.classifyHttpResponse response responseBody)
+
+            parseResponse request response responseBody
+
+        member _.Stream(request: Request) =
+            seq {
+                let body = JsonSerializer.Serialize(buildBody request true)
+
+                use httpRequest =
+                    new HttpRequestMessage(HttpMethod.Post, baseUrl + "/chat/completions")
+
+                httpRequest.Content <- new StringContent(body, Encoding.UTF8, "application/json")
+                applyHeaders request httpRequest true
+                let response, cts = HttpAdapterHelpers.sendForStream client request httpRequest
+                use cts = cts
+                use response = response
+
+                if not response.IsSuccessStatusCode then
+                    let responseBody = response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    raise (ErrorMapping.classifyHttpResponse response responseBody)
+
+                use stream = response.Content.ReadAsStream(cts.Token)
+                use reader = new StreamReader(stream)
+                let text = StringBuilder()
+                let reasoning = StringBuilder()
+                let toolStates = Dictionary<int, HttpAdapterHelpers.ToolBlockState>()
+                let toolOrder = ResizeArray<int>()
+                let rawEvents = ResizeArray<string>()
+                let mutable responseId = ""
+                let mutable responseModel = request.Model
+                let mutable usage: Usage = Usage.Zero
+                let mutable finishReason = Stop "stop"
+                let mutable textStarted = false
+                let mutable reasoningStarted = false
+                yield StreamStart
+
+                for _, data in HttpAdapterHelpers.parseSse reader cts.Token do
+                    if data <> "[DONE]" then
+                        rawEvents.Add(data)
+                        use doc = JsonDocument.Parse(data)
+                        let root = doc.RootElement
+
+                        match HttpAdapterHelpers.tryGetProperty "error" root with
+                        | Some error ->
+                            let message =
+                                HttpAdapterHelpers.tryGetString "message" error
+                                |> Option.defaultValue "OpenRouter stream error"
+
+                            raise (ProviderError(message, None, false))
+                        | None -> ()
+
+                        responseId <- HttpAdapterHelpers.tryGetString "id" root |> Option.defaultValue responseId
+
+                        responseModel <-
+                            HttpAdapterHelpers.tryGetString "model" root
+                            |> Option.defaultValue responseModel
+
+                        if (HttpAdapterHelpers.tryGetProperty "usage" root).IsSome then
+                            usage <- parseUsage root
+
+                        match HttpAdapterHelpers.tryGetProperty "choices" root with
+                        | Some choices when choices.ValueKind = JsonValueKind.Array ->
+                            for choice in choices.EnumerateArray() do
+                                match HttpAdapterHelpers.tryGetProperty "delta" choice with
+                                | Some delta ->
+                                    match HttpAdapterHelpers.tryGetString "content" delta with
+                                    | Some value when value <> "" ->
+                                        if not textStarted then
+                                            textStarted <- true
+                                            yield TextStart "text-0"
+
+                                        text.Append(value) |> ignore
+                                        yield TextDelta(Some "text-0", value)
+                                    | _ -> ()
+
+                                    let reasoningDelta =
+                                        HttpAdapterHelpers.tryGetString "reasoning" delta
+                                        |> Option.orElseWith (fun () ->
+                                            HttpAdapterHelpers.tryGetProperty "reasoning_details" delta
+                                            |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array)
+                                            |> Option.map (fun details ->
+                                                details.EnumerateArray()
+                                                |> Seq.choose (fun detail ->
+                                                    HttpAdapterHelpers.tryGetString "text" detail
+                                                    |> Option.orElseWith (fun () ->
+                                                        HttpAdapterHelpers.tryGetString "summary" detail))
+                                                |> String.concat ""))
+
+                                    match reasoningDelta with
+                                    | Some value when value <> "" ->
+                                        if not reasoningStarted then
+                                            reasoningStarted <- true
+                                            yield ReasoningStart None
+
+                                        reasoning.Append(value) |> ignore
+                                        yield ThinkingEvent value
+                                    | _ -> ()
+
+                                    match HttpAdapterHelpers.tryGetProperty "tool_calls" delta with
+                                    | Some calls when calls.ValueKind = JsonValueKind.Array ->
+                                        for call in calls.EnumerateArray() do
+                                            let index: int =
+                                                HttpAdapterHelpers.tryGetProperty "index" call
+                                                |> Option.map _.GetInt32()
+                                                |> Option.defaultValue 0
+
+                                            let id = HttpAdapterHelpers.tryGetString "id" call |> Option.defaultValue ""
+
+                                            let fn =
+                                                HttpAdapterHelpers.tryGetProperty "function" call
+                                                |> Option.defaultWith (fun () -> JsonDocument.Parse("{}").RootElement)
+
+                                            let name =
+                                                HttpAdapterHelpers.tryGetString "name" fn |> Option.defaultValue ""
+
+                                            let args =
+                                                HttpAdapterHelpers.tryGetString "arguments" fn |> Option.defaultValue ""
+
+                                            match toolStates.TryGetValue(index) with
+                                            | false, _ ->
+                                                let callId =
+                                                    if id = "" then
+                                                        "openrouter-tool-"
+                                                        + index.ToString(Globalization.CultureInfo.InvariantCulture)
+                                                    else
+                                                        id
+
+                                                toolStates[index] <-
+                                                    { Id = callId
+                                                      Name = name
+                                                      Args = StringBuilder(args)
+                                                      Metadata = Map.empty }
+
+                                                toolOrder.Add(index)
+
+                                                yield
+                                                    ToolCallStart
+                                                        { Id = callId
+                                                          Name = name
+                                                          Arguments = ""
+                                                          Metadata = Map.empty }
+
+                                                if args <> "" then
+                                                    yield ToolCallDelta(callId, args)
+                                            | true, state ->
+                                                let nextState =
+                                                    { state with
+                                                        Name = if name = "" then state.Name else name }
+
+                                                toolStates[index] <- nextState
+
+                                                if args <> "" then
+                                                    nextState.Args.Append(args) |> ignore
+                                                    yield ToolCallDelta(nextState.Id, args)
+                                    | _ -> ()
+                                | None -> ()
+
+                                match HttpAdapterHelpers.tryGetString "finish_reason" choice with
+                                | Some raw when raw <> "" -> finishReason <- parseFinishReason raw
+                                | _ -> ()
+                        | _ -> ()
+
+                if textStarted then
+                    yield TextEnd "text-0"
+
+                if reasoningStarted then
+                    yield ReasoningEnd None
+
+                let toolCalls: ToolCallData list =
+                    [ for index in toolOrder do
+                          let state = toolStates[index]
+
+                          yield
+                              { Id = state.Id
+                                Name = state.Name
+                                Arguments = state.Args.ToString()
+                                Metadata = Map.empty } ]
+
+                for call in toolCalls do
+                    yield ToolCallEnd call
+
+                let content =
+                    [ if reasoning.Length > 0 then
+                          yield
+                              ContentPart.Thinking
+                                  { Text = reasoning.ToString()
+                                    Signature = None
+                                    Redacted = false }
+                      if text.Length > 0 then
+                          yield ContentPart.Text(text.ToString())
+                      for call in toolCalls do
+                          yield ContentPart.ToolCall call ]
+
+                let normalized =
+                    { Id =
+                        if responseId = "" then
+                            "openrouter-" + Guid.NewGuid().ToString("N").Substring(0, 8)
+                        else
+                            responseId
+                      Model = responseModel
+                      Provider = "openrouter"
+                      Message =
+                        { Role = Assistant
+                          Content = if content.IsEmpty then [ ContentPart.Text "" ] else content
+                          Name = None
+                          ToolCallId = None }
+                      FinishReason = finishReason
+                      Usage = usage
+                      ResponseId = if responseId = "" then None else Some responseId
+                      Raw = Some(HttpAdapterHelpers.toRawElement (String.concat "\n" rawEvents))
+                      Warnings = []
+                      RateLimit = HttpAdapterHelpers.parseOpenRouterRateLimit response }
+
+                yield Finish(finishReason, Some usage, Some normalized)
+            }

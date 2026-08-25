@@ -56,6 +56,9 @@ type Client(?config: ClientConfig) =
     /// Get the default provider id
     member _.DefaultProvider = defaultProvider
 
+    /// Test whether a provider adapter is currently registered.
+    member _.IsProviderRegistered(providerId: string) = adapters.ContainsKey(providerId)
+
     /// Resolve the adapter for a request
     member private _.ResolveAdapter(request: Request) : IProviderAdapter * AdapterTimeout option =
         let providerId =
@@ -218,6 +221,11 @@ type Client(?config: ClientConfig) =
 
         if not (System.String.IsNullOrEmpty(geminiKey)) then
             client.RegisterAdapter(GeminiAdapter(geminiKey))
+
+        let openRouterKey = System.Environment.GetEnvironmentVariable("OPENROUTER_API_KEY")
+
+        if not (System.String.IsNullOrEmpty(openRouterKey)) then
+            client.RegisterAdapter(OpenRouterAdapter(openRouterKey))
 
         client
 
