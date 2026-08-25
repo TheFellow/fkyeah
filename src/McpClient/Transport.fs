@@ -115,123 +115,155 @@ module Transport =
         (cancellationToken: CancellationToken)
         (idleTimeoutMs: int)
         : IAsyncEnumerable<ParsedSseEvent> =
-        taskSeq {
-            use reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true)
+        { new IAsyncEnumerable<ParsedSseEvent> with
+            member _.GetAsyncEnumerator(enumeratorCancellationToken) =
+                let reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true)
 
-            let dataLines = ResizeArray<string>()
-            let mutable eventType = "message"
-            let mutable retryMs: int option = None
-            let mutable lastEventId: string option = None
-            let mutable seenField = false
-            let progress = Stopwatch.StartNew()
+                let effectiveCancellation =
+                    CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, enumeratorCancellationToken)
 
-            let emitEvent () =
-                if seenField then
-                    let payload = String.concat "\n" (dataLines |> Seq.toList)
+                let effectiveToken = effectiveCancellation.Token
+                let dataLines = ResizeArray<string>()
+                let mutable eventType = "message"
+                let mutable retryMs: int option = None
+                let mutable lastEventId: string option = None
+                let mutable seenField = false
+                let progress = Stopwatch.StartNew()
+                let mutable keepReading = true
+                let mutable current = Unchecked.defaultof<ParsedSseEvent>
 
-                    let emitted =
-                        { Data = Encoding.UTF8.GetBytes(payload)
-                          EventType = eventType
-                          RetryMs = retryMs
-                          LastEventId = lastEventId }
+                let emitEvent () =
+                    if seenField then
+                        let payload = String.concat "\n" (dataLines |> Seq.toList)
 
-                    let wasHeartbeat = isHeartbeatEventType eventType
-                    dataLines.Clear()
-                    eventType <- "message"
-                    retryMs <- None
-                    lastEventId <- None
-                    seenField <- false
+                        let emitted =
+                            { Data = Encoding.UTF8.GetBytes(payload)
+                              EventType = eventType
+                              RetryMs = retryMs
+                              LastEventId = lastEventId }
 
-                    if not wasHeartbeat then
-                        progress.Restart()
+                        let wasHeartbeat = isHeartbeatEventType eventType
+                        dataLines.Clear()
+                        eventType <- "message"
+                        retryMs <- None
+                        lastEventId <- None
+                        seenField <- false
 
-                    Some emitted
-                else
-                    None
+                        if not wasHeartbeat then
+                            progress.Restart()
 
-            let parseField (line: string) =
-                let index = line.IndexOf(':')
-
-                if index < 0 then
-                    line, ""
-                else
-                    let value = line[(index + 1) ..]
-
-                    let normalized =
-                        if value.StartsWith(" ", StringComparison.Ordinal) then
-                            value.Substring(1)
-                        else
-                            value
-
-                    line[.. (index - 1)], normalized
-
-            let mutable keepReading = true
-
-            while keepReading && not cancellationToken.IsCancellationRequested do
-                let elapsed = int progress.ElapsedMilliseconds
-                let remaining = idleTimeoutMs - elapsed
-
-                if remaining <= 0 then
-                    raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
-
-                let idleCts = new CancellationTokenSource()
-                idleCts.CancelAfter(remaining)
-
-                use linked =
-                    CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, idleCts.Token)
-
-                let mutable line: string = null
-                let mutable idleFired = false
-
-                try
-                    let! read = reader.ReadLineAsync(linked.Token).AsTask()
-                    line <- read
-                with :? OperationCanceledException ->
-                    if cancellationToken.IsCancellationRequested then
-                        keepReading <- false
+                        Some emitted
                     else
-                        idleFired <- true
+                        None
 
-                idleCts.Dispose()
+                let parseField (line: string) =
+                    let index = line.IndexOf(':')
 
-                if idleFired then
-                    raise (TimeoutException(sprintf "SSE stream idle timeout (no progress within %dms)" idleTimeoutMs))
-
-                if keepReading then
-                    if isNull line then
-                        keepReading <- false
-
-                        match emitEvent () with
-                        | Some eventData -> yield eventData
-                        | None -> ()
-                    elif line = "" then
-                        match emitEvent () with
-                        | Some eventData -> yield eventData
-                        | None -> ()
-                    elif line.StartsWith(":", StringComparison.Ordinal) then
-                        // SSE comment — consume, do not count as progress.
-                        ()
+                    if index < 0 then
+                        line, ""
                     else
-                        let fieldName, value = parseField line
+                        let value = line[(index + 1) ..]
 
-                        match fieldName with
-                        | "data" ->
-                            seenField <- true
-                            dataLines.Add(value)
-                        | "event" ->
-                            seenField <- true
-                            eventType <- if value = "" then "message" else value
-                        | "id" ->
-                            seenField <- true
-                            lastEventId <- Some value
-                        | "retry" ->
-                            match Int32.TryParse(value) with
-                            | true, parsed ->
-                                seenField <- true
-                                retryMs <- Some parsed
-                            | _ -> ()
-                        | _ -> ()
-        }
+                        let normalized =
+                            if value.StartsWith(" ", StringComparison.Ordinal) then
+                                value.Substring(1)
+                            else
+                                value
+
+                        line[.. (index - 1)], normalized
+
+                { new IAsyncEnumerator<ParsedSseEvent> with
+                    member _.Current = current
+
+                    member _.MoveNextAsync() =
+                        let moveNext: Task<bool> =
+                            task {
+                                let mutable nextEvent: ParsedSseEvent option = None
+
+                                while keepReading && nextEvent.IsNone && not effectiveToken.IsCancellationRequested do
+                                    let elapsed = int progress.ElapsedMilliseconds
+                                    let remaining = idleTimeoutMs - elapsed
+
+                                    if remaining <= 0 then
+                                        raise (
+                                            TimeoutException(
+                                                sprintf
+                                                    "SSE stream idle timeout (no progress within %dms)"
+                                                    idleTimeoutMs
+                                            )
+                                        )
+
+                                    use idleCts = new CancellationTokenSource()
+                                    idleCts.CancelAfter(remaining)
+
+                                    use linked =
+                                        CancellationTokenSource.CreateLinkedTokenSource(effectiveToken, idleCts.Token)
+
+                                    let mutable line: string = null
+                                    let mutable idleFired = false
+
+                                    try
+                                        let! read = reader.ReadLineAsync(linked.Token).AsTask()
+                                        line <- read
+                                    with :? OperationCanceledException ->
+                                        if effectiveToken.IsCancellationRequested then
+                                            keepReading <- false
+                                        else
+                                            idleFired <- true
+
+                                    if idleFired then
+                                        raise (
+                                            TimeoutException(
+                                                sprintf
+                                                    "SSE stream idle timeout (no progress within %dms)"
+                                                    idleTimeoutMs
+                                            )
+                                        )
+
+                                    if keepReading then
+                                        if isNull line then
+                                            keepReading <- false
+                                            nextEvent <- emitEvent ()
+                                        elif line = "" then
+                                            nextEvent <- emitEvent ()
+                                        elif line.StartsWith(":", StringComparison.Ordinal) then
+                                            // SSE comment — consume, do not count as progress.
+                                            ()
+                                        else
+                                            let fieldName, value = parseField line
+
+                                            match fieldName with
+                                            | "data" ->
+                                                seenField <- true
+                                                dataLines.Add(value)
+                                            | "event" ->
+                                                seenField <- true
+                                                eventType <- if value = "" then "message" else value
+                                            | "id" ->
+                                                seenField <- true
+                                                lastEventId <- Some value
+                                            | "retry" ->
+                                                match Int32.TryParse(value) with
+                                                | true, parsed ->
+                                                    seenField <- true
+                                                    retryMs <- Some parsed
+                                                | _ -> ()
+                                            | _ -> ()
+
+                                match nextEvent with
+                                | Some eventData ->
+                                    current <- eventData
+                                    return true
+                                | None -> return false
+                            }
+
+                        ValueTask<bool>(moveNext)
+
+                    member _.DisposeAsync() =
+                        keepReading <- false
+                        reader.Dispose()
+                        effectiveCancellation.Dispose()
+                        ValueTask() } }
 
     let parseSseStream (stream: Stream) (cancellationToken: CancellationToken) : IAsyncEnumerable<ParsedSseEvent> =
         parseSseStreamWithIdleTimeout stream cancellationToken (DefaultSseIdleTimeoutMs())
@@ -404,45 +436,119 @@ module Transport =
                 }
           Receive =
             fun cancellationToken ->
-                taskSeq {
-                    match client with
-                    | Some httpClient ->
-                        use request = new HttpRequestMessage(HttpMethod.Get, (url: string))
-                        request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue("text/event-stream"))
-                        applyHeaders request
+                { new IAsyncEnumerable<byte array> with
+                    member _.GetAsyncEnumerator(enumeratorCancellationToken) =
+                        let effectiveCancellation =
+                            CancellationTokenSource.CreateLinkedTokenSource(
+                                cancellationToken,
+                                enumeratorCancellationToken
+                            )
 
-                        match lastEventId with
-                        | Some value when value <> "" ->
-                            request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
-                        | _ -> ()
+                        let effectiveToken = effectiveCancellation.Token
+                        let mutable request: HttpRequestMessage = null
+                        let mutable response: HttpResponseMessage = null
+                        let mutable stream: Stream = null
+                        let mutable events: IAsyncEnumerator<ParsedSseEvent> = null
+                        let mutable current: byte array = null
+                        let mutable initialized = false
+                        let mutable completed = false
+                        let mutable jsonResponse = false
 
-                        let! response =
-                            httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        let initialize: Task =
+                            task {
+                                match client with
+                                | Some httpClient ->
+                                    request <- new HttpRequestMessage(HttpMethod.Get, (url: string))
+                                    request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue("text/event-stream"))
+                                    applyHeaders request
 
-                        use response = response
+                                    match lastEventId with
+                                    | Some value when value <> "" ->
+                                        request.Headers.TryAddWithoutValidation("Last-Event-ID", value) |> ignore
+                                    | _ -> ()
 
-                        response.EnsureSuccessStatusCode() |> ignore
+                                    let! received =
+                                        httpClient.SendAsync(
+                                            request,
+                                            HttpCompletionOption.ResponseHeadersRead,
+                                            effectiveToken
+                                        )
 
-                        let! stream = response.Content.ReadAsStreamAsync(cancellationToken)
-                        use stream = stream
+                                    response <- received
+                                    response.EnsureSuccessStatusCode() |> ignore
+                                    let! receivedStream = response.Content.ReadAsStreamAsync(effectiveToken)
+                                    stream <- receivedStream
 
-                        let mediaType =
-                            if isNull response.Content.Headers.ContentType then
-                                ""
-                            else
-                                response.Content.Headers.ContentType.MediaType
+                                    let mediaType =
+                                        if isNull response.Content.Headers.ContentType then
+                                            ""
+                                        else
+                                            response.Content.Headers.ContentType.MediaType
 
-                        if contentTypeEquals mediaType "application/json" then
-                            use memory = new MemoryStream()
-                            do! stream.CopyToAsync(memory, cancellationToken)
-                            yield memory.ToArray()
-                        else
-                            for eventData in parseSseStream stream cancellationToken do
-                                lastEventId <- eventData.LastEventId |> Option.orElse lastEventId
-                                retryDelayMs <- eventData.RetryMs |> Option.orElse retryDelayMs
-                                yield eventData.Data
-                    | None -> ()
-                }
+                                    jsonResponse <- contentTypeEquals mediaType "application/json"
+
+                                    if not jsonResponse then
+                                        events <-
+                                            (parseSseStream stream effectiveToken).GetAsyncEnumerator(effectiveToken)
+                                | None -> completed <- true
+
+                                initialized <- true
+                            }
+
+                        { new IAsyncEnumerator<byte array> with
+                            member _.Current = current
+
+                            member _.MoveNextAsync() =
+                                let moveNext: Task<bool> =
+                                    task {
+                                        if not initialized then
+                                            do! initialize
+
+                                        if completed || effectiveToken.IsCancellationRequested then
+                                            return false
+                                        elif jsonResponse then
+                                            use memory = new MemoryStream()
+                                            do! stream.CopyToAsync(memory, effectiveToken)
+                                            current <- memory.ToArray()
+                                            completed <- true
+                                            return true
+                                        else
+                                            let! hasEvent = events.MoveNextAsync().AsTask()
+
+                                            if hasEvent then
+                                                let eventData = events.Current
+                                                lastEventId <- eventData.LastEventId |> Option.orElse lastEventId
+                                                retryDelayMs <- eventData.RetryMs |> Option.orElse retryDelayMs
+                                                current <- eventData.Data
+                                                return true
+                                            else
+                                                completed <- true
+                                                return false
+                                    }
+
+                                ValueTask<bool>(moveNext)
+
+                            member _.DisposeAsync() =
+                                let dispose: Task =
+                                    task {
+                                        completed <- true
+
+                                        if not (isNull events) then
+                                            do! events.DisposeAsync().AsTask()
+
+                                        if not (isNull stream) then
+                                            stream.Dispose()
+
+                                        if not (isNull response) then
+                                            response.Dispose()
+
+                                        if not (isNull request) then
+                                            request.Dispose()
+
+                                        effectiveCancellation.Dispose()
+                                    }
+
+                                ValueTask(dispose) } }
           Disconnect =
             fun () ->
                 async {

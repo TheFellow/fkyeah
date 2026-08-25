@@ -172,3 +172,27 @@ let ``parseSseStream outer cancellation exits cleanly without exception`` () =
         Assert.Empty(collected)
     }
     :> Task
+
+[<Fact>]
+let ``parseSseStream enumerator cancellation exits cleanly without exception`` () =
+    task {
+        let tp = TestPipe()
+        use enumeration = new CancellationTokenSource()
+
+        let events =
+            Transport.parseSseStreamWithIdleTimeout (tp.ReadStream()) CancellationToken.None 5000
+
+        let enumerator = events.GetAsyncEnumerator(enumeration.Token)
+
+        let _trigger =
+            Task.Run(fun () ->
+                Thread.Sleep(150)
+                enumeration.Cancel())
+
+        try
+            let! hasEvent = enumerator.MoveNextAsync().AsTask()
+            Assert.False(hasEvent)
+        finally
+            enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
+    }
+    :> Task
