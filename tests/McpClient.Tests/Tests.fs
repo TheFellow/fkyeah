@@ -193,6 +193,27 @@ module McpClientTransportAndServerTests =
         transport.Disconnect() |> Async.RunSynchronously
 
     [<Fact>]
+    let ``stdio receive honors enumerator cancellation while waiting for output`` () =
+        task {
+            let transport =
+                Transport.createStdioTransport "/bin/sh" [ "-c"; "sleep 30" ] Map.empty
+
+            transport.Connect() |> Async.RunSynchronously |> resultOrFail |> ignore
+            use cancellation = new CancellationTokenSource(150)
+
+            let enumerator =
+                (transport.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
+
+            try
+                let! hasItem = enumerator.MoveNextAsync().AsTask()
+                Assert.False(hasItem)
+            finally
+                enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
+                transport.Disconnect() |> Async.RunSynchronously
+        }
+        :> Task
+
+    [<Fact>]
     let ``stdio transport disconnect after process exit is idempotent`` () =
         let transport =
             Transport.createStdioTransport "/bin/sh" [ "-c"; "sleep 0.3" ] Map.empty
