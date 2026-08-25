@@ -1,6 +1,7 @@
 module UnifiedLlm.IntegrationTests
 
 open System
+open Microsoft.Extensions.Time.Testing
 open System.IO
 open Xunit
 open UnifiedLlm
@@ -164,6 +165,11 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
           ProbeSuccessThreshold = 2 }
 
     let adapterCalls = ref 0
+    let clock = FakeTimeProvider(DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero))
+
+    let breaker =
+        CircuitBreakerRegistry.getOrCreateWithTimeProvider provider config clock
+
     let mock = ConfigurableMockAdapter(provider)
 
     mock.SetCompleteHandler(fun _ ->
@@ -188,7 +194,7 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
 
     Assert.Equal(2, adapterCalls.Value)
 
-    System.Threading.Thread.Sleep(400) // cooldown (100ms) + generous CI margin
+    clock.Advance(config.CooldownPeriod)
 
     mock.SetCompleteHandler(fun successRequest ->
         adapterCalls.Value <- adapterCalls.Value + 1
@@ -196,7 +202,6 @@ let ``circuit breaker middleware opens and later recovers after cooldown`` () =
 
     let firstProbe = client.Complete(request)
     let secondProbe = client.Complete(request)
-    let breaker = CircuitBreakerRegistry.getOrCreate provider config
     let state = Async.RunSynchronously breaker.State
 
     Assert.Equal("recovered", firstProbe.Text)

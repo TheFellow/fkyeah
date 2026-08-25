@@ -1,6 +1,7 @@
 module UnifiedLlm.CircuitBreakerTests
 
 open System
+open Microsoft.Extensions.Time.Testing
 open Xunit
 open UnifiedLlm
 
@@ -16,6 +17,9 @@ let private requireState (breaker: CircuitBreaker) (predicate: CircuitState -> b
 
     if not (predicate state) then
         Assert.Fail($"{label}: unexpected state {state}")
+
+let private fakeClock () =
+    FakeTimeProvider(DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero))
 
 [<Fact>]
 let ``circuit breaker opens after threshold transient failures`` () =
@@ -122,10 +126,11 @@ let ``check in Open before cooldown returns Error`` () =
 let ``check in Open after cooldown transitions to HalfOpen`` () =
     let config =
         { FailureThreshold = 1
-          CooldownPeriod = TimeSpan.FromMilliseconds(10.0)
+          CooldownPeriod = TimeSpan.FromSeconds(30.0)
           ProbeSuccessThreshold = 2 }
 
-    let breaker = CircuitBreaker("test-halfopen-transition", config)
+    let clock = fakeClock ()
+    let breaker = CircuitBreaker("test-halfopen-transition", config, clock)
     breaker.RecordFailure ProviderFailureKind.Timeout
     // Drain to confirm Open and start the cooldown clock from a known point.
     requireState
@@ -135,7 +140,11 @@ let ``check in Open after cooldown transitions to HalfOpen`` () =
         | _ -> false)
         "after Timeout"
 
-    System.Threading.Thread.Sleep(50) // 5x cooldown — generous margin
+    clock.Advance(config.CooldownPeriod - TimeSpan.FromTicks(1L))
+    let beforeBoundary = Async.RunSynchronously(breaker.Check())
+    Assert.True(Result.isError beforeBoundary)
+
+    clock.Advance(TimeSpan.FromTicks(1L))
     let result = Async.RunSynchronously(breaker.Check())
     Assert.True(Result.isOk result)
 
@@ -150,10 +159,11 @@ let ``check in Open after cooldown transitions to HalfOpen`` () =
 let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` () =
     let config =
         { FailureThreshold = 1
-          CooldownPeriod = TimeSpan.FromMilliseconds(10.0)
+          CooldownPeriod = TimeSpan.FromSeconds(30.0)
           ProbeSuccessThreshold = 2 }
 
-    let breaker = CircuitBreaker("test-halfopen-one-success", config)
+    let clock = fakeClock ()
+    let breaker = CircuitBreaker("test-halfopen-one-success", config, clock)
     breaker.RecordFailure ProviderFailureKind.Timeout
 
     requireState
@@ -163,7 +173,7 @@ let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` (
         | _ -> false)
         "after Timeout"
 
-    System.Threading.Thread.Sleep(50)
+    clock.Advance(config.CooldownPeriod)
     Async.RunSynchronously(breaker.Check()) |> ignore
 
     requireState
@@ -184,10 +194,11 @@ let ``single success in HalfOpen with ProbeSuccessThreshold 2 stays HalfOpen`` (
 let ``two successes in HalfOpen transitions to Closed`` () =
     let config =
         { FailureThreshold = 1
-          CooldownPeriod = TimeSpan.FromMilliseconds(10.0)
+          CooldownPeriod = TimeSpan.FromSeconds(30.0)
           ProbeSuccessThreshold = 2 }
 
-    let breaker = CircuitBreaker("test-halfopen-close", config)
+    let clock = fakeClock ()
+    let breaker = CircuitBreaker("test-halfopen-close", config, clock)
     breaker.RecordFailure ProviderFailureKind.Timeout
 
     requireState
@@ -197,7 +208,7 @@ let ``two successes in HalfOpen transitions to Closed`` () =
         | _ -> false)
         "after Timeout"
 
-    System.Threading.Thread.Sleep(50)
+    clock.Advance(config.CooldownPeriod)
     Async.RunSynchronously(breaker.Check()) |> ignore
 
     requireState
@@ -216,10 +227,11 @@ let ``two successes in HalfOpen transitions to Closed`` () =
 let ``transient failure in HalfOpen goes back to Open`` () =
     let config =
         { FailureThreshold = 1
-          CooldownPeriod = TimeSpan.FromMilliseconds(10.0)
+          CooldownPeriod = TimeSpan.FromSeconds(30.0)
           ProbeSuccessThreshold = 2 }
 
-    let breaker = CircuitBreaker("test-halfopen-reopen", config)
+    let clock = fakeClock ()
+    let breaker = CircuitBreaker("test-halfopen-reopen", config, clock)
     breaker.RecordFailure ProviderFailureKind.Timeout
 
     requireState
@@ -229,7 +241,7 @@ let ``transient failure in HalfOpen goes back to Open`` () =
         | _ -> false)
         "after Timeout"
 
-    System.Threading.Thread.Sleep(50)
+    clock.Advance(config.CooldownPeriod)
     Async.RunSynchronously(breaker.Check()) |> ignore
 
     requireState
@@ -250,10 +262,11 @@ let ``transient failure in HalfOpen goes back to Open`` () =
 let ``non-transient failure in HalfOpen stays HalfOpen`` () =
     let config =
         { FailureThreshold = 1
-          CooldownPeriod = TimeSpan.FromMilliseconds(10.0)
+          CooldownPeriod = TimeSpan.FromSeconds(30.0)
           ProbeSuccessThreshold = 2 }
 
-    let breaker = CircuitBreaker("test-halfopen-nontransient", config)
+    let clock = fakeClock ()
+    let breaker = CircuitBreaker("test-halfopen-nontransient", config, clock)
     breaker.RecordFailure ProviderFailureKind.Timeout
 
     requireState
@@ -263,7 +276,7 @@ let ``non-transient failure in HalfOpen stays HalfOpen`` () =
         | _ -> false)
         "after Timeout"
 
-    System.Threading.Thread.Sleep(50)
+    clock.Advance(config.CooldownPeriod)
     Async.RunSynchronously(breaker.Check()) |> ignore
 
     requireState
