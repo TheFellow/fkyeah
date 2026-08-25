@@ -72,6 +72,34 @@ type CodeExecutionData = { Language: string; Code: string }
 /// Result emitted by a provider-managed code execution tool.
 type CodeExecutionResultData = { Outcome: string; Output: string }
 
+/// Provider-neutral metadata for response lifecycle events.
+type ResponseStreamMetadata =
+    { Id: string option
+      Model: string option
+      Provider: string
+      Status: string
+      Raw: string option }
+
+/// A provider response that paused for caller action.
+type ResponseActionData =
+    { Response: ResponseStreamMetadata
+      Action: string option }
+
+/// A response-scoped provider failure surfaced within an otherwise valid stream.
+type ResponseErrorData =
+    { Response: ResponseStreamMetadata
+      Code: string option
+      Message: string
+      Retryable: bool option }
+
+/// Streaming audio bytes or transcript metadata.
+type AudioDeltaData =
+    { Data: byte array
+      Transcript: string option
+      Sequence: int option
+      MediaType: string option
+      Final: bool }
+
 /// Content part discriminated union — multimodal message content
 type ContentPart =
     | Text of string
@@ -172,6 +200,9 @@ type Usage =
           ReasoningTokens = addOpt a.ReasoningTokens b.ReasoningTokens
           CacheReadTokens = addOpt a.CacheReadTokens b.CacheReadTokens
           CacheWriteTokens = addOpt a.CacheWriteTokens b.CacheWriteTokens }
+
+/// Incremental token accounting with an optional authoritative cumulative total.
+type UsageDeltaData = { Delta: Usage; Total: Usage option }
 
 /// Why generation stopped (provider reason is preserved in the payload)
 type FinishReason =
@@ -426,6 +457,12 @@ type Response =
 /// Stream event types
 type StreamEvent =
     | StreamStart
+    | ResponseCreated of ResponseStreamMetadata
+    | ResponseRequiresAction of ResponseActionData
+    | ResponseError of ResponseErrorData
+    | UsageDelta of UsageDeltaData
+    | RefusalDelta of text: string * final: bool
+    | AudioDelta of AudioDeltaData
     | TextStart of textId: string
     | TextDelta of textId: string option * text: string
     | TextEnd of textId: string

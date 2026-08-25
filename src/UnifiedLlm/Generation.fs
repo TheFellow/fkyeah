@@ -101,12 +101,36 @@ module Generation =
         let toolOrder = ResizeArray<string>()
         let customToolOrder = ResizeArray<string>()
         let providerManagedContent = ResizeArray<ContentPart>()
+        let audio = new System.IO.MemoryStream()
+        let audioTranscript = System.Text.StringBuilder()
+        let refusal = System.Text.StringBuilder()
+        let warnings = ResizeArray<string>()
+        let mutable audioMediaType: string option = None
         let mutable usage = Usage.Zero
         let mutable finishReason = Stop "streaming"
         let mutable currentModel = defaultArg model ""
         let mutable currentProvider = defaultArg provider ""
         let mutable responseId: string option = None
         let mutable finalized: Response option = None
+
+        let addOptional left right =
+            match left, right with
+            | None, None -> None
+            | _ -> Some((left |> Option.defaultValue 0) + (right |> Option.defaultValue 0))
+
+        let addUsage (current: Usage) (delta: Usage) : Usage =
+            { InputTokens = current.InputTokens + delta.InputTokens
+              OutputTokens = current.OutputTokens + delta.OutputTokens
+              ReasoningTokens = addOptional current.ReasoningTokens delta.ReasoningTokens
+              CacheReadTokens = addOptional current.CacheReadTokens delta.CacheReadTokens
+              CacheWriteTokens = addOptional current.CacheWriteTokens delta.CacheWriteTokens }
+
+        let applyMetadata (metadata: ResponseStreamMetadata) =
+            responseId <- metadata.Id |> Option.orElse responseId
+            currentModel <- metadata.Model |> Option.defaultValue currentModel
+
+            if metadata.Provider <> "" then
+                currentProvider <- metadata.Provider
 
         let upsertToolCall (toolCall: ToolCallData) =
             if not (toolCalls.ContainsKey(toolCall.Id)) then
@@ -162,6 +186,12 @@ module Generation =
                       for id in customToolOrder do
                           if customToolCalls.ContainsKey(id) then
                               yield CustomToolCall(customToolCalls[id])
+                      if audio.Length > 0L then
+                          yield
+                              Audio
+                                  { Url = None
+                                    Data = Some(audio.ToArray())
+                                    MediaType = audioMediaType }
                       yield! providerManagedContent ]
 
                 { Id =
@@ -178,7 +208,12 @@ module Generation =
                   Usage = usage
                   ResponseId = responseId
                   Raw = None
-                  Warnings = []
+                  Warnings =
+                    [ yield! warnings
+                      if refusal.Length > 0 then
+                          yield "Model refusal: " + refusal.ToString()
+                      if audioTranscript.Length > 0 then
+                          yield "Audio transcript: " + audioTranscript.ToString() ]
                   RateLimit = None }
 
         let processEvent (evt: StreamEvent) =
@@ -190,6 +225,30 @@ module Generation =
             | ReasoningEnd _
             | ProviderEvent _
             | StreamError _ -> ()
+            | ResponseCreated metadata -> applyMetadata metadata
+            | ResponseRequiresAction action -> applyMetadata action.Response
+            | ResponseError error ->
+                applyMetadata error.Response
+                finishReason <- Error error.Message
+                warnings.Add(error.Message)
+            | UsageDelta update -> usage <- update.Total |> Option.defaultValue (addUsage usage update.Delta)
+            | RefusalDelta(delta, final) ->
+                if not final then
+                    refusal.Append(delta) |> ignore
+                elif refusal.Length = 0 && delta <> "" then
+                    refusal.Append(delta) |> ignore
+
+                finishReason <- ContentFilter "refusal"
+            | AudioDelta delta ->
+                audioMediaType <- delta.MediaType |> Option.orElse audioMediaType
+
+                if delta.Data.Length > 0 then
+                    audio.Write(delta.Data, 0, delta.Data.Length)
+
+                match delta.Transcript with
+                | Some transcript when not delta.Final -> audioTranscript.Append(transcript) |> ignore
+                | Some transcript when audioTranscript.Length = 0 -> audioTranscript.Append(transcript) |> ignore
+                | _ -> ()
             | ThinkingEvent delta -> reasoning.Append(delta) |> ignore
             | TextDelta(_, delta) -> text.Append(delta) |> ignore
             | ToolCallStart tc -> upsertToolCall (trackToolArguments tc)

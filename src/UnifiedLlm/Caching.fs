@@ -839,6 +839,14 @@ module Caching =
         seq {
             yield StreamStart
 
+            yield
+                ResponseCreated
+                    { Id = response.ResponseId |> Option.orElse (Some response.Id)
+                      Model = Some response.Model
+                      Provider = response.Provider
+                      Status = "cached"
+                      Raw = None }
+
             if response.Text <> "" then
                 yield TextStart "cached-text"
                 yield TextDelta(Some "cached-text", response.Text)
@@ -855,7 +863,20 @@ module Caching =
                     yield CustomToolCallEnd call
                 | CodeExecution execution -> yield CodeExecutionEvent execution
                 | CodeExecutionResult result -> yield CodeExecutionResultEvent result
+                | Audio audio when audio.Data.IsSome ->
+                    yield
+                        AudioDelta
+                            { Data = audio.Data |> Option.defaultValue Array.empty
+                              Transcript = None
+                              Sequence = None
+                              MediaType = audio.MediaType
+                              Final = true }
                 | _ -> ()
+
+            yield
+                UsageDelta
+                    { Delta = response.Usage
+                      Total = Some response.Usage }
 
             yield StepFinish(0, Some response)
             yield Finish(response.FinishReason, Some response.Usage, Some response)
