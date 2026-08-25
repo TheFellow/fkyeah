@@ -333,7 +333,7 @@ let printSchema () =
 #                                  Properties: llm_model, llm_provider, reasoning_effort
 #                                  Specificity: * < shape < .class < #id
 #                                  Example: "* { llm_model: claude-sonnet-5; }
-#                                            .critical { llm_model: claude-opus-4-6; }"
+#                                            .critical { llm_model: claude-opus-4-8; }"
 #   default_fidelity     String    Default context fidelity mode for all nodes.
 #                                  Values: full | truncate | compact |
 #                                          summary:low | summary:medium | summary:high
@@ -376,7 +376,7 @@ let printSchema () =
 #   thread_id          String    Session reuse key (used with fidelity=full).
 #   fresh_session      Boolean   Generate unique thread_id per invocation (ignores thread_id).
 #   timeout            Duration  Max execution time. Quote for Graphviz compat: "500ms", "10s", "5m", "1h", "1d"
-#   llm_model          String    LLM model override (e.g. "claude-opus-4-6").
+#   llm_model          String    LLM model override (e.g. "claude-opus-4-8").
 #   llm_provider       String    LLM provider override (e.g. "anthropic").
 #   reasoning_effort   String    Reasoning depth: low | medium | high (default: high)
 #   auto_status        Boolean   Auto-generate SUCCESS if handler writes no status.
@@ -524,7 +524,7 @@ digraph code_review {
     graph [
         goal="Implement and review a new feature",
         label="Code Review Pipeline",
-        model_stylesheet="* { llm_model: claude-sonnet-5; } .critical { llm_model: claude-opus-4-6; }",
+        model_stylesheet="* { llm_model: claude-sonnet-5; } .critical { llm_model: claude-opus-4-8; }",
         default_max_retry=3
     ]
 
@@ -537,11 +537,13 @@ digraph code_review {
     ]
 
     implement [
-        shape=box,
+        shape=tab,
         class="critical",
         prompt="Implement the plan. Write the actual code changes. Goal: $goal",
         goal_gate=true,
-        retry_target="plan"
+        retry_target="plan",
+        max_turns=30,
+        fresh_session=true
     ]
 
     run_tests [
@@ -558,9 +560,11 @@ digraph code_review {
     ]
 
     fix [
-        shape=box,
+        shape=tab,
         prompt="The tests failed or the reviewer requested changes. Fix the issues. Goal: $goal",
-        max_retries=2
+        max_retries=2,
+        max_turns=30,
+        fresh_session=true
     ]
 
     start -> plan -> implement -> run_tests -> check_tests
