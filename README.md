@@ -96,7 +96,7 @@ Run `attractor schema` for the complete attribute reference.
 ### Key Attributes
 
 ```
-graph [goal="...", model_stylesheet="* { llm_model: claude-sonnet-4-6; }",
+graph [goal="...", model_stylesheet="* { llm_model: claude-sonnet-5; }",
        default_fidelity="compact", default_max_retry=2]
 node  [prompt="...", goal_gate=true, retry_target="node_id", timeout="30s", auto_status=true]
 edge  [condition="outcome=success", label="[A] Approve", weight=10, loop_restart=true]
@@ -157,8 +157,8 @@ init [shape=parallelogram, tool_command="mkdir -p \"$planning_dir\" && echo $tar
 Assign different LLM models per node using CSS-like selectors:
 
 ```
-model_stylesheet="* { llm_model: claude-sonnet-4-6; }
-                  .critical { llm_model: claude-opus-4-6; }
+model_stylesheet="* { llm_model: claude-sonnet-5; }
+                  .critical { llm_model: claude-opus-4-8; }
                   #review { llm_model: gemini-3.1-pro-preview-customtools; }"
 ```
 
@@ -178,8 +178,8 @@ digraph my_pipeline {
     graph [
         goal="Implement the billing API",
         label="Billing Sprint",
-        model_stylesheet="* { llm_model: claude-sonnet-4-6; }
-                          .critical { llm_model: claude-opus-4-6; }
+        model_stylesheet="* { llm_model: claude-sonnet-5; }
+                          .critical { llm_model: claude-opus-4-8; }
                           #final_review { llm_model: gemini-3.1-pro-preview-customtools; }",
         default_fidelity="truncate",
         default_max_retry=2
@@ -251,12 +251,12 @@ Don't scatter `llm_model` across every node. Use `model_stylesheet` to assign mo
 
 ```dot
     // BAD — model repeated on every node
-    plan [shape=box, llm_model="claude-opus-4-6", prompt="..."]
-    implement [shape=box, llm_model="claude-opus-4-6", prompt="..."]
-    review [shape=box, llm_model="claude-sonnet-4-6", prompt="..."]
+    plan [shape=box, llm_model="claude-opus-4-8", prompt="..."]
+    implement [shape=box, llm_model="claude-opus-4-8", prompt="..."]
+    review [shape=box, llm_model="claude-sonnet-5", prompt="..."]
 
     // GOOD — one stylesheet, nodes just declare their class
-    graph [model_stylesheet=".deep { llm_model: claude-opus-4-6; } * { llm_model: claude-sonnet-4-6; }"]
+    graph [model_stylesheet=".deep { llm_model: claude-opus-4-8; } * { llm_model: claude-sonnet-5; }"]
     plan [shape=box, class="deep", prompt="..."]
     implement [shape=box, class="deep", prompt="..."]
     review [shape=box, prompt="..."]
