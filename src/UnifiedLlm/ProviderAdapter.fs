@@ -2,7 +2,7 @@ namespace UnifiedLlm
 
 /// Interface that every provider adapter must implement
 type IProviderAdapter =
-    /// Provider identifier (e.g. "openai", "anthropic", "gemini")
+    /// Provider identifier (e.g. "openai", "anthropic", "gemini", "openrouter")
     abstract member ProviderId: string
 
     /// Optional lifecycle hook invoked when adapter is registered.

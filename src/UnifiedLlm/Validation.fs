@@ -150,6 +150,13 @@ module RequestValidator =
                     | Some value when value < 0.0 || value > 2.0 ->
                         issues.Add(ValidationIssue.InvalidTemperature(request.Model, value))
                     | _ -> ()
+
+                    if request.PreviousResponseId.IsSome then
+                        issues.Add(
+                            ValidationIssue.PreviousResponseMismatch(
+                                "provider 'openrouter' does not support previous_response_id"
+                            )
+                        )
                 | None -> issues.Add(ValidationIssue.UnknownModel request.Model)
                 | Some model ->
                     let effectiveProvider = request.Provider |> Option.defaultValue model.Provider
@@ -200,16 +207,23 @@ module RequestValidator =
 
                     match request.PreviousResponseId with
                     | Some _ ->
-                        match request.Provider with
-                        | Some provider when
-                            not (String.Equals(provider, model.Provider, StringComparison.OrdinalIgnoreCase))
-                            ->
+                        if not (String.Equals(effectiveProvider, "openai", StringComparison.OrdinalIgnoreCase)) then
                             issues.Add(
                                 ValidationIssue.PreviousResponseMismatch(
-                                    $"provider '{provider}' does not match model provider '{model.Provider}'"
+                                    $"provider '{effectiveProvider}' does not support previous_response_id"
                                 )
                             )
-                        | _ -> ()
+                        else
+                            match request.Provider with
+                            | Some provider when
+                                not (String.Equals(provider, model.Provider, StringComparison.OrdinalIgnoreCase))
+                                ->
+                                issues.Add(
+                                    ValidationIssue.PreviousResponseMismatch(
+                                        $"provider '{provider}' does not match model provider '{model.Provider}'"
+                                    )
+                                )
+                            | _ -> ()
                     | None -> ()
 
                 if issues.Count = 0 then

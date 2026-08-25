@@ -171,6 +171,35 @@ let ``validator rejects previous_response_id when explicit provider does not mat
         )
 
 [<Fact>]
+let ``validator rejects previous_response_id for a provider without continuation support`` () =
+    let request =
+        { Request.Create("claude-opus-4-6", [ Message.User("hello") ]) with
+            PreviousResponseId = Some "resp_123" }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(
+            ValidationIssue.PreviousResponseMismatch("provider 'anthropic' does not support previous_response_id"),
+            issues
+        )
+
+[<Fact>]
+let ``validator rejects previous_response_id for uncatalogued OpenRouter model`` () =
+    let request =
+        { Request.Create("vendor/model", [ Message.User("hello") ]) with
+            Provider = Some "openrouter"
+            PreviousResponseId = Some "resp_123" }
+
+    match validator.Validate request with
+    | Result.Ok _ -> Assert.Fail("expected validation failure")
+    | Result.Error issues ->
+        Assert.Contains(
+            ValidationIssue.PreviousResponseMismatch("provider 'openrouter' does not support previous_response_id"),
+            issues
+        )
+
+[<Fact>]
 let ``validator warns when thinking budget exceeds explicit max_tokens`` () =
     let request =
         { Request.Create("claude-opus-4-6", [ Message.User("think hard") ]) with
