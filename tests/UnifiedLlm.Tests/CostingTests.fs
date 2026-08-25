@@ -119,3 +119,142 @@ let ``micro-dollar precision with large token count does not overflow`` () =
 
     Assert.Equal(5_000_000L, breakdown.InputMicrodollars)
     Assert.True(breakdown.TotalMicrodollars > 0L)
+
+[<Fact>]
+let ``detailed estimate accounts for Anthropic cache reads and writes separately`` () =
+    let usage =
+        { Usage.Zero with
+            InputTokens = 1_000_000
+            CacheReadTokens = Some 1_000_000
+            CacheWriteTokens = Some 1_000_000 }
+
+    let estimate = CostEstimate.Standard usage
+
+    let cost =
+        Costing.tryEstimateCostById "claude-opus-4-6" estimate
+        |> Option.defaultWith (fun () -> failwith "expected pricing")
+
+    Assert.Equal(5_000_000L, cost.InputMicrodollars)
+    Assert.Equal(0L, cost.CachedInputMicrodollars)
+    Assert.Equal(500_000L, cost.CacheReadMicrodollars)
+    Assert.Equal(6_250_000L, cost.CacheWriteMicrodollars)
+    Assert.Equal(11_750_000L, cost.TotalMicrodollars)
+
+[<Fact>]
+let ``one-hour cache writes select the one-hour rate`` () =
+    let estimate =
+        { CostEstimate.Standard
+              { Usage.Zero with
+                  CacheWriteTokens = Some 1_000_000 } with
+            CacheWriteDuration = CacheWriteDuration.OneHour }
+
+    let cost = Costing.tryEstimateCostById "claude-opus-4-6" estimate |> Option.get
+
+    Assert.Equal(10_000_000L, cost.CacheWriteMicrodollars)
+
+[<Fact>]
+let ``inclusive cached input is subtracted before charging normal input`` () =
+    let usage =
+        { Usage.Zero with
+            InputTokens = 1000
+            CacheReadTokens = Some 400 }
+
+    let cost =
+        Costing.tryEstimateCostById "gpt-5.4" (CostEstimate.Standard usage)
+        |> Option.get
+
+    Assert.Equal(21_000L, cost.InputMicrodollars)
+    Assert.Equal(1_400L, cost.CachedInputMicrodollars)
+    Assert.Equal(22_400L, cost.TotalMicrodollars)
+
+[<Fact>]
+let ``cached tokens exceeding inclusive input are not subtracted and produce a note`` () =
+    let usage =
+        { Usage.Zero with
+            InputTokens = 100
+            CacheReadTokens = Some 200 }
+
+    let cost =
+        Costing.tryEstimateCostById "gpt-5.4" (CostEstimate.Standard usage)
+        |> Option.get
+
+    Assert.Equal(3_500L, cost.InputMicrodollars)
+    Assert.Equal(700L, cost.CachedInputMicrodollars)
+    Assert.Contains(cost.Notes, fun note -> note.Contains("subtraction was skipped"))
+
+[<Fact>]
+let ``batch tier applies independently of standard pricing`` () =
+    let estimate =
+        { CostEstimate.Standard
+              { Usage.Zero with
+                  InputTokens = 1_000_000
+                  OutputTokens = 1_000_000 } with
+            Tier = PricingTier.Batch }
+
+    let cost = Costing.tryEstimateCostById "claude-opus-4-6" estimate |> Option.get
+
+    Assert.Equal(2_500_000L, cost.InputMicrodollars)
+    Assert.Equal(12_500_000L, cost.OutputMicrodollars)
+    Assert.Contains("Asynchronous batch pricing", cost.Notes)
+
+[<Fact>]
+let ``long-context override is selected at its lower bound`` () =
+    let below =
+        Costing.tryEstimateCostById
+            "gpt-5.4"
+            (CostEstimate.Standard
+                { Usage.Zero with
+                    InputTokens = 272_000 })
+        |> Option.get
+
+    let atBoundary =
+        Costing.tryEstimateCostById
+            "gpt-5.4"
+            (CostEstimate.Standard
+                { Usage.Zero with
+                    InputTokens = 272_001 })
+        |> Option.get
+
+    Assert.Equal(9_520_000L, below.InputMicrodollars)
+    Assert.Equal(19_040_070L, atBoundary.InputMicrodollars)
+    Assert.Empty(below.Notes)
+    Assert.Contains(atBoundary.Notes, fun note -> note.Contains("Long-context"))
+
+[<Fact>]
+let ``unsupported tier or modality returns None`` () =
+    let fast =
+        { CostEstimate.Standard Usage.Zero with
+            Tier = PricingTier.Fast }
+
+    let audio =
+        { CostEstimate.Standard Usage.Zero with
+            Modality = PricingModality.Audio }
+
+    Assert.True(Costing.tryEstimateCostById "gpt-5.4" fast |> Option.isNone)
+    Assert.True(Costing.tryEstimateCostById "gpt-5.4" audio |> Option.isNone)
+
+[<Fact>]
+let ``legacy calculation includes provider cache accounting but local replay remains free`` () =
+    let usage =
+        { Usage.Zero with
+            InputTokens = 1000
+            CacheReadTokens = Some 400 }
+
+    let billed = Costing.tryCalculateCostById "gpt-5.4" usage false |> Option.get
+    let replayed = Costing.tryCalculateCostById "gpt-5.4" usage true |> Option.get
+
+    Assert.Equal(22_400L, billed.InputMicrodollars)
+    Assert.Equal(0L, replayed.TotalMicrodollars)
+
+[<Fact>]
+let ``legacy calculation preserves aggregate rounding without provider cache usage`` () =
+    let usage =
+        { Usage.Zero with
+            InputTokens = 2
+            OutputTokens = 1 }
+
+    let cost = Costing.tryCalculateCostById "gpt-5-nano" usage false |> Option.get
+
+    Assert.Equal(0L, cost.InputMicrodollars)
+    Assert.Equal(0L, cost.OutputMicrodollars)
+    Assert.Equal(1L, cost.TotalMicrodollars)
