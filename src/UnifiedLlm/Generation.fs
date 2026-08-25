@@ -560,6 +560,7 @@ module Generation =
         let mutable totalUsage = Usage.Zero
         let mutable roundCount = 0
         let mutable keepLooping = true
+        let mutable pendingContinuation: (string * ToolResultData list) option = None
         let startedAt = DateTimeOffset.UtcNow
 
         while keepLooping do
@@ -577,7 +578,18 @@ module Generation =
             let request =
                 buildRequest model conversation toolDefs provider reasoningEffort options
 
-            let response = completeWithRetry client request options.MaxRetries
+            let response =
+                match pendingContinuation with
+                | Some(previousResponseId, toolResults) ->
+                    Retry.execute (maxRetriesConfig options.MaxRetries) (fun () ->
+                        throwIfAborted request.AbortSignal
+
+                        client.ContinueToolOutputs(
+                            ToolContinuationRequest.Create(request, previousResponseId, toolResults)
+                        ))
+                | None -> completeWithRetry client request options.MaxRetries
+
+            pendingContinuation <- None
             let toolCalls = response.ToolCalls
             totalUsage <- totalUsage + response.Usage
 
@@ -622,6 +634,16 @@ module Generation =
                     conversation <-
                         conversation
                         @ [ Message.ToolResult(result.ToolCallId, result.Content, result.IsError) ]
+
+                let providerId =
+                    request.Provider
+                    |> Option.orElseWith (fun () -> ModelCatalog.resolveModel request.Model |> Option.map _.Provider)
+                    |> Option.orElse client.DefaultProvider
+
+                match response.ResponseId, providerId with
+                | Some responseId, Some id when client.SupportsToolContinuation(id) ->
+                    pendingContinuation <- Some(responseId, toolResults)
+                | _ -> ()
 
         let lastStep = steps |> List.last
 
@@ -840,6 +862,7 @@ module Generation =
             let mutable stepIndex = 0
             let mutable keepLooping = true
             let mutable emittedStreamStart = false
+            let mutable pendingContinuation: (string * ToolResultData list) option = None
 
             while keepLooping do
                 let request =
@@ -848,7 +871,16 @@ module Generation =
                 let events =
                     Retry.execute (maxRetriesConfig options.MaxRetries) (fun () ->
                         throwIfAborted abortSignal
-                        client.Stream(request) |> Seq.toList)
+
+                        match pendingContinuation with
+                        | Some(previousResponseId, toolResults) ->
+                            client.StreamToolOutputs(
+                                ToolContinuationRequest.Create(request, previousResponseId, toolResults)
+                            )
+                            |> Seq.toList
+                        | None -> client.Stream(request) |> Seq.toList)
+
+                pendingContinuation <- None
 
                 let mutable finishEvent: (FinishReason * Usage option * Response option) option =
                     None
@@ -885,6 +917,17 @@ module Generation =
                             conversation <-
                                 conversation
                                 @ [ Message.ToolResult(result.ToolCallId, result.Content, result.IsError) ]
+
+                        let providerId =
+                            request.Provider
+                            |> Option.orElseWith (fun () ->
+                                ModelCatalog.resolveModel request.Model |> Option.map _.Provider)
+                            |> Option.orElse client.DefaultProvider
+
+                        match response.ResponseId, providerId with
+                        | Some responseId, Some id when client.SupportsToolContinuation(id) ->
+                            pendingContinuation <- Some(responseId, toolResults)
+                        | _ -> ()
 
                         yield StepFinish(stepIndex, Some response)
                         stepIndex <- stepIndex + 1

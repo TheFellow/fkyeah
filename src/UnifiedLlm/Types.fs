@@ -204,6 +204,36 @@ type AbortSignal() =
     interface IDisposable with
         member _.Dispose() = cts.Dispose()
 
+/// Provider-neutral embedding request.
+type EmbeddingRequest =
+    { Model: string
+      Inputs: string list
+      Dimensions: int option
+      Provider: string option
+      ProviderOptions: Map<string, obj> option
+      Timeout: TimeSpan option
+      AbortSignal: AbortSignal option }
+
+    static member Create(model: string, inputs: string list) =
+        { Model = model
+          Inputs = inputs
+          Dimensions = None
+          Provider = None
+          ProviderOptions = None
+          Timeout = None
+          AbortSignal = None }
+
+/// One normalized embedding vector in request order.
+type Embedding = { Index: int; Vector: float array }
+
+/// Provider-neutral embedding response.
+type EmbeddingResponse =
+    { Model: string
+      Provider: string
+      Embeddings: Embedding list
+      Usage: Usage
+      Raw: JsonElement option }
+
 /// A request to the LLM
 type Request =
     { Model: string
@@ -259,6 +289,17 @@ and [<RequireQualifiedAccess>] ToolChoice =
     | None
     | Required
     | Named of string
+
+/// A response-ID continuation containing only outputs for previously requested tool calls.
+type ToolContinuationRequest =
+    { PreviousResponseId: string
+      ToolResults: ToolResultData list
+      Request: Request }
+
+    static member Create(request: Request, previousResponseId: string, toolResults: ToolResultData list) =
+        { PreviousResponseId = previousResponseId
+          ToolResults = toolResults
+          Request = request }
 
 /// LLM response
 type Response =

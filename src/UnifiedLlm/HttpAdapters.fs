@@ -449,6 +449,33 @@ module private HttpAdapterHelpers =
         with :? OperationCanceledException ->
             raiseCancellation request
 
+    let sendEmbeddingAndReadString (client: HttpClient) (request: EmbeddingRequest) (httpReq: HttpRequestMessage) =
+        let tokens = ResizeArray<CancellationToken>()
+        tokens.Add(HttpCancellation.token ())
+
+        match request.AbortSignal with
+        | Some signal -> tokens.Add(signal.Token)
+        | None -> ()
+
+        use cts = CancellationTokenSource.CreateLinkedTokenSource(tokens.ToArray())
+
+        match request.Timeout with
+        | Some timeout when timeout > TimeSpan.Zero -> cts.CancelAfter(timeout)
+        | _ -> ()
+
+        try
+            let httpResp = client.Send(httpReq, cts.Token)
+
+            let respBody =
+                httpResp.Content.ReadAsStringAsync(cts.Token).GetAwaiter().GetResult()
+
+            httpResp, respBody
+        with :? OperationCanceledException ->
+            match request.AbortSignal with
+            | Some signal when signal.IsAborted -> raise (AbortError("Embedding request aborted by caller"))
+            | _ when HttpCancellation.isCancelled () -> raise (AbortError("Embedding request cancelled"))
+            | _ -> raise (RequestTimeoutError("Embedding request timed out"))
+
     let sendForStream (client: HttpClient) (request: Request) (httpReq: HttpRequestMessage) =
         let cts = createLinkedCancellationSource request
 
@@ -1351,17 +1378,35 @@ type AnthropicAdapter(apiKey: string) =
                         | _ -> yield ProviderEvent(eventName, data)
             }
 
-/// Real OpenAI Responses API adapter
-type OpenAIAdapter(apiKey: string) =
+/// Real OpenAI Responses API adapter with optional embeddings and response continuation capabilities.
+type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: string, ?embeddingsBaseUrl: string) =
     // 10-minute transport cap on the initial POST. The SSE loop has its own
     // idle timeout; this guards against stalled connects or headers.
-    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
+    let client =
+        httpClient
+        |> Option.defaultWith (fun () -> new HttpClient(Timeout = TimeSpan.FromMinutes(10.0)))
 
     let baseUrl =
-        match Environment.GetEnvironmentVariable("OPENAI_BASE_URL") with
-        | null
-        | "" -> "https://api.openai.com/v1/responses"
-        | value -> value
+        responsesBaseUrl
+        |> Option.orElseWith (fun () ->
+            match Environment.GetEnvironmentVariable("OPENAI_BASE_URL") with
+            | null
+            | "" -> None
+            | value -> Some value)
+        |> Option.defaultValue "https://api.openai.com/v1/responses"
+
+    let embeddingUrl =
+        embeddingsBaseUrl
+        |> Option.orElseWith (fun () ->
+            match Environment.GetEnvironmentVariable("OPENAI_EMBEDDINGS_BASE_URL") with
+            | null
+            | "" -> None
+            | value -> Some value)
+        |> Option.defaultWith (fun () ->
+            if baseUrl.EndsWith("/responses", StringComparison.OrdinalIgnoreCase) then
+                baseUrl.Substring(0, baseUrl.Length - "/responses".Length) + "/embeddings"
+            else
+                baseUrl.TrimEnd('/') + "/embeddings")
 
     let buildBody (request: Request) (stream: bool) =
         let model = if request.Model = "" then "gpt-4o" else request.Model
@@ -1514,6 +1559,18 @@ type OpenAIAdapter(apiKey: string) =
 
         bodyDict
 
+    let buildEmbeddingBody (request: EmbeddingRequest) =
+        let body = Dictionary<string, obj>()
+        body["model"] <- request.Model
+        body["input"] <- request.Inputs |> List.toArray
+        body["encoding_format"] <- "float"
+
+        match request.Dimensions with
+        | Some dimensions -> body["dimensions"] <- dimensions
+        | None -> ()
+
+        body
+
     member private _.BuildHttpRequest(request: Request, stream: bool) =
         let body = JsonSerializer.Serialize(buildBody request stream)
         let httpReq = new HttpRequestMessage(HttpMethod.Post, baseUrl)
@@ -1576,10 +1633,14 @@ type OpenAIAdapter(apiKey: string) =
                         | "response.created" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
-                            responseId <- HttpAdapterHelpers.tryGetString "id" root
+
+                            let responseElement =
+                                HttpAdapterHelpers.tryGetProperty "response" root |> Option.defaultValue root
+
+                            responseId <- HttpAdapterHelpers.tryGetString "id" responseElement
 
                             responseModel <-
-                                HttpAdapterHelpers.tryGetString "model" root
+                                HttpAdapterHelpers.tryGetString "model" responseElement
                                 |> Option.defaultValue responseModel
                         | "response.output_item.added" ->
                             let doc = JsonDocument.Parse(data)
@@ -1770,11 +1831,84 @@ type OpenAIAdapter(apiKey: string) =
                         | _ -> yield ProviderEvent(eventName, data)
             }
 
-/// Real Gemini API adapter (v1beta generateContent)
-type GeminiAdapter(apiKey: string) =
+    interface IEmbeddingAdapter with
+        member _.Embed(request: EmbeddingRequest) =
+            if request.Inputs.IsEmpty then
+                raise (ConfigurationError("Embedding request must contain at least one input"))
+
+            let body = JsonSerializer.Serialize(buildEmbeddingBody request)
+            use httpReq = new HttpRequestMessage(HttpMethod.Post, embeddingUrl)
+            httpReq.Content <- new StringContent(body, Encoding.UTF8, "application/json")
+            httpReq.Headers.Add("Authorization", $"Bearer {apiKey}")
+
+            let httpResp, respBody =
+                HttpAdapterHelpers.sendEmbeddingAndReadString client request httpReq
+
+            if not httpResp.IsSuccessStatusCode then
+                raise (ErrorMapping.classifyHttpResponse httpResp respBody)
+
+            use doc = JsonDocument.Parse(respBody)
+            let root = doc.RootElement
+
+            let embeddings =
+                HttpAdapterHelpers.tryGetProperty "data" root
+                |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array)
+                |> Option.map (fun data ->
+                    data.EnumerateArray()
+                    |> Seq.mapi (fun fallbackIndex item ->
+                        let index =
+                            HttpAdapterHelpers.tryGetProperty "index" item
+                            |> Option.map _.GetInt32()
+                            |> Option.defaultValue fallbackIndex
+
+                        let vector =
+                            HttpAdapterHelpers.tryGetProperty "embedding" item
+                            |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array)
+                            |> Option.map (fun values ->
+                                values.EnumerateArray() |> Seq.map _.GetDouble() |> Seq.toArray)
+                            |> Option.defaultValue Array.empty
+
+                        { Index = index; Vector = vector })
+                    |> Seq.sortBy _.Index
+                    |> Seq.toList)
+                |> Option.defaultValue []
+
+            let usage =
+                match HttpAdapterHelpers.tryGetProperty "usage" root with
+                | Some value ->
+                    { Usage.Zero with
+                        InputTokens =
+                            HttpAdapterHelpers.tryGetProperty "prompt_tokens" value
+                            |> Option.map _.GetInt32()
+                            |> Option.defaultValue 0 }
+                | None -> Usage.Zero
+
+            { Model =
+                HttpAdapterHelpers.tryGetString "model" root
+                |> Option.defaultValue request.Model
+              Provider = "openai"
+              Embeddings = embeddings
+              Usage = usage
+              Raw = Some(root.Clone()) }
+
+    interface IToolContinuationAdapter with
+        member this.ContinueToolOutputs(request: ToolContinuationRequest) =
+            (this :> IProviderAdapter).Complete(ToolContinuation.toRequest request)
+
+        member this.StreamToolOutputs(request: ToolContinuationRequest) =
+            (this :> IProviderAdapter).Stream(ToolContinuation.toRequest request)
+
+/// Real Gemini API adapter (v1beta generateContent and batchEmbedContents).
+type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string) =
     // 10-minute transport cap on the initial POST. The SSE loop has its own
     // idle timeout; this guards against stalled connects or headers.
-    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
+    let client =
+        httpClient
+        |> Option.defaultWith (fun () -> new HttpClient(Timeout = TimeSpan.FromMinutes(10.0)))
+
+    let apiBaseUrl =
+        apiBaseUrl
+        |> Option.defaultValue "https://generativelanguage.googleapis.com/v1beta"
 
     let tryGetGeminiOptions (request: Request) =
         request.ProviderOptions
@@ -1943,6 +2077,44 @@ type GeminiAdapter(apiKey: string) =
 
         bodyObj
 
+    let buildEmbeddingBody (request: EmbeddingRequest) =
+        let modelName =
+            if request.Model.StartsWith("models/", StringComparison.Ordinal) then
+                request.Model
+            else
+                "models/" + request.Model
+
+        let requests =
+            request.Inputs
+            |> List.map (fun input ->
+                let item = Dictionary<string, obj>()
+                item["model"] <- modelName
+                item["content"] <- {| parts = [| {| text = input |} |] |}
+
+                match request.Dimensions with
+                | Some dimensions -> item["outputDimensionality"] <- dimensions
+                | None -> ()
+
+                match
+                    request.ProviderOptions
+                    |> Option.bind (fun options -> options |> Map.tryFind "gemini")
+                    |> Option.bind HttpAdapterHelpers.tryAsObjMap
+                with
+                | Some options ->
+                    match options |> Map.tryFind "task_type" with
+                    | Some(:? string as taskType) -> item["taskType"] <- taskType
+                    | _ -> ()
+
+                    match options |> Map.tryFind "title" with
+                    | Some(:? string as title) -> item["title"] <- title
+                    | _ -> ()
+                | None -> ()
+
+                item)
+            |> List.toArray
+
+        {| requests = requests |}
+
     let buildHttpRequest (url: string) (request: Request) =
         let body = JsonSerializer.Serialize(buildBody request)
         let httpReq = new HttpRequestMessage(HttpMethod.Post, url)
@@ -1962,8 +2134,7 @@ type GeminiAdapter(apiKey: string) =
                 else
                     request.Model
 
-            let url =
-                $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}"
+            let url = $"{apiBaseUrl}/models/{model}:generateContent?key={apiKey}"
 
             let httpReq = buildHttpRequest url request
             let httpResp, respBody = HttpAdapterHelpers.sendAndReadString client request httpReq
@@ -1981,8 +2152,7 @@ type GeminiAdapter(apiKey: string) =
                 else
                     request.Model
 
-            let url =
-                $"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={apiKey}"
+            let url = $"{apiBaseUrl}/models/{model}:streamGenerateContent?alt=sse&key={apiKey}"
 
             seq {
                 let httpReq = buildHttpRequest url request
@@ -2130,3 +2300,46 @@ type GeminiAdapter(apiKey: string) =
 
                 yield Finish(finishReason, Some usage, Some response)
             }
+
+    interface IEmbeddingAdapter with
+        member _.Embed(request: EmbeddingRequest) =
+            if request.Inputs.IsEmpty then
+                raise (ConfigurationError("Embedding request must contain at least one input"))
+
+            let model = request.Model.TrimStart('/').Replace("models/", "")
+            let url = $"{apiBaseUrl}/models/{model}:batchEmbedContents?key={apiKey}"
+            let body = JsonSerializer.Serialize(buildEmbeddingBody request)
+            use httpReq = new HttpRequestMessage(HttpMethod.Post, url)
+            httpReq.Content <- new StringContent(body, Encoding.UTF8, "application/json")
+
+            let httpResp, respBody =
+                HttpAdapterHelpers.sendEmbeddingAndReadString client request httpReq
+
+            if not httpResp.IsSuccessStatusCode then
+                raise (ErrorMapping.classifyHttpResponse httpResp respBody)
+
+            use doc = JsonDocument.Parse(respBody)
+            let root = doc.RootElement
+
+            let embeddings =
+                HttpAdapterHelpers.tryGetProperty "embeddings" root
+                |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array)
+                |> Option.map (fun data ->
+                    data.EnumerateArray()
+                    |> Seq.mapi (fun index item ->
+                        let vector =
+                            HttpAdapterHelpers.tryGetProperty "values" item
+                            |> Option.filter (fun value -> value.ValueKind = JsonValueKind.Array)
+                            |> Option.map (fun values ->
+                                values.EnumerateArray() |> Seq.map _.GetDouble() |> Seq.toArray)
+                            |> Option.defaultValue Array.empty
+
+                        { Index = index; Vector = vector })
+                    |> Seq.toList)
+                |> Option.defaultValue []
+
+            { Model = model
+              Provider = "gemini"
+              Embeddings = embeddings
+              Usage = Usage.Zero
+              Raw = Some(root.Clone()) }
