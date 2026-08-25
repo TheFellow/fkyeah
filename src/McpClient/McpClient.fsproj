@@ -14,10 +14,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.Control.TaskSeq" Version="1.0.0" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\JsonRpc\JsonRpc.fsproj" />
   </ItemGroup>
 

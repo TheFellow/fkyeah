@@ -9,7 +9,6 @@ open System.Net.Http.Headers
 open System.Text
 open System.Threading
 open System.Threading.Tasks
-open FSharp.Control
 
 type ParsedSseEvent =
     { Data: byte array
@@ -60,6 +59,15 @@ module Transport =
 
     let private stderrText (buffer: StringBuilder) =
         lock buffer (fun () -> buffer.ToString().Trim())
+
+    let private observeTaskFault (pending: Task) =
+        pending.ContinueWith(
+            (fun (completed: Task) ->
+                if completed.IsFaulted then
+                    completed.Exception |> ignore),
+            TaskContinuationOptions.ExecuteSynchronously
+        )
+        |> ignore
 
     let private terminateProcess (proc: Process) =
         async {
@@ -361,11 +369,22 @@ module Transport =
                                                 completed <- true
                                                 return false
                                             | Some activeProcess ->
-                                                try
-                                                    let! line =
-                                                        activeProcess.StandardOutput
-                                                            .ReadLineAsync(effectiveToken)
-                                                            .AsTask()
+                                                let readTask = activeProcess.StandardOutput.ReadLineAsync()
+
+                                                let cancellationSignal =
+                                                    TaskCompletionSource<unit>(
+                                                        TaskCreationOptions.RunContinuationsAsynchronously
+                                                    )
+
+                                                use cancellationRegistration =
+                                                    effectiveToken.Register(fun () ->
+                                                        cancellationSignal.TrySetResult(()) |> ignore)
+
+                                                let! winner =
+                                                    Task.WhenAny(readTask :> Task, cancellationSignal.Task :> Task)
+
+                                                if Object.ReferenceEquals(winner, readTask) then
+                                                    let! line = readTask
 
                                                     if isNull line then
                                                         completed <- true
@@ -373,8 +392,8 @@ module Transport =
                                                     else
                                                         current <- Encoding.UTF8.GetBytes(line)
                                                         return true
-                                                with :? OperationCanceledException when
-                                                    effectiveToken.IsCancellationRequested ->
+                                                else
+                                                    observeTaskFault readTask
                                                     completed <- true
                                                     return false
                                     }
