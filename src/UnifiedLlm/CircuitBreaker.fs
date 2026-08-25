@@ -19,7 +19,9 @@ type private BreakerMessage =
     | RecordFailure of ProviderFailureKind
     | GetState of AsyncReplyChannel<CircuitState>
 
-type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
+type CircuitBreaker(provider: string, config: CircuitBreakerConfig, timeProvider: TimeProvider) =
+    let now () = timeProvider.GetUtcNow()
+
     let agent =
         MailboxProcessor.Start(fun inbox ->
             let rec closed consecutiveFailures =
@@ -36,7 +38,7 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
                             let nextFailures = consecutiveFailures + 1
 
                             if nextFailures >= config.FailureThreshold then
-                                let openedAt = DateTimeOffset.UtcNow
+                                let openedAt = now ()
                                 let retryAt = openedAt + config.CooldownPeriod
                                 return! opened openedAt retryAt
                             else
@@ -54,9 +56,11 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
 
                     match message with
                     | Check reply ->
-                        if DateTimeOffset.UtcNow >= retryAt then
+                        let checkedAt = now ()
+
+                        if checkedAt >= retryAt then
                             reply.Reply(Result.Ok())
-                            return! halfOpen DateTimeOffset.UtcNow 0
+                            return! halfOpen checkedAt 0
                         else
                             reply.Reply(Result.Error(CircuitOpenError(provider, retryAt) :> ProviderError))
                             return! opened openedAt retryAt
@@ -84,7 +88,7 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
                             return! halfOpen probeStartedAt nextSuccessCount
                     | RecordFailure kind ->
                         if CircuitFailureClassification.isTransient kind then
-                            let openedAt = DateTimeOffset.UtcNow
+                            let openedAt = now ()
                             let retryAt = openedAt + config.CooldownPeriod
                             return! opened openedAt retryAt
                         else
@@ -95,6 +99,8 @@ type CircuitBreaker(provider: string, config: CircuitBreakerConfig) =
                 }
 
             closed 0)
+
+    new(provider, config) = CircuitBreaker(provider, config, TimeProvider.System)
 
     member _.Provider = provider
     member _.Config = config
@@ -108,6 +114,9 @@ module CircuitBreakerRegistry =
 
     let getOrCreate (provider: string) (config: CircuitBreakerConfig) =
         breakers.GetOrAdd(provider, fun _ -> CircuitBreaker(provider, config))
+
+    let getOrCreateWithTimeProvider (provider: string) (config: CircuitBreakerConfig) (timeProvider: TimeProvider) =
+        breakers.GetOrAdd(provider, fun _ -> CircuitBreaker(provider, config, timeProvider))
 
     let reset () = breakers.Clear()
 
