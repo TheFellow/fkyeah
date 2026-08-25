@@ -369,6 +369,100 @@ let ``cache key differs when stop_sequences change`` () =
     Assert.NotEqual(CacheKey.fromRequest r1, CacheKey.fromRequest r2)
 
 [<Fact>]
+let ``cache key includes metadata and provider options`` () =
+    let baseline = Request.Create("gpt-5.4", [ Message.User("hello") ])
+
+    let withMetadata =
+        { baseline with
+            Metadata = Some(Map.ofList [ "tenant", "one" ]) }
+
+    let withOptions =
+        { baseline with
+            ProviderOptions =
+                Some(
+                    Map.ofList
+                        [ "openrouter", box (Map.ofList [ "provider", box (Map.ofList [ "sort", box "throughput" ]) ]) ]
+                ) }
+
+    Assert.NotEqual(CacheKey.fromRequest baseline, CacheKey.fromRequest withMetadata)
+    Assert.NotEqual(CacheKey.fromRequest baseline, CacheKey.fromRequest withOptions)
+
+[<Fact>]
+let ``cache key includes binary content bytes`` () =
+    let request data =
+        Request.Create(
+            "gpt-5.4",
+            [ { Role = User
+                Content =
+                  [ Image
+                        { Url = None
+                          Data = Some data
+                          FilePath = None
+                          MediaType = Some "image/png" } ]
+                Name = None
+                ToolCallId = None } ]
+        )
+
+    Assert.NotEqual(CacheKey.fromRequest (request [| 1uy |]), CacheKey.fromRequest (request [| 2uy |]))
+
+[<Fact>]
+let ``filesystem cache preserves binary response content`` () =
+    let root =
+        Path.Combine(Path.GetTempPath(), "fkyeah-cache-binary-" + Guid.NewGuid().ToString("N"))
+
+    try
+        let config =
+            { CacheConfig.Default with
+                PersistencePath = Some root }
+
+        let store = CacheStore.fileSystem config
+
+        let key =
+            CacheKey.fromRequest (Request.Create("gpt-5.4", [ Message.User("binary") ]))
+
+        let response =
+            { makeTestResponse "" with
+                Message =
+                    { Role = Assistant
+                      Content =
+                        [ Audio
+                              { Data = Some [| 1uy; 2uy |]
+                                Url = None
+                                MediaType = Some "audio/wav" }
+                          ToolResult
+                              { ToolCallId = "call"
+                                Content = "image"
+                                IsError = false
+                                ImageData = Some [| 3uy; 4uy |]
+                                ImageMediaType = Some "image/png" } ]
+                      Name = None
+                      ToolCallId = None } }
+
+        Async.RunSynchronously(store.PutLlm key (makeTestEntry "" |> fun entry -> { entry with Response = response }))
+
+        let loaded =
+            CacheStore.fileSystem config
+            |> fun reloaded -> Async.RunSynchronously(reloaded.TryGetLlm key)
+            |> Option.get
+
+        Assert.Contains(
+            loaded.Response.Message.Content,
+            function
+            | Audio audio -> audio.Data = Some [| 1uy; 2uy |]
+            | _ -> false
+        )
+
+        Assert.Contains(
+            loaded.Response.Message.Content,
+            function
+            | ToolResult result -> result.ImageData = Some [| 3uy; 4uy |]
+            | _ -> false
+        )
+    finally
+        if Directory.Exists(root) then
+            Directory.Delete(root, true)
+
+[<Fact>]
 let ``cache store drops corrupted persisted entry and returns miss`` () =
     let root =
         Path.Combine(Path.GetTempPath(), "fkyeah-cache-corrupt-" + Guid.NewGuid().ToString("N"))

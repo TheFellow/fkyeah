@@ -85,6 +85,65 @@ module CacheKey =
         | Some number -> writer.WriteNumber(name, number)
         | None -> writer.WriteNull(name)
 
+    let private writeBytes (writer: Utf8JsonWriter) (name: string) (value: byte array option) =
+        match value with
+        | Some bytes -> writer.WriteString(name, Convert.ToBase64String(bytes))
+        | None -> writer.WriteNull(name)
+
+    let rec private writeCanonicalJson (writer: Utf8JsonWriter) (value: JsonElement) =
+        match value.ValueKind with
+        | JsonValueKind.Object ->
+            writer.WriteStartObject()
+
+            value.EnumerateObject()
+            |> Seq.sortBy _.Name
+            |> Seq.iter (fun property ->
+                writer.WritePropertyName(property.Name)
+                writeCanonicalJson writer property.Value)
+
+            writer.WriteEndObject()
+        | JsonValueKind.Array ->
+            writer.WriteStartArray()
+            value.EnumerateArray() |> Seq.iter (writeCanonicalJson writer)
+            writer.WriteEndArray()
+        | _ -> value.WriteTo(writer)
+
+    let private writeProviderOptions (writer: Utf8JsonWriter) (options: Map<string, obj> option) =
+        match options with
+        | None -> writer.WriteNull("providerOptions")
+        | Some values ->
+            writer.WriteStartObject("providerOptions")
+
+            for key, value in values |> Map.toSeq |> Seq.sortBy fst do
+                // These typed request features are written separately below.
+                if key <> "unified_llm.custom_tools" && key <> "unified_llm.gemini_code_execution" then
+                    writer.WritePropertyName(key)
+
+                    if isNull value then
+                        writer.WriteNullValue()
+                    else
+                        try
+                            JsonSerializer.SerializeToElement(value, value.GetType())
+                            |> writeCanonicalJson writer
+                        with :? NotSupportedException ->
+                            writer.WriteStartObject()
+                            writer.WriteString("type", value.GetType().FullName)
+                            writer.WriteString("value", value.ToString())
+                            writer.WriteEndObject()
+
+            writer.WriteEndObject()
+
+    let private writeMetadata (writer: Utf8JsonWriter) (metadata: Map<string, string> option) =
+        match metadata with
+        | None -> writer.WriteNull("metadata")
+        | Some values ->
+            writer.WriteStartObject("metadata")
+
+            for key, value in values |> Map.toSeq |> Seq.sortBy fst do
+                writer.WriteString(key, value)
+
+            writer.WriteEndObject()
+
     let private writeStringList (writer: Utf8JsonWriter) (name: string) (values: string list option) =
         match values with
         | None -> writer.WriteNull(name)
@@ -167,18 +226,18 @@ module CacheKey =
             writeString writer "url" image.Url
             writeString writer "filePath" image.FilePath
             writeString writer "mediaType" image.MediaType
-            writer.WriteBoolean("hasData", image.Data.IsSome)
+            writeBytes writer "data" image.Data
         | Audio audio ->
             writer.WriteString("kind", "audio")
             writeString writer "url" audio.Url
             writeString writer "mediaType" audio.MediaType
-            writer.WriteBoolean("hasData", audio.Data.IsSome)
+            writeBytes writer "data" audio.Data
         | Document document ->
             writer.WriteString("kind", "document")
             writeString writer "url" document.Url
             writeString writer "fileName" document.FileName
             writeString writer "mediaType" document.MediaType
-            writer.WriteBoolean("hasData", document.Data.IsSome)
+            writeBytes writer "data" document.Data
         | ToolCall toolCall ->
             writer.WriteString("kind", "tool_call")
             writer.WriteString("arguments", toolCall.Arguments)
@@ -195,7 +254,7 @@ module CacheKey =
             writer.WriteString("content", toolResult.Content)
             writer.WriteBoolean("isError", toolResult.IsError)
             writer.WriteString("toolCallId", toolResult.ToolCallId)
-            writer.WriteBoolean("hasImageData", toolResult.ImageData.IsSome)
+            writeBytes writer "imageData" toolResult.ImageData
             writeString writer "imageMediaType" toolResult.ImageMediaType
         | Thinking thinking ->
             writer.WriteString("kind", "thinking")
@@ -269,6 +328,8 @@ module CacheKey =
         writeString writer "reasoningEffort" request.ReasoningEffort
         writeString writer "previousResponseId" request.PreviousResponseId
         writeStringList writer "stopSequences" request.StopSequences
+        writeMetadata writer request.Metadata
+        writeProviderOptions writer request.ProviderOptions
         writer.WriteEndObject()
         writer.Flush()
         stream.ToArray()
@@ -294,6 +355,11 @@ module CacheStore =
     let private writeInt (writer: Utf8JsonWriter) (name: string) (value: int option) =
         match value with
         | Some number -> writer.WriteNumber(name, number)
+        | None -> writer.WriteNull(name)
+
+    let private writeBytes (writer: Utf8JsonWriter) (name: string) (value: byte array option) =
+        match value with
+        | Some bytes -> writer.WriteString(name, Convert.ToBase64String(bytes))
         | None -> writer.WriteNull(name)
 
     let private writeStringMap (writer: Utf8JsonWriter) (name: string) (values: Map<string, string>) =
@@ -329,15 +395,18 @@ module CacheStore =
                 writeString writer "url" image.Url
                 writeString writer "filePath" image.FilePath
                 writeString writer "mediaType" image.MediaType
+                writeBytes writer "data" image.Data
             | Audio audio ->
                 writer.WriteString("kind", "audio")
                 writeString writer "url" audio.Url
                 writeString writer "mediaType" audio.MediaType
+                writeBytes writer "data" audio.Data
             | Document document ->
                 writer.WriteString("kind", "document")
                 writeString writer "url" document.Url
                 writeString writer "mediaType" document.MediaType
                 writeString writer "fileName" document.FileName
+                writeBytes writer "data" document.Data
             | ToolCall call ->
                 writer.WriteString("kind", "tool_call")
                 writer.WriteString("id", call.Id)
@@ -350,6 +419,7 @@ module CacheStore =
                 writer.WriteString("content", result.Content)
                 writer.WriteBoolean("isError", result.IsError)
                 writeString writer "imageMediaType" result.ImageMediaType
+                writeBytes writer "imageData" result.ImageData
             | Thinking thinking ->
                 writer.WriteString("kind", "thinking")
                 writer.WriteString("text", thinking.Text)
@@ -450,6 +520,13 @@ module CacheStore =
         | Some value -> failwith $"Expected '{name}' to be a number or null but was {value.ValueKind}"
         | None -> None
 
+    let private getOptionalBytes (name: string) (root: JsonElement) =
+        match tryGetProperty name root with
+        | Some value when value.ValueKind = JsonValueKind.Null -> None
+        | Some value when value.ValueKind = JsonValueKind.String -> Some(value.GetBytesFromBase64())
+        | Some value -> failwith $"Expected '{name}' to be a base64 string or null but was {value.ValueKind}"
+        | None -> None
+
     let private getStringMap (name: string) (root: JsonElement) =
         match tryGetProperty name root with
         | Some value when value.ValueKind = JsonValueKind.Object ->
@@ -483,7 +560,7 @@ module CacheStore =
                 Some(
                     Image
                         { Url = getOptionalString "url" item
-                          Data = None
+                          Data = getOptionalBytes "data" item
                           FilePath = getOptionalString "filePath" item
                           MediaType = getOptionalString "mediaType" item }
                 )
@@ -491,14 +568,14 @@ module CacheStore =
                 Some(
                     Audio
                         { Url = getOptionalString "url" item
-                          Data = None
+                          Data = getOptionalBytes "data" item
                           MediaType = getOptionalString "mediaType" item }
                 )
             | "document" ->
                 Some(
                     Document
                         { Url = getOptionalString "url" item
-                          Data = None
+                          Data = getOptionalBytes "data" item
                           MediaType = getOptionalString "mediaType" item
                           FileName = getOptionalString "fileName" item }
                 )
@@ -519,7 +596,7 @@ module CacheStore =
                             tryGetProperty "isError" item
                             |> Option.map _.GetBoolean()
                             |> Option.defaultValue false
-                          ImageData = None
+                          ImageData = getOptionalBytes "imageData" item
                           ImageMediaType = getOptionalString "imageMediaType" item }
                 )
             | "thinking" ->
