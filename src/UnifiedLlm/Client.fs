@@ -27,6 +27,11 @@ type Client(?config: ClientConfig) =
             { request with
                 AdapterTimeout = effectiveTimeout }
 
+    let tryRegisteredAdapter providerId =
+        match adapters.TryGetValue(providerId) with
+        | true, registered -> Some registered.Adapter
+        | false, _ -> None
+
     /// Register a provider adapter
     member _.RegisterAdapter(adapter: IProviderAdapter, ?timeout: AdapterTimeout) =
         Async.RunSynchronously(adapter.Initialize())
@@ -64,6 +69,113 @@ type Client(?config: ClientConfig) =
         match adapters.TryGetValue(providerId) with
         | true, registered -> registered.Adapter, registered.Timeout
         | false, _ -> raise (ConfigurationError(sprintf "Provider '%s' is not registered" providerId))
+
+    member private _.ResolveEmbeddingAdapter(request: EmbeddingRequest) : IEmbeddingAdapter * AdapterTimeout option =
+        let providerId =
+            request.Provider
+            |> Option.orElseWith (fun () -> ModelCatalog.resolveModel request.Model |> Option.map _.Provider)
+            |> Option.orElse defaultProvider
+            |> Option.defaultWith (fun () ->
+                raise (ConfigurationError("No embedding provider specified and no default provider is set")))
+
+        match adapters.TryGetValue(providerId) with
+        | false, _ -> raise (ConfigurationError(sprintf "Provider '%s' is not registered" providerId))
+        | true, registered ->
+            match registered.Adapter with
+            | :? IEmbeddingAdapter as adapter -> adapter, registered.Timeout
+            | _ -> raise (ConfigurationError(sprintf "Provider '%s' does not support embeddings" providerId))
+
+    /// Test whether a registered provider exposes normalized embeddings.
+    member _.SupportsEmbeddings(providerId: string) =
+        tryRegisteredAdapter providerId
+        |> Option.exists (fun adapter -> adapter :? IEmbeddingAdapter)
+
+    /// Test whether a registered provider exposes response-ID tool continuation.
+    member _.SupportsToolContinuation(providerId: string) =
+        tryRegisteredAdapter providerId
+        |> Option.exists (fun adapter -> adapter :? IToolContinuationAdapter)
+
+    /// Create embeddings through a provider that implements the optional capability.
+    member this.Embed(request: EmbeddingRequest) : EmbeddingResponse =
+        if
+            request.Inputs.IsEmpty
+            || request.Inputs |> List.exists System.String.IsNullOrWhiteSpace
+        then
+            raise (ConfigurationError("Embedding request inputs must contain non-empty text"))
+
+        match request.Dimensions with
+        | Some dimensions when dimensions <= 0 ->
+            raise (ConfigurationError("Embedding dimensions must be greater than zero"))
+        | _ -> ()
+
+        let adapter, adapterTimeout = this.ResolveEmbeddingAdapter(request)
+
+        let effectiveRequest =
+            if request.Timeout.IsSome then
+                request
+            else
+                let timeout = adapterTimeout |> Option.orElse config.Timeout
+
+                { request with
+                    Timeout =
+                        timeout
+                        |> Option.bind _.RequestMs
+                        |> Option.filter (fun milliseconds -> milliseconds > 0)
+                        |> Option.map (fun milliseconds -> System.TimeSpan.FromMilliseconds(float milliseconds)) }
+
+        adapter.Embed(effectiveRequest)
+
+    /// Continue a stored provider response using tool outputs only.
+    member this.ContinueToolOutputs(request: ToolContinuationRequest) : Response =
+        if System.String.IsNullOrWhiteSpace(request.PreviousResponseId) then
+            raise (ConfigurationError("A previous response ID is required for tool continuation"))
+
+        if request.ToolResults.IsEmpty then
+            raise (ConfigurationError("At least one tool result is required for tool continuation"))
+
+        let handler (ordinaryRequest: Request) =
+            let adapter, timeout = this.ResolveAdapter(ordinaryRequest)
+
+            let effectiveRequest =
+                { request with
+                    Request = applyAdapterTimeout ordinaryRequest timeout }
+
+            match adapter with
+            | :? IToolContinuationAdapter as continuation -> continuation.ContinueToolOutputs(effectiveRequest)
+            | _ ->
+                raise (
+                    ConfigurationError(
+                        sprintf "Provider '%s' does not support response-ID tool continuation" adapter.ProviderId
+                    )
+                )
+
+        middlewareChain.Execute(ToolContinuation.toRequest request, handler)
+
+    /// Stream a stored provider response continuation using tool outputs only.
+    member this.StreamToolOutputs(request: ToolContinuationRequest) : StreamEvent seq =
+        if System.String.IsNullOrWhiteSpace(request.PreviousResponseId) then
+            raise (ConfigurationError("A previous response ID is required for tool continuation"))
+
+        if request.ToolResults.IsEmpty then
+            raise (ConfigurationError("At least one tool result is required for tool continuation"))
+
+        let handler (ordinaryRequest: Request) =
+            let adapter, timeout = this.ResolveAdapter(ordinaryRequest)
+
+            let effectiveRequest =
+                { request with
+                    Request = applyAdapterTimeout ordinaryRequest timeout }
+
+            match adapter with
+            | :? IToolContinuationAdapter as continuation -> continuation.StreamToolOutputs(effectiveRequest)
+            | _ ->
+                raise (
+                    ConfigurationError(
+                        sprintf "Provider '%s' does not support response-ID tool continuation" adapter.ProviderId
+                    )
+                )
+
+        middlewareChain.ExecuteStream(ToolContinuation.toRequest request, handler)
 
     /// Send a blocking request through middleware chain to the provider
     member this.Complete(request: Request) : Response =

@@ -20,6 +20,26 @@ type IProviderAdapter =
     /// Send a request and return a sequence of stream events
     abstract member Stream: request: Request -> StreamEvent seq
 
+/// Optional capability implemented only by providers with a normalized embeddings API.
+type IEmbeddingAdapter =
+    abstract member Embed: request: EmbeddingRequest -> EmbeddingResponse
+
+/// Optional capability implemented by providers that can continue a stored response with tool outputs.
+type IToolContinuationAdapter =
+    abstract member ContinueToolOutputs: request: ToolContinuationRequest -> Response
+    abstract member StreamToolOutputs: request: ToolContinuationRequest -> StreamEvent seq
+
+module ToolContinuation =
+
+    /// Convert a continuation into the minimal ordinary request shape used by response-ID providers.
+    let toRequest (continuation: ToolContinuationRequest) =
+        { continuation.Request with
+            Messages =
+                continuation.ToolResults
+                |> List.map (fun result -> Message.ToolResult(result.ToolCallId, result.Content, result.IsError))
+            Prompt = None
+            PreviousResponseId = Some continuation.PreviousResponseId }
+
 /// Role translation helpers per provider
 module RoleTranslation =
 
