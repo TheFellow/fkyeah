@@ -395,6 +395,20 @@ module private HttpAdapterHelpers =
             [ "x-ratelimit-remaining-requests"; "x-ratelimit-remaining" ]
             [ "x-ratelimit-reset-requests"; "x-ratelimit-reset" ]
 
+    let usageDelta (previous: Usage) (current: Usage) =
+        let optionalDelta previousValue currentValue =
+            match previousValue, currentValue with
+            | _, None -> None
+            | previous, Some current -> Some(max 0 (current - (previous |> Option.defaultValue 0)))
+
+        { Delta =
+            { InputTokens = max 0 (current.InputTokens - previous.InputTokens)
+              OutputTokens = max 0 (current.OutputTokens - previous.OutputTokens)
+              ReasoningTokens = optionalDelta previous.ReasoningTokens current.ReasoningTokens
+              CacheReadTokens = optionalDelta previous.CacheReadTokens current.CacheReadTokens
+              CacheWriteTokens = optionalDelta previous.CacheWriteTokens current.CacheWriteTokens }
+          Total = Some current }
+
     let parseOpenRouterRateLimit (httpResp: HttpResponseMessage) =
         parseRateLimit
             httpResp
@@ -606,6 +620,7 @@ module private HttpAdapterHelpers =
         let warnings = ResizeArray<string>()
 
         let mutable hasToolCalls = false
+        let mutable hasRefusal = false
 
         let addMessageContent (item: JsonElement) =
             match tryGetProperty "content" item with
@@ -623,6 +638,10 @@ module private HttpAdapterHelpers =
                                   Signature = None
                                   Redacted = false }
                         )
+                    | Some "refusal" ->
+                        hasRefusal <- true
+                        let refusal = tryGetString "refusal" part |> Option.defaultValue ""
+                        warnings.Add("Model refusal: " + refusal)
                     | Some other -> warnings.Add(sprintf "Unknown OpenAI message part type: %s" other)
                     | None -> ()
             | None -> ()
@@ -713,7 +732,11 @@ module private HttpAdapterHelpers =
         let incompleteReason =
             tryGetProperty "incomplete_details" root |> Option.bind (tryGetString "reason")
 
-        let finishReason = mapOpenAIFinishReason status incompleteReason hasToolCalls
+        let finishReason =
+            if hasRefusal then
+                ContentFilter "refusal"
+            else
+                mapOpenAIFinishReason status incompleteReason hasToolCalls
 
         { Id =
             tryGetString "id" root
@@ -834,16 +857,21 @@ module private HttpAdapterHelpers =
           RateLimit = parseGeminiRateLimit httpResp }
 
 /// Real Anthropic Messages API adapter
-type AnthropicAdapter(apiKey: string) =
+type AnthropicAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string) =
     // 10-minute transport cap on the initial POST. The SSE loop has its own
     // idle timeout; this guards against stalled connects or headers.
-    let client = new HttpClient(Timeout = TimeSpan.FromMinutes(10.0))
+    let client =
+        httpClient
+        |> Option.defaultWith (fun () -> new HttpClient(Timeout = TimeSpan.FromMinutes(10.0)))
 
     let baseUrl =
-        match Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") with
-        | null
-        | "" -> "https://api.anthropic.com/v1/messages"
-        | value -> value
+        apiBaseUrl
+        |> Option.orElseWith (fun () ->
+            match Environment.GetEnvironmentVariable("ANTHROPIC_BASE_URL") with
+            | null
+            | "" -> None
+            | value -> Some value)
+        |> Option.defaultValue "https://api.anthropic.com/v1/messages"
 
     let tryGetAnthropicOptions (request: Request) =
         request.ProviderOptions
@@ -1220,13 +1248,30 @@ type AnthropicAdapter(apiKey: string) =
 
                                 match HttpAdapterHelpers.tryGetProperty "usage" msg with
                                 | Some u ->
-                                    usage <-
+                                    let currentUsage: Usage =
                                         { usage with
                                             InputTokens =
                                                 HttpAdapterHelpers.tryGetProperty "input_tokens" u
                                                 |> Option.map (fun v -> v.GetInt32())
-                                                |> Option.defaultValue usage.InputTokens }
+                                                |> Option.defaultValue usage.InputTokens
+                                            CacheReadTokens =
+                                                HttpAdapterHelpers.tryGetProperty "cache_read_input_tokens" u
+                                                |> Option.map (fun v -> v.GetInt32())
+                                            CacheWriteTokens =
+                                                HttpAdapterHelpers.tryGetProperty "cache_creation_input_tokens" u
+                                                |> Option.map (fun v -> v.GetInt32()) }
+
+                                    yield UsageDelta(HttpAdapterHelpers.usageDelta usage currentUsage)
+                                    usage <- currentUsage
                                 | None -> ()
+
+                                yield
+                                    ResponseCreated
+                                        { Id = Some responseId
+                                          Model = Some responseModel
+                                          Provider = "anthropic"
+                                          Status = "in_progress"
+                                          Raw = Some data }
                             | None -> ()
                         | "content_block_start" ->
                             let doc = JsonDocument.Parse(data)
@@ -1368,7 +1413,7 @@ type AnthropicAdapter(apiKey: string) =
 
                             match HttpAdapterHelpers.tryGetProperty "usage" root with
                             | Some u ->
-                                usage <-
+                                let currentUsage: Usage =
                                     { usage with
                                         OutputTokens =
                                             HttpAdapterHelpers.tryGetProperty "output_tokens" u
@@ -1380,6 +1425,9 @@ type AnthropicAdapter(apiKey: string) =
                                         CacheWriteTokens =
                                             HttpAdapterHelpers.tryGetProperty "cache_creation_input_tokens" u
                                             |> Option.map (fun v -> v.GetInt32()) }
+
+                                yield UsageDelta(HttpAdapterHelpers.usageDelta usage currentUsage)
+                                usage <- currentUsage
                             | None -> ()
                         | "message_stop" ->
                             let message =
@@ -1413,6 +1461,20 @@ type AnthropicAdapter(apiKey: string) =
                                 HttpAdapterHelpers.tryGetProperty "error" root
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "message")
                                 |> Option.defaultValue data
+
+                            yield
+                                ResponseError
+                                    { Response =
+                                        { Id = Some responseId
+                                          Model = Some responseModel
+                                          Provider = "anthropic"
+                                          Status = "error"
+                                          Raw = Some data }
+                                      Code =
+                                        HttpAdapterHelpers.tryGetProperty "error" root
+                                        |> Option.bind (HttpAdapterHelpers.tryGetString "type")
+                                      Message = message
+                                      Retryable = None }
 
                             yield StreamError message
                         | _ -> yield ProviderEvent(eventName, data)
@@ -1699,6 +1761,9 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                 let customToolOrder = ResizeArray<string>()
                 let rawEvents = ResizeArray<string>()
                 let contentParts = ResizeArray<ContentPart>()
+                let refusalBuffer = StringBuilder()
+                let audioBuffer = new MemoryStream()
+                let transcriptBuffer = StringBuilder()
 
                 let mutable responseId: string option = None
                 let mutable responseModel = model
@@ -1725,6 +1790,16 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                             responseModel <-
                                 HttpAdapterHelpers.tryGetString "model" responseElement
                                 |> Option.defaultValue responseModel
+
+                            yield
+                                ResponseCreated
+                                    { Id = responseId
+                                      Model = Some responseModel
+                                      Provider = "openai"
+                                      Status =
+                                        HttpAdapterHelpers.tryGetString "status" responseElement
+                                        |> Option.defaultValue "in_progress"
+                                      Raw = Some data }
                         | "response.output_item.added" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
@@ -1866,6 +1941,90 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                 elif accumulated = "" then
                                     state.Args.Append(input) |> ignore
                                     yield CustomToolCallDelta(id, input)
+                        | "response.refusal.delta" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+                            let delta = HttpAdapterHelpers.tryGetString "delta" root |> Option.defaultValue ""
+
+                            if delta <> "" then
+                                refusalBuffer.Append(delta) |> ignore
+                                yield RefusalDelta(delta, false)
+                        | "response.refusal.done" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            let refusal =
+                                HttpAdapterHelpers.tryGetString "refusal" root
+                                |> Option.defaultValue (refusalBuffer.ToString())
+
+                            if refusalBuffer.Length = 0 && refusal <> "" then
+                                refusalBuffer.Append(refusal) |> ignore
+
+                            yield RefusalDelta(refusal, true)
+                        | "response.audio.delta" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+                            let encoded = HttpAdapterHelpers.tryGetString "delta" root |> Option.defaultValue ""
+
+                            if encoded <> "" then
+                                try
+                                    let bytes = Convert.FromBase64String(encoded)
+                                    audioBuffer.Write(bytes, 0, bytes.Length)
+
+                                    yield
+                                        AudioDelta
+                                            { Data = bytes
+                                              Transcript = None
+                                              Sequence =
+                                                HttpAdapterHelpers.tryGetProperty "sequence_number" root
+                                                |> Option.map (fun value -> value.GetInt32())
+                                              MediaType = None
+                                              Final = false }
+                                with :? FormatException as error ->
+                                    yield StreamError($"Invalid OpenAI audio delta: {error.Message}")
+                        | "response.audio.done" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            yield
+                                AudioDelta
+                                    { Data = Array.empty
+                                      Transcript = None
+                                      Sequence =
+                                        HttpAdapterHelpers.tryGetProperty "sequence_number" root
+                                        |> Option.map (fun value -> value.GetInt32())
+                                      MediaType = None
+                                      Final = true }
+                        | "response.audio.transcript.delta" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+                            let delta = HttpAdapterHelpers.tryGetString "delta" root |> Option.defaultValue ""
+
+                            if delta <> "" then
+                                transcriptBuffer.Append(delta) |> ignore
+
+                                yield
+                                    AudioDelta
+                                        { Data = Array.empty
+                                          Transcript = Some delta
+                                          Sequence =
+                                            HttpAdapterHelpers.tryGetProperty "sequence_number" root
+                                            |> Option.map (fun value -> value.GetInt32())
+                                          MediaType = None
+                                          Final = false }
+                        | "response.audio.transcript.done" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            yield
+                                AudioDelta
+                                    { Data = Array.empty
+                                      Transcript = Some(transcriptBuffer.ToString())
+                                      Sequence =
+                                        HttpAdapterHelpers.tryGetProperty "sequence_number" root
+                                        |> Option.map (fun value -> value.GetInt32())
+                                      MediaType = None
+                                      Final = true }
                         | "response.output_item.done" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
@@ -1919,6 +2078,14 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                             if responseText <> "" then
                                 contentParts.Add(ContentPart.Text responseText)
 
+                            if audioBuffer.Length > 0L then
+                                contentParts.Add(
+                                    ContentPart.Audio
+                                        { Url = None
+                                          Data = Some(audioBuffer.ToArray())
+                                          MediaType = None }
+                                )
+
                             for id in toolOrder do
                                 if toolStates.ContainsKey(id) then
                                     let state = toolStates[id]
@@ -1955,9 +2122,12 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                             finishReason <-
                                 HttpAdapterHelpers.mapOpenAIFinishReason status incompleteReason hasToolCalls
 
+                            if refusalBuffer.Length > 0 then
+                                finishReason <- ContentFilter "refusal"
+
                             match HttpAdapterHelpers.tryGetProperty "usage" responseElement with
                             | Some u ->
-                                usage <-
+                                let currentUsage: Usage =
                                     { InputTokens =
                                         HttpAdapterHelpers.tryGetProperty "input_tokens" u
                                         |> Option.map (fun v -> v.GetInt32())
@@ -1975,6 +2145,9 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                         |> Option.bind (HttpAdapterHelpers.tryGetProperty "cached_tokens")
                                         |> Option.map (fun v -> v.GetInt32())
                                       CacheWriteTokens = None }
+
+                                yield UsageDelta(HttpAdapterHelpers.usageDelta usage currentUsage)
+                                usage <- currentUsage
                             | None -> ()
 
                             if textStarted then
@@ -1999,21 +2172,93 @@ type OpenAIAdapter(apiKey: string, ?httpClient: HttpClient, ?responsesBaseUrl: s
                                   Usage = usage
                                   ResponseId = responseId
                                   Raw = Some(HttpAdapterHelpers.toRawElement (String.concat "\n" rawEvents))
-                                  Warnings = []
+                                  Warnings =
+                                    [ if refusalBuffer.Length > 0 then
+                                          yield "Model refusal: " + refusalBuffer.ToString()
+                                      if transcriptBuffer.Length > 0 then
+                                          yield "Audio transcript: " + transcriptBuffer.ToString() ]
                                   RateLimit = HttpAdapterHelpers.parseOpenAIRateLimit httpResp }
 
                             yield Finish(finishReason, Some usage, Some response)
+                        | "response.requires_action" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            let responseElement =
+                                HttpAdapterHelpers.tryGetProperty "response" root |> Option.defaultValue root
+
+                            yield
+                                ResponseRequiresAction
+                                    { Response =
+                                        { Id =
+                                            HttpAdapterHelpers.tryGetString "id" responseElement
+                                            |> Option.orElse responseId
+                                          Model =
+                                            HttpAdapterHelpers.tryGetString "model" responseElement
+                                            |> Option.orElse (Some responseModel)
+                                          Provider = "openai"
+                                          Status = "requires_action"
+                                          Raw = Some data }
+                                      Action =
+                                        HttpAdapterHelpers.tryGetProperty "required_action" responseElement
+                                        |> Option.bind (HttpAdapterHelpers.tryGetString "type") }
                         | "response.failed" ->
                             let doc = JsonDocument.Parse(data)
                             let root = doc.RootElement
 
+                            let responseElement =
+                                HttpAdapterHelpers.tryGetProperty "response" root |> Option.defaultValue root
+
                             let message =
-                                HttpAdapterHelpers.tryGetProperty "error" root
+                                HttpAdapterHelpers.tryGetProperty "error" responseElement
+                                |> Option.orElseWith (fun () -> HttpAdapterHelpers.tryGetProperty "error" root)
                                 |> Option.bind (HttpAdapterHelpers.tryGetString "message")
                                 |> Option.defaultValue "OpenAI stream failed"
 
+                            let errorElement =
+                                HttpAdapterHelpers.tryGetProperty "error" responseElement
+                                |> Option.orElseWith (fun () -> HttpAdapterHelpers.tryGetProperty "error" root)
+
+                            yield
+                                ResponseError
+                                    { Response =
+                                        { Id =
+                                            HttpAdapterHelpers.tryGetString "id" responseElement
+                                            |> Option.orElse responseId
+                                          Model =
+                                            HttpAdapterHelpers.tryGetString "model" responseElement
+                                            |> Option.orElse (Some responseModel)
+                                          Provider = "openai"
+                                          Status =
+                                            HttpAdapterHelpers.tryGetString "status" responseElement
+                                            |> Option.defaultValue "failed"
+                                          Raw = Some data }
+                                      Code = errorElement |> Option.bind (HttpAdapterHelpers.tryGetString "code")
+                                      Message = message
+                                      Retryable = None }
+
                             yield StreamError message
                             yield Finish(Error "response.failed", None, None)
+                        | "error" ->
+                            let doc = JsonDocument.Parse(data)
+                            let root = doc.RootElement
+
+                            let message =
+                                HttpAdapterHelpers.tryGetString "message" root |> Option.defaultValue data
+
+                            yield
+                                ResponseError
+                                    { Response =
+                                        { Id = responseId
+                                          Model = Some responseModel
+                                          Provider = "openai"
+                                          Status = "error"
+                                          Raw = Some data }
+                                      Code = HttpAdapterHelpers.tryGetString "code" root
+                                      Message = message
+                                      Retryable = None }
+
+                            yield StreamError message
                         | _ -> yield ProviderEvent(eventName, data)
             }
 
@@ -2493,7 +2738,7 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
 
                         match HttpAdapterHelpers.tryGetProperty "usageMetadata" root with
                         | Some u ->
-                            usage <-
+                            let currentUsage: Usage =
                                 { InputTokens =
                                     HttpAdapterHelpers.tryGetProperty "promptTokenCount" u
                                     |> Option.map (fun v -> v.GetInt32())
@@ -2509,6 +2754,9 @@ type GeminiAdapter(apiKey: string, ?httpClient: HttpClient, ?apiBaseUrl: string)
                                     HttpAdapterHelpers.tryGetProperty "cachedContentTokenCount" u
                                     |> Option.map (fun v -> v.GetInt32())
                                   CacheWriteTokens = usage.CacheWriteTokens }
+
+                            yield UsageDelta(HttpAdapterHelpers.usageDelta usage currentUsage)
+                            usage <- currentUsage
                         | None -> ()
 
                 if textStarted then
@@ -2917,6 +3165,7 @@ type OpenRouterAdapter
             |> Option.defaultWith (fun () -> JsonDocument.Parse("{}").RootElement)
 
         let content = ResizeArray<ContentPart>()
+        let refusal = HttpAdapterHelpers.tryGetString "refusal" message
 
         match HttpAdapterHelpers.tryGetProperty "content" message with
         | Some value when value.ValueKind = JsonValueKind.String -> content.Add(ContentPart.Text(value.GetString()))
@@ -2963,11 +3212,18 @@ type OpenRouterAdapter
                     content |> Seq.toList
               Name = None
               ToolCallId = None }
-          FinishReason = parseFinishReason rawFinish
+          FinishReason =
+            if refusal |> Option.exists (String.IsNullOrWhiteSpace >> not) then
+                ContentFilter "refusal"
+            else
+                parseFinishReason rawFinish
           Usage = parseUsage root
           ResponseId = HttpAdapterHelpers.tryGetString "id" root
           Raw = Some(root.Clone())
-          Warnings = []
+          Warnings =
+            refusal
+            |> Option.map (fun text -> [ "Model refusal: " + text ])
+            |> Option.defaultValue []
           RateLimit = HttpAdapterHelpers.parseOpenRouterRateLimit response }
 
     interface IProviderAdapter with
@@ -3014,6 +3270,7 @@ type OpenRouterAdapter
                 use reader = new StreamReader(stream)
                 let text = StringBuilder()
                 let reasoning = StringBuilder()
+                let refusal = StringBuilder()
                 let toolStates = Dictionary<int, HttpAdapterHelpers.ToolBlockState>()
                 let toolOrder = ResizeArray<int>()
                 let rawEvents = ResizeArray<string>()
@@ -3037,6 +3294,19 @@ type OpenRouterAdapter
                                 HttpAdapterHelpers.tryGetString "message" error
                                 |> Option.defaultValue "OpenRouter stream error"
 
+                            yield
+                                ResponseError
+                                    { Response =
+                                        { Id = if responseId = "" then None else Some responseId
+                                          Model = Some responseModel
+                                          Provider = "openrouter"
+                                          Status = "error"
+                                          Raw = Some data }
+                                      Code = HttpAdapterHelpers.tryGetString "code" error
+                                      Message = message
+                                      Retryable = None }
+
+                            yield StreamError message
                             raise (ProviderError(message, None, false))
                         | None -> ()
 
@@ -3047,7 +3317,9 @@ type OpenRouterAdapter
                             |> Option.defaultValue responseModel
 
                         if (HttpAdapterHelpers.tryGetProperty "usage" root).IsSome then
-                            usage <- parseUsage root
+                            let currentUsage = parseUsage root
+                            yield UsageDelta(HttpAdapterHelpers.usageDelta usage currentUsage)
+                            usage <- currentUsage
 
                         match HttpAdapterHelpers.tryGetProperty "choices" root with
                         | Some choices when choices.ValueKind = JsonValueKind.Array ->
@@ -3062,6 +3334,12 @@ type OpenRouterAdapter
 
                                         text.Append(value) |> ignore
                                         yield TextDelta(Some "text-0", value)
+                                    | _ -> ()
+
+                                    match HttpAdapterHelpers.tryGetString "refusal" delta with
+                                    | Some value when value <> "" ->
+                                        refusal.Append(value) |> ignore
+                                        yield RefusalDelta(value, false)
                                     | _ -> ()
 
                                     let reasoningDelta =
@@ -3147,7 +3425,12 @@ type OpenRouterAdapter
                                 | None -> ()
 
                                 match HttpAdapterHelpers.tryGetString "finish_reason" choice with
-                                | Some raw when raw <> "" -> finishReason <- parseFinishReason raw
+                                | Some raw when raw <> "" ->
+                                    finishReason <-
+                                        if refusal.Length > 0 then
+                                            ContentFilter "refusal"
+                                        else
+                                            parseFinishReason raw
                                 | _ -> ()
                         | _ -> ()
 
@@ -3156,6 +3439,9 @@ type OpenRouterAdapter
 
                 if reasoningStarted then
                     yield ReasoningEnd None
+
+                if refusal.Length > 0 then
+                    yield RefusalDelta(refusal.ToString(), true)
 
                 let toolCalls: ToolCallData list =
                     [ for index in toolOrder do
@@ -3199,7 +3485,9 @@ type OpenRouterAdapter
                       Usage = usage
                       ResponseId = if responseId = "" then None else Some responseId
                       Raw = Some(HttpAdapterHelpers.toRawElement (String.concat "\n" rawEvents))
-                      Warnings = []
+                      Warnings =
+                        [ if refusal.Length > 0 then
+                              yield "Model refusal: " + refusal.ToString() ]
                       RateLimit = HttpAdapterHelpers.parseOpenRouterRateLimit response }
 
                 yield Finish(finishReason, Some usage, Some normalized)
