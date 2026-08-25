@@ -1,7 +1,6 @@
 module AcpRuntimeTests
 
 open System
-open System.Diagnostics
 open System.IO
 open System.Text
 open System.Text.Json
@@ -304,16 +303,17 @@ module TransportTests =
             let left, right = Transport.createInMemoryPair ()
             left.Connect() |> Async.RunSynchronously |> ignore
             right.Connect() |> Async.RunSynchronously |> ignore
-            use cancellation = new CancellationTokenSource(150)
-            let stopwatch = Stopwatch.StartNew()
+            use cancellation = new CancellationTokenSource()
 
             let enumerator =
                 (right.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
 
             try
-                let! hasItem = enumerator.MoveNextAsync().AsTask()
+                let pending = enumerator.MoveNextAsync().AsTask()
+                Assert.False(pending.IsCompleted)
+                cancellation.Cancel()
+                let! hasItem = pending.WaitAsync(TimeSpan.FromSeconds(3.0))
                 Assert.False(hasItem)
-                Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(50.0), TimeSpan.FromSeconds(3.0))
             finally
                 enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
                 left.Disconnect() |> Async.RunSynchronously
@@ -326,16 +326,17 @@ module TransportTests =
         task {
             let transport = Transport.createStdioTransport "/bin/cat" [] None
             transport.Connect() |> Async.RunSynchronously |> ignore
-            use cancellation = new CancellationTokenSource(150)
-            let stopwatch = Stopwatch.StartNew()
+            use cancellation = new CancellationTokenSource()
 
             let enumerator =
                 (transport.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
 
             try
-                let! hasItem = enumerator.MoveNextAsync().AsTask()
+                let pending = enumerator.MoveNextAsync().AsTask()
+                Assert.False(pending.IsCompleted)
+                cancellation.Cancel()
+                let! hasItem = pending.WaitAsync(TimeSpan.FromSeconds(3.0))
                 Assert.False(hasItem)
-                Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(50.0), TimeSpan.FromSeconds(3.0))
             finally
                 enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
                 transport.Disconnect() |> Async.RunSynchronously
