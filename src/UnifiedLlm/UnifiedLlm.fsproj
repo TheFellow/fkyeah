@@ -12,6 +12,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="Errors.fs" />
     <Compile Include="Observability.fs" />
+    <Compile Include="ModelCatalogData.fs" />
     <Compile Include="ModelCatalog.fs" />
     <Compile Include="Validation.fs" />
     <Compile Include="Costing.fs" />
