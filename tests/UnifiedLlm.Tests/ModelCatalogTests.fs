@@ -72,3 +72,36 @@ module ModelCatalogSprint007 =
     [<Fact>]
     let ``findModel returns None for unknown providers`` () =
         Assert.Equal(None, ModelCatalog.findModel "nonexistent" CapabilityRequirement.none)
+
+    [<Fact>]
+    let ``every catalog model has standard text pricing compatible with ModelInfo`` () =
+        for model in ModelCatalog.listModels () do
+            let pricing =
+                ModelCatalog.getPricing model.Id
+                |> Option.defaultWith (fun () -> failwithf "missing pricing for %s" model.Id)
+
+            let standard = pricing.Tiers[PricingTier.Standard]
+            let text = standard.Modalities[PricingModality.Text]
+
+            Assert.Equal(Some(decimal model.InputCostPerMillion), text.InputPerMillion)
+            Assert.Equal(Some(decimal model.OutputCostPerMillion), text.OutputPerMillion)
+
+    [<Fact>]
+    let ``resolvePricing accepts aliases without duplicating catalog entries`` () =
+        let exact = ModelCatalog.resolvePricing "gpt-5.6-sol"
+        let alias = ModelCatalog.resolvePricing "gpt-latest"
+
+        Assert.Equal(exact, alias)
+
+    [<Fact>]
+    let ``catalog exposes batch and cache pricing without changing capability metadata`` () =
+        let pricing = ModelCatalog.getPricing "claude-opus-4-6" |> Option.get
+        let standard = pricing.Tiers[PricingTier.Standard].Modalities[PricingModality.Text]
+        let batch = pricing.Tiers[PricingTier.Batch].Modalities[PricingModality.Text]
+
+        Assert.Equal(InputTokenAccounting.ExcludesCacheReads, pricing.InputTokenAccounting)
+        Assert.Equal(Some 0.5m, standard.CacheReadPerMillion)
+        Assert.Equal(Some 6.25m, standard.CacheWriteFiveMinutesPerMillion)
+        Assert.Equal(Some 10m, standard.CacheWriteOneHourPerMillion)
+        Assert.Equal(Some 2.5m, batch.InputPerMillion)
+        Assert.Equal(Some 12.5m, batch.OutputPerMillion)
