@@ -20,6 +20,8 @@ Built from three [NLSpecs](https://github.com/strongdm/attractor#terminology):
 export ANTHROPIC_API_KEY=sk-ant-...
 export OPENAI_API_KEY=sk-...
 export GEMINI_API_KEY=AI...
+# OpenRouter model IDs use vendor/model plus llm_provider="openrouter"
+export OPENROUTER_API_KEY=sk-or-...
 
 # Learn the DOT schema
 attractor schema
@@ -335,7 +337,7 @@ Six F# libraries targeting .NET 10.0:
 
 ```
 src/Attractor/          16 modules — pipeline engine, DOT parser, handlers, validation
-src/UnifiedLlm/         16 modules — multi-provider LLM client (Anthropic, OpenAI, Gemini)
+src/UnifiedLlm/         16 modules — multi-provider LLM client (Anthropic, OpenAI, Gemini, OpenRouter)
 src/CodingAgent/        10 modules — agentic loop, tool execution, provider profiles
 src/AcpRuntime/          6 modules — Agent Client Protocol (stdio/WebSocket/HTTP+SSE)
 src/McpClient/           5 modules — Model Context Protocol client

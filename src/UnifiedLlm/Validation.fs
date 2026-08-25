@@ -135,8 +135,25 @@ module RequestValidator =
                     issues.Add issue
 
                 match ModelCatalog.resolveModel request.Model with
+                | None when
+                    request.Provider
+                    |> Option.exists (fun provider ->
+                        String.Equals(provider, "openrouter", StringComparison.OrdinalIgnoreCase))
+                    ->
+                    if not request.CustomTools.IsEmpty then
+                        issues.Add(ValidationIssue.UnsupportedCapability(request.Model, "custom tools"))
+
+                    if request.CodeExecutionEnabled then
+                        issues.Add(ValidationIssue.UnsupportedCapability(request.Model, "code execution"))
+
+                    match request.Temperature with
+                    | Some value when value < 0.0 || value > 2.0 ->
+                        issues.Add(ValidationIssue.InvalidTemperature(request.Model, value))
+                    | _ -> ()
                 | None -> issues.Add(ValidationIssue.UnknownModel request.Model)
                 | Some model ->
+                    let effectiveProvider = request.Provider |> Option.defaultValue model.Provider
+
                     let requestsTools =
                         (request.Tools |> Option.exists (not << List.isEmpty))
                         || not request.CustomTools.IsEmpty
@@ -146,10 +163,16 @@ module RequestValidator =
                     | true, false -> issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "tools"))
                     | _ -> ()
 
-                    if not request.CustomTools.IsEmpty && model.Provider <> "openai" then
+                    if
+                        not request.CustomTools.IsEmpty
+                        && not (String.Equals(effectiveProvider, "openai", StringComparison.OrdinalIgnoreCase))
+                    then
                         issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "custom tools"))
 
-                    if request.CodeExecutionEnabled && model.Provider <> "gemini" then
+                    if
+                        request.CodeExecutionEnabled
+                        && not (String.Equals(effectiveProvider, "gemini", StringComparison.OrdinalIgnoreCase))
+                    then
                         issues.Add(ValidationIssue.UnsupportedCapability(model.Id, "code execution"))
 
                     let hasVision = request.Messages |> List.exists hasImageContent
