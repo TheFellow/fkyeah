@@ -2882,6 +2882,8 @@ module Sprint004Coverage =
             let gate = obj ()
             let mutable active = 0
             let mutable maxActive = 0
+            let mutable started = 0
+            use overlapConfirmed = new System.Threading.ManualResetEventSlim(false)
 
             session.RegisterTool(
                 { Definition = profile.ToolDefinitions.Head
@@ -2892,14 +2894,21 @@ module Sprint004Coverage =
                             active <- active + 1
                             maxActive <- max maxActive active)
 
-                        System.Threading.Thread.Sleep(500)
-                        lock gate (fun () -> active <- active - 1)
-                        args }
+                        let ordinal = System.Threading.Interlocked.Increment(&started)
+
+                        if ordinal = 2 then
+                            overlapConfirmed.Set()
+
+                        try
+                            if not (overlapConfirmed.Wait(TimeSpan.FromSeconds(3.0))) then
+                                failwith "Parallel tool calls did not overlap before the safety timeout"
+
+                            args
+                        finally
+                            lock gate (fun () -> active <- active - 1) }
             )
 
-            let sw = Diagnostics.Stopwatch.StartNew()
             session.ProcessInput("run slow tools")
-            sw.Stop()
 
             let resultIds =
                 session.History
