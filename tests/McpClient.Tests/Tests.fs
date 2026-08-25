@@ -195,11 +195,11 @@ module McpClientTransportAndServerTests =
     [<Fact>]
     let ``stdio receive honors enumerator cancellation while waiting for output`` () =
         task {
-            let transport =
-                Transport.createStdioTransport "/bin/sh" [ "-c"; "sleep 30" ] Map.empty
+            let transport = Transport.createStdioTransport "/bin/cat" [] Map.empty
 
             transport.Connect() |> Async.RunSynchronously |> resultOrFail |> ignore
             use cancellation = new CancellationTokenSource(150)
+            let stopwatch = Stopwatch.StartNew()
 
             let enumerator =
                 (transport.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
@@ -207,6 +207,7 @@ module McpClientTransportAndServerTests =
             try
                 let! hasItem = enumerator.MoveNextAsync().AsTask()
                 Assert.False(hasItem)
+                Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(50.0), TimeSpan.FromSeconds(3.0))
             finally
                 enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
                 transport.Disconnect() |> Async.RunSynchronously
