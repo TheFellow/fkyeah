@@ -1,6 +1,7 @@
 module AcpRuntimeTests
 
 open System
+open System.Diagnostics
 open System.IO
 open System.Text
 open System.Text.Json
@@ -296,6 +297,50 @@ module TransportTests =
 
         left.Disconnect() |> Async.RunSynchronously
         right.Disconnect() |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``in-memory receive honors enumerator cancellation while queue is empty`` () =
+        task {
+            let left, right = Transport.createInMemoryPair ()
+            left.Connect() |> Async.RunSynchronously |> ignore
+            right.Connect() |> Async.RunSynchronously |> ignore
+            use cancellation = new CancellationTokenSource(150)
+            let stopwatch = Stopwatch.StartNew()
+
+            let enumerator =
+                (right.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
+
+            try
+                let! hasItem = enumerator.MoveNextAsync().AsTask()
+                Assert.False(hasItem)
+                Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(50.0), TimeSpan.FromSeconds(3.0))
+            finally
+                enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
+                left.Disconnect() |> Async.RunSynchronously
+                right.Disconnect() |> Async.RunSynchronously
+        }
+        :> Task
+
+    [<Fact>]
+    let ``stdio receive cancellation returns promptly while process is silent`` () =
+        task {
+            let transport = Transport.createStdioTransport "/bin/cat" [] None
+            transport.Connect() |> Async.RunSynchronously |> ignore
+            use cancellation = new CancellationTokenSource(150)
+            let stopwatch = Stopwatch.StartNew()
+
+            let enumerator =
+                (transport.Receive CancellationToken.None).GetAsyncEnumerator(cancellation.Token)
+
+            try
+                let! hasItem = enumerator.MoveNextAsync().AsTask()
+                Assert.False(hasItem)
+                Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(50.0), TimeSpan.FromSeconds(3.0))
+            finally
+                enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
+                transport.Disconnect() |> Async.RunSynchronously
+        }
+        :> Task
 
     [<Fact>]
     let ``in-memory transport bidirectional communication`` () =
