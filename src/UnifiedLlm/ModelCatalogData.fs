@@ -309,7 +309,7 @@ module internal ModelCatalogData =
             MaxOutput = 128000
             InputCostPerMillion = 5.0
             OutputCostPerMillion = 30.0
-            Aliases = [ "gpt-5.6"; "gpt-latest" ]
+            Aliases = [ "gpt-5.6" ]
             SupportsStreaming = true
             SupportsTools = true
             SupportsReasoning = true
@@ -334,6 +334,19 @@ module internal ModelCatalogData =
             InputCostPerMillion = 1.0
             OutputCostPerMillion = 6.0
             Aliases = [ "gpt-5.6-luna" ]
+            SupportsStreaming = true
+            SupportsTools = true
+            SupportsReasoning = true
+            SupportsVision = true }
+          // https://developers.openai.com/api/docs/models/gpt-6-astra
+          { Id = "gpt-6-astra"
+            Provider = "openai"
+            DisplayName = "GPT-6 Astra"
+            ContextWindow = 1050000
+            MaxOutput = 128000
+            InputCostPerMillion = 10.0
+            OutputCostPerMillion = 50.0
+            Aliases = [ "gpt-6"; "gpt-latest" ]
             SupportsStreaming = true
             SupportsTools = true
             SupportsReasoning = true
@@ -475,7 +488,7 @@ module internal ModelCatalogData =
     let latestByProvider =
         Map.ofList
             [ "anthropic", "claude-opus-4-8"
-              "openai", "gpt-5.6-sol"
+              "openai", "gpt-6-astra"
               "gemini", "gemini-3.1-pro-preview" ]
 
     let private textPricing (model: ModelInfo) cachedInput cacheRead cacheWriteFiveMinutes cacheWriteOneHour =
@@ -515,7 +528,7 @@ module internal ModelCatalogData =
             | _ -> InputTokenAccounting.IncludesCacheReads, textPricing model (Some(input * 0.1m)) None None None
 
         let longContextOverrides =
-            if model.Id = "gpt-5.4" then
+            if model.Id = "gpt-5.4" || model.Id = "gpt-6-astra" then
                 let longContext =
                     { standard with
                         InputPerMillion = standard.InputPerMillion |> Option.map ((*) 2m)
@@ -529,13 +542,22 @@ module internal ModelCatalogData =
             else
                 []
 
+        let batchOverrides =
+            if model.Id = "gpt-6-astra" then
+                longContextOverrides
+                |> List.map (fun pricingOverride ->
+                    { pricingOverride with
+                        Modalities = pricingOverride.Modalities |> Map.map (fun _ pricing -> discounted 0.5m pricing) })
+            else
+                []
+
         { Currency = "USD"
           Unit = "per_1m_tokens"
           InputTokenAccounting = accounting
           Tiers =
             Map.ofList
                 [ PricingTier.Standard, tier standard longContextOverrides []
-                  PricingTier.Batch, tier (discounted 0.5m standard) [] [ "Asynchronous batch pricing" ] ] }
+                  PricingTier.Batch, tier (discounted 0.5m standard) batchOverrides [ "Asynchronous batch pricing" ] ] }
 
     let pricingByModel: Map<string, ModelPricing> =
         models |> List.map (fun model -> model.Id, defaultPricing model) |> Map.ofList
