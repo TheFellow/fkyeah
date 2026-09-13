@@ -233,6 +233,33 @@ let ``unsupported tier or modality returns None`` () =
     Assert.True(Costing.tryEstimateCostById "gpt-5.4" fast |> Option.isNone)
     Assert.True(Costing.tryEstimateCostById "gpt-5.4" audio |> Option.isNone)
 
+[<Theory>]
+[<InlineData(272000, false, 2710000L, 1000L, 50000L)>]
+[<InlineData(272001, false, 5420020L, 2000L, 75000L)>]
+[<InlineData(272000, true, 1355000L, 500L, 25000L)>]
+[<InlineData(272001, true, 2710010L, 1000L, 37500L)>]
+let ``GPT-6 Astra pricing applies cache discounts and long-context rates in standard and batch``
+    inputTokens
+    batch
+    expectedInput
+    expectedCachedInput
+    expectedOutput
+    =
+    let estimate =
+        { CostEstimate.Standard
+              { Usage.Zero with
+                  InputTokens = inputTokens
+                  CacheReadTokens = Some 1000
+                  OutputTokens = 1000 } with
+            Tier = if batch then PricingTier.Batch else PricingTier.Standard }
+
+    let cost = Costing.tryEstimateCostById "gpt-6-astra" estimate |> Option.get
+
+    Assert.Equal(expectedInput, cost.InputMicrodollars)
+    Assert.Equal(expectedCachedInput, cost.CachedInputMicrodollars)
+    Assert.Equal(expectedOutput, cost.OutputMicrodollars)
+    Assert.Equal(expectedInput + expectedCachedInput + expectedOutput, cost.TotalMicrodollars)
+
 [<Fact>]
 let ``legacy calculation includes provider cache accounting but local replay remains free`` () =
     let usage =

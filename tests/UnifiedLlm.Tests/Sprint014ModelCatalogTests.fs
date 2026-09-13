@@ -45,8 +45,8 @@ let ``resolveModel finds newly added models and aliases`` () =
     Assert.True(gpt56.Value.SupportsTools)
     Assert.True(gpt56.Value.SupportsReasoning)
     Assert.True(gpt56.Value.SupportsVision)
-    Assert.Equal(Some "gpt-5.6-sol", latestGpt |> Option.map _.Id)
-    Assert.Equal("gpt-5.6-sol", ModelCatalog.getLatestModel("openai").Value.Id)
+    Assert.Equal(Some "gpt-6-astra", latestGpt |> Option.map _.Id)
+    Assert.Equal("gpt-6-astra", ModelCatalog.getLatestModel("openai").Value.Id)
 
     Assert.True(gpt56Terra.IsSome)
     Assert.Equal(2.5, gpt56Terra.Value.InputCostPerMillion)
@@ -62,6 +62,34 @@ let ``resolveModel finds newly added models and aliases`` () =
 
     Assert.True(haiku.IsSome)
     Assert.True(geminiFlash.IsSome)
+
+[<Fact>]
+let ``resolveModel returns GPT-6 Astra catalog metadata and aliases`` () =
+    let astra = ModelCatalog.resolveModel "gpt-6-astra"
+
+    Assert.True(astra.IsSome)
+    Assert.Equal("gpt-6-astra", astra.Value.Id)
+    Assert.Equal("openai", astra.Value.Provider)
+    Assert.Equal("GPT-6 Astra", astra.Value.DisplayName)
+    Assert.Equal(1050000, astra.Value.ContextWindow)
+    Assert.Equal(128000, astra.Value.MaxOutput)
+    Assert.Equal(10.0, astra.Value.InputCostPerMillion)
+    Assert.Equal(50.0, astra.Value.OutputCostPerMillion)
+    Assert.True(astra.Value.SupportsStreaming)
+    Assert.True(astra.Value.SupportsTools)
+    Assert.True(astra.Value.SupportsReasoning)
+    Assert.True(astra.Value.SupportsVision)
+    Assert.Equal(astra, ModelCatalog.resolveModel "gpt-6")
+    Assert.Equal(astra, ModelCatalog.resolveModel "gpt-latest")
+    Assert.Equal(astra, ModelCatalog.getLatestModel "openai")
+
+    let required =
+        { RequiresStreaming = true
+          RequiresTools = true
+          RequiresReasoning = true
+          RequiresVision = true }
+
+    Assert.Equal(astra, ModelCatalog.findModel "openai" required)
 
 [<Fact>]
 let ``resolveModel returns full GPT-5.6 Terra and Luna catalog metadata`` () =
